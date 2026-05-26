@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct VoiceFlowApp: App {
+    @StateObject private var appState = AppState()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
+                .environmentObject(appState)
         }
     }
 }
