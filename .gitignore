@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+Secrets.plist
+*.p8
+*.pem
+*.key
+
+# Local artifacts
+logs/
+recordings/
+tmp/
+*.wav
+*.m4a
+*.caf
+
+# Test and cache artifacts
+.pytest_cache/
+__pycache__/
+*.pyc
+coverage/

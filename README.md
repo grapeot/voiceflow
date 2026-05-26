@@ -1,0 +1,24 @@
+# VoiceFlow
+
+VoiceFlow 是一个面向 iPhone、iPad 和 Apple Vision Pro 的语音输入工具。它把录音、转写、自动复制到剪贴板和历史回滚放在一个极简流程里。OpenCode 发送是可选配置，不影响基础语音输入体验。
+
+## 产品边界
+
+V0 只有两个 tab：Record 和 Settings。Record 负责开始录音、停止录音、查看当前转写、自动复制到剪贴板、在最近历史中回滚、手动复制文本。Settings 保存 AI Builder Space API token，并提供可选 OpenCode 配置；AI Builder Space endpoint 使用应用内默认值，不在 UI 中开放修改。
+
+应用按系统语言自动切换中文和英文。中文环境显示中文，其他环境默认英文。
+
+## 开发状态
+
+当前仓库处于文档与架构设计阶段。先确认 PRD 和 RFC，再创建 SwiftUI iOS/visionOS 工程骨架。
+
+## 隐私与凭据
+
+仓库只保留 fake 示例。真实 token、`.env`、本地日志、构建产物和录音文件都不能提交。开发时把真实 token 存到本机环境或 App Keychain；示例配置见 `.env.example`。
+
+## 文档
+
+- `docs/prd.md`：产品目标、用户流程和 V0 范围
+- `docs/rfc.md`：技术设计、API 鉴权、数据流和实现计划
+- `docs/test.md`：测试与验收策略
+- `docs/working.md`：变更记录和后续决策
