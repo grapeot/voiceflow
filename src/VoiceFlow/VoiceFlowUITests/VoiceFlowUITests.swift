@@ -23,12 +23,31 @@ final class VoiceFlowUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testEnglishAppShell() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Copy"].exists)
+        XCTAssertTrue(app.buttons["Send to OpenCode"].exists)
+
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["https://space.ai-builders.com/backend"].exists)
+    }
+
+    @MainActor
+    func testChineseAppShell() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_Hans_US"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["复制"].exists)
+
+        app.tabBars.buttons["设置"].tap()
+        XCTAssertTrue(app.buttons["测试连接"].waitForExistence(timeout: 5))
     }
 
     @MainActor
