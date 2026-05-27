@@ -37,6 +37,15 @@
 - 单元测试 37 项；UI tests 在 `src/VoiceFlow/VoiceFlowUITests/`
 - 删除脚手架占位：根目录 `tests/`、各目录 `.gitkeep`；文档标明测试在 Xcode target
 
+### 2026-05-26（V1 实时流式转写）
+
+- 实现 WebSocket 实时转写 + 断线恢复（disk cache replay，对齐 OpenCode iOS `RealtimeSpeechStreamer` 模式）
+- 新增 `RealtimeTranscriptionClient`、`AudioChunkEncoder`、`AudioChunkCache`、`RealtimeWebSocketSender`
+- `AudioRecorder` 改为 AVAudioEngine 流式 PCM；Stop 仍写 WAV 供保存/重发
+- `AppState` 集成 live session、heartbeat、scene phase、stream 状态灯与 throttle 剪贴板
+- 重发录音改 bulk WebSocket（`transcribeBulkPCM`）
+- 单元测试 46 项（+8 RealtimeTranscriptionTests）；UI spec `testMockStreamingRecordingUpdatesTranscript` 已添加未执行
+
 ## Lessons Learned
 
 - 对外文档只写 VoiceFlow 产品状态，不写内部实现来源

@@ -251,6 +251,27 @@ final class VoiceFlowUITests: XCTestCase {
     }
 
     @MainActor
+    func testMockStreamingRecordingUpdatesTranscript() throws {
+        let app = launchApp(
+            language: "en",
+            locale: "en_US",
+            extraArguments: ["-uiTestMode", "-uiTestSavedToken"]
+        )
+
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        app.buttons["Start Recording"].tap()
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "recording"))
+
+        app.buttons["Stop"].tap()
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
+
+        let transcript = app.textViews["record.transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 5))
+        XCTAssertFalse(transcript.value as? String == "")
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     private func openSettings(in app: XCUIApplication, label: String) {
         for candidate in ["tab.settings", label, "Settings", "设置"] {
             let button = app.tabBars.buttons[candidate]

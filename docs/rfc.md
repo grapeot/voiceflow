@@ -33,10 +33,14 @@ VoiceFlow/
     RecordingTimerFormatter.swift
     TranscriptHistory.swift
     SavedRecordingInfo.swift
+    RealtimeTranscriptEvent.swift
   Services/
     AudioRecorder.swift
     AIBuilderClient.swift
     AIBuilderTranscriptionClient.swift
+    RealtimeTranscriptionClient.swift
+    RealtimeWebSocketSender.swift
+    AudioChunkEncoder.swift
     ClipboardService.swift
     KeychainStore.swift
     OpenCodeClient.swift
@@ -88,16 +92,18 @@ Settings：表单式 AI Builder token、只读 endpoint、OpenCode URL/username/
 
 48 kHz PCM16 mono WAV → 停止录音 → multipart `POST /v1/audio/transcriptions` → 完整文本写入 transcript 与历史 → 自动复制。
 
-### V1（规划）：WebSocket 实时 stream
+### V1（已交付）：WebSocket 实时 stream
 
-目标：边录边发，Stop 只 finalize，文本随服务端 push 增量显示。
+目标：边录边发，Stop 只 finalize，文本随服务端 push 增量显示。主录音路径已从 V0 batch HTTP 切换为 WebSocket stream；`AIBuilderTranscriptionClient` 保留供 HTTP 单测与潜在 fallback，重发录音走 bulk WebSocket。
 
-#### 协议与会话（对齐 AI Builder Space WebSocket realtime API）
+#### 协议与会话
 
 ```text
 wss://<ai-builder-host>/api/v1/ws
-Authorization: Bearer <token>   # 实现阶段确认 header 携带方式
+Authorization: Bearer <token>   # URLRequest header
 ```
+
+默认 model：`gpt-realtime`（常量 `RealtimeTranscriptionConfig.defaultModel`）。
 
 控制消息（JSON text frame）：
 
@@ -110,50 +116,66 @@ Authorization: Bearer <token>   # 实现阶段确认 header 携带方式
 | `text` | server → client | 转写 delta；`content` 字符串，`isNewResponse` 可选 |
 | `error` | server → client | 错误文案，会话回到 idle |
 
-音频（binary frame）：录音期间按 ~0.5s PCM16 mono 分片发送；Stop 时发送剩余 buffer。不做按录音时间轴的 sleep 重放。
+音频（binary frame）：48 kHz PCM16 mono，按 ~0.5s（`RealtimeTranscriptionConfig.chunkByteSize` = 48000 bytes）分片；Stop 时 flush 剩余 buffer。bulk 重发按 48 KB 块顺序发送，无 sleep。
 
-#### 客户端模块（拟新增）
+#### 客户端模块
 
 ```text
-Services/
-  RealtimeTranscriptionClient.swift   # WebSocket 连接、send/receive、reconnect
-  AudioChunkEncoder.swift             # 从 AudioRecorder 回调聚合 chunk
 Models/
-  RealtimeTranscriptEvent.swift       # text delta / status / error
+  RealtimeTranscriptEvent.swift     # event / status / config / message parser / WAV helper
+Services/
+  RealtimeTranscriptionClient.swift # session + live handle + recovery coordinator
+  RealtimeWebSocketSender.swift     # 串行 send 队列（对齐 OpenCode）
+  AudioChunkEncoder.swift             # chunk 聚合 + AudioChunkCache 磁盘缓存
+  AudioRecorder.swift               # AVAudioEngine tap 流式 PCM + stop 写 WAV
 ```
 
-`AppState` 调整：
+核心恢复机制（对齐 OpenCode iOS `RealtimeSpeechStreamer` + brainwave pending buffer）：
 
-- `recordingStatus` 与 WebSocket `status` 协同（recording 本地态 + server generating）。
-- `transcript` 由 `text` delta 驱动：`isNewResponse == true` 则替换当前轮次，否则 append。
-- 剪贴板：对 transcript 做 throttle 写入（随 stream 更新，而非仅最终一次）。
-- Stop 路径：停止 mic → flush 最后 chunk → `stop_recording` → 继续接收 text 直到 `idle`。
+1. **AudioChunkCache**：所有 PCM 写入临时磁盘文件；断线后可从 offset 0 重放。
+2. **RealtimeLiveSessionHandle**（actor）：
+   - `appendAudioChunk`：先写 cache，再 send；send 失败 → `recover()`。
+   - `recover()`：cancel 旧 session → 新建 WebSocket → `start_recording` → `replayCache` bulk 发送（20ms 轮询等待新数据，不按时序 sleep 模拟麦克风）。
+   - `heartbeat()`：WebSocket ping；失败触发 recover。
+   - `finalize()`：flush send 队列 → `stop_recording` → 等待 `status: idle`（30s 超时）；失败时 recover 后重试 stop。
+3. **isRecovering 门闩**：恢复期间暂停 live send，避免与 replay 交错。
+
+`AppState` 集成：
+
+- Start：`beginLiveSession` → `AudioRecorder.startRecording(onPCMChunk:)` → `AudioChunkEncoder` → session.append。
+- Stop：stop mic → persist WAV → flush encoder → `session.finalize` → history + clipboard。
+- `streamConnectionPhase` 驱动状态灯：connected=绿、recovering/connecting/generating=橙、disconnected=红。
+- 剪贴板：stream 期间 throttle（1s、同 hash 跳过）。
+- Scene：background cancel session；active heartbeat。
+- Resend：`PCM16WAVWriter.readPCM` → `transcribeBulkPCM`（同 WebSocket 协议，无实时 sleep）。
+
+#### Failure recovery 矩阵
+
+| 场景 | 检测 | 行为 | partial transcript |
+|---|---|---|---|
+| send/ping 失败 | URLSession 错误 | recover + replay cache | 保留 |
+| receive disconnect | receive 失败 / `.disconnected` | 录音中断开：recover；finalize 中断开：超时错误 | 保留 |
+| Start 时 socket 慢 | session nil | cache 累积，attach/replay 后 bulk 发送 | N/A |
+| server `error` | JSON type=error | alert；phase→disconnected | 保留 |
+| finalize 超时 | 30s 无 idle | 错误；若有 partial 则 ready + alert | 保留 |
+| 正常 idle | status idle | history + auto copy（>3 字符） | 最终文本 |
+| Resend | bulk 完成 idle | 同 V0 历史/clipboard | 替换为 bulk 结果 |
+| Background | scenePhase | cancel session；回前台需重新录音 | 保留 |
 
 #### UI
 
-- 转写区仍为 `TextEditor`，但 stream 期间若用户未手动编辑，则跟随 append。
-- 状态灯映射扩展：`generating` → orange，`connected`+recording → green。
-- 录音计时器逻辑保持不变。
+- 转写区 `TextEditor` 随 `text` delta append；`isNewResponse` 替换当前轮次。
+- 状态灯见上；录音计时器不变。
+- 断开提示 key：`record.error.streamDisconnected`（保留 partial 时弹出）。
 
-#### Failure recovery
+#### 测试
 
-| 场景 | 行为 |
-|---|---|
-| WebSocket disconnect | 标记 disconnected；保留 partial transcript；前台 reconnect + ping |
-| Start 时 socket 未连接 | 缓冲 audio，连接后 bulk 发送 backlog |
-| server `error` | alert/caption；status → idle；不 clear partial |
-| connected/generating → idle | 保存 history、自动 copy（与 V0 相同门槛：非空且 >3 字符） |
-| Resend last recording | 保持 bulk chunk 发送 + `stop_recording`，不模拟实时 |
-
-#### 测试策略
-
-- 单元：JSON message parse、`text` append/replace、chunk 边界、resend bulk 时序（无 sleep）。
-- Mock `URLSessionWebSocketTask` 或 inject socket protocol。
-- 集成/UITest 可选：mock server 推 delta，断言 transcript 逐字增长。
+- 单元（`RealtimeTranscriptionTests` + 既有 AppState tests）：message parse、delta reducer、chunk 边界、WAV roundtrip、mock live session。
+- UI spec（未默认执行）：mock stream 断言 indicator 颜色与 transcript 增长；见 `VoiceFlowUITests.testMockStreamingRecordingUpdatesTranscript`.
 
 #### 与 V0 关系
 
-实现 V1 时优先替换 `AIBuilderTranscriptionClient` batch 路径；是否保留 HTTP fallback 作为 setting 或离线兜底，实现阶段再定。OpenCode、`last-recording.wav` 持久化、保存/重发菜单不变。
+主路径已切 V1 WebSocket。HTTP batch client 仍存在于 codebase 供测试/fallback 参考，不再用于 Record Stop 主流程。
 
 ## Record Tab 状态机
 

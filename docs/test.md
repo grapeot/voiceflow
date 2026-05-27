@@ -73,12 +73,17 @@ Swift Testing + mock。当前覆盖包括但不限于：
 - TranscriptHistory 双向导航、保存/重发录音
 - Deep link 解析、`voiceflow://record` 触发录音、未知 URL 忽略
 - Multipart 上传 body 格式
+- **V1 实时转写**：`RealtimeMessageParser`、`TranscriptDeltaReducer`、`AudioChunkEncoder`、WAV PCM roundtrip、mock live session
 
 共享 HTTP mock 的 suite 使用 `@Suite(.serialized)`。
 
 ## UI 测试（VoiceFlowUITests）
 
 XCUITest，launch argument `-uiTestMode` 启用内存 Keychain 与 mock 服务。覆盖英文/中文 shell、token 保存、mock 录音流、OpenCode 配置、语言切换、Settings UX、deep link 启动录音等。
+
+**V1 新增 spec（已实现，默认不执行）**
+
+- `testMockStreamingRecordingUpdatesTranscript`：mock 流式转写后 transcript 非空、状态回到 ready、剪贴板 caption 出现。
 
 仅在用户明确要求或发版前执行 `./scripts/test_all.sh`。
 

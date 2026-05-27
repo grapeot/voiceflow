@@ -21,6 +21,7 @@ extension EnvironmentValues {
 @main
 struct VoiceFlowApp: App {
     @StateObject private var appState = AppState()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -41,6 +42,11 @@ struct VoiceFlowApp: App {
                 appState.handleIncomingURL(url)
                 Task {
                     await appState.consumePendingDeepLinkStartRecordingIfNeeded()
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                Task {
+                    await appState.handleScenePhaseChange(to: newPhase)
                 }
             }
 
