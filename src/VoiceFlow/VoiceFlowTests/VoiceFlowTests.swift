@@ -15,6 +15,7 @@ struct VoiceFlowTests {
 
     @Test func appStateStartsAsPureVoiceInput() async throws {
         resetOpenCodeDefaults()
+        resetPreferenceDefaults()
         let state = AppState()
 
         #expect(state.recordingStatus == .idle)
@@ -26,6 +27,53 @@ struct VoiceFlowTests {
         #expect(state.canCopyTranscript == false)
         #expect(state.canSendToOpenCode == false)
         #expect(state.aiBuilderEndpoint == "https://space.ai-builders.com/backend")
+        #expect(state.appLanguage == .system)
+    }
+
+    @Test func languagePreferenceUsesUserDefaultsAndLocaleMapping() async throws {
+        resetPreferenceDefaults()
+        let state = AppState()
+
+        state.appLanguage = .english
+
+        #expect(AppState().appLanguage == .english)
+        #expect(state.appLanguage.locale?.identifier == "en")
+
+        state.appLanguage = .simplifiedChinese
+
+        #expect(AppState().appLanguage == .simplifiedChinese)
+        #expect(state.appLanguage.locale?.identifier == "zh-Hans")
+
+        state.appLanguage = .system
+
+        #expect(AppState().appLanguage == .system)
+        #expect(state.appLanguage.locale == nil)
+    }
+
+    @Test func generatedStatusesStoreLocalizationKeys() async throws {
+        resetPreferenceDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(
+            keychainStore: keychain,
+            aiBuilderClient: MockAIBuilderConnectionClient(result: .failure(URLError(.badServerResponse))),
+            clipboardWriter: MockClipboardWriter(writeError: ClipboardTestError.writeFailed),
+            openCodeClient: MockOpenCodeClient(result: .failure(OpenCodeClientError.promptSendFailed))
+        )
+
+        await state.startRecording()
+        #expect(state.recordingStatus == .error("record.error.missingToken"))
+
+        state.saveAIBuilderToken("fake-token")
+        await state.testAIBuilderConnection()
+        #expect(state.connectionStatus == .failed("settings.connection.failed"))
+
+        state.transcript = "private dictated words"
+        state.copyTranscript()
+        #expect(state.lastClipboardStatusKey == "record.clipboard.failed")
+
+        state.saveOpenCodePassword("fake-opencode-password")
+        await state.sendTranscriptToOpenCode()
+        #expect(state.openCodeSendStatus == .failed("record.openCode.error.sendFailed"))
     }
 
     @Test func openCodeRequiresConfigurationAndTranscript() async throws {
@@ -165,8 +213,8 @@ struct VoiceFlowTests {
         state.saveOpenCodePassword("fake-password")
         await state.sendTranscriptToOpenCode()
 
-        if case .failed(let message) = state.openCodeSendStatus {
-            #expect(message.isEmpty == false)
+        if case .failed(let key) = state.openCodeSendStatus {
+            #expect(key == "record.openCode.error.sendFailed")
         } else {
             #expect(Bool(false))
         }
@@ -466,6 +514,10 @@ struct VoiceFlowTests {
 private func resetOpenCodeDefaults() {
     UserDefaults.standard.removeObject(forKey: "openCodeServerURL")
     UserDefaults.standard.removeObject(forKey: "openCodeUsername")
+}
+
+private func resetPreferenceDefaults() {
+    UserDefaults.standard.removeObject(forKey: "appLanguage")
 }
 
 private func requestBodyData(for request: URLRequest) throws -> Data {

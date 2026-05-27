@@ -6,16 +6,16 @@ enum ConnectionStatus: Equatable {
     case success
     case failed(String)
 
-    var localizedText: String {
+    var localizedKey: String {
         switch self {
         case .untested:
-            String(localized: "settings.connection.untested")
+            "settings.connection.untested"
         case .testing:
-            String(localized: "settings.connection.testing")
+            "settings.connection.testing"
         case .success:
-            String(localized: "settings.connection.success")
-        case .failed(let message):
-            message
+            "settings.connection.success"
+        case .failed(let key):
+            key
         }
     }
 }

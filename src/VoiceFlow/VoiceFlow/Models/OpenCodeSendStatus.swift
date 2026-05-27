@@ -6,16 +6,16 @@ enum OpenCodeSendStatus: Equatable {
     case success
     case failed(String)
 
-    var localizedText: String {
+    var localizedKey: String {
         switch self {
         case .idle:
-            String(localized: "record.openCode.idle")
+            "record.openCode.idle"
         case .sending:
-            String(localized: "record.openCode.sending")
+            "record.openCode.sending"
         case .success:
-            String(localized: "record.openCode.sent")
-        case .failed(let message):
-            message
+            "record.openCode.sent"
+        case .failed(let key):
+            key
         }
     }
 }

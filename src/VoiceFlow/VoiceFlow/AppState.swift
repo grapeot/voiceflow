@@ -11,20 +11,20 @@ final class AppState: ObservableObject {
         case ready
         case error(String)
 
-        var localizedText: String {
+        var localizedKey: String {
             switch self {
             case .idle:
-                String(localized: "record.status.idle")
+                "record.status.idle"
             case .requestingPermission:
-                String(localized: "record.status.requestingPermission")
+                "record.status.requestingPermission"
             case .recording:
-                String(localized: "record.status.recording")
+                "record.status.recording"
             case .transcribing:
-                String(localized: "record.status.transcribing")
+                "record.status.transcribing"
             case .ready:
-                String(localized: "record.status.ready")
-            case .error(let message):
-                message
+                "record.status.ready"
+            case .error(let key):
+                key
             }
         }
     }
@@ -41,8 +41,11 @@ final class AppState: ObservableObject {
     }
     @Published var hasSavedOpenCodePassword = false
     @Published var openCodeSendStatus: OpenCodeSendStatus = .idle
-    @Published var lastClipboardStatus: String?
+    @Published var lastClipboardStatusKey: String?
     @Published var connectionStatus: ConnectionStatus = .untested
+    @Published var appLanguage: AppLanguage {
+        didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
+    }
 
     let aiBuilderEndpoint = "https://space.ai-builders.com/backend"
     private let keychainStore: KeychainStoring
@@ -56,6 +59,7 @@ final class AppState: ObservableObject {
     private let openCodePasswordKey = "openCodePassword"
     private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
     private static let openCodeUsernameDefaultsKey = "openCodeUsername"
+    private static let appLanguageDefaultsKey = "appLanguage"
 
     init(
         keychainStore: KeychainStoring? = nil,
@@ -67,8 +71,15 @@ final class AppState: ObservableObject {
         diagnostics: RecordingDiagnosticsReporting? = nil
     ) {
         let isUITestMode = ProcessInfo.processInfo.arguments.contains("-uiTestMode")
+        if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestResetPreferences") {
+            UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
+        }
         self.openCodeServerURL = UserDefaults.standard.string(forKey: Self.openCodeServerURLDefaultsKey) ?? OpenCodeClient.defaultServerURL
         self.openCodeUsername = UserDefaults.standard.string(forKey: Self.openCodeUsernameDefaultsKey) ?? OpenCodeClient.defaultUsername
+        let savedLanguage = UserDefaults.standard.string(forKey: Self.appLanguageDefaultsKey).flatMap(AppLanguage.init(rawValue:))
+        self.appLanguage = savedLanguage ?? .system
         self.keychainStore = keychainStore ?? (isUITestMode ? InMemoryKeychainStore() : KeychainStore())
         if let aiBuilderClient {
             self.aiBuilderClient = aiBuilderClient
@@ -136,7 +147,7 @@ final class AppState: ObservableObject {
             hasSavedAIBuilderToken = true
             connectionStatus = .untested
         } catch {
-            connectionStatus = .failed(String(localized: "settings.connection.saveFailed"))
+            connectionStatus = .failed("settings.connection.saveFailed")
         }
     }
 
@@ -144,7 +155,7 @@ final class AppState: ObservableObject {
         do {
             try keychainStore.deleteString(for: tokenKey)
         } catch {
-            connectionStatus = .failed(String(localized: "settings.connection.clearFailed"))
+            connectionStatus = .failed("settings.connection.clearFailed")
             return
         }
         hasSavedAIBuilderToken = false
@@ -153,7 +164,7 @@ final class AppState: ObservableObject {
 
     func testAIBuilderConnection() async {
         guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-            connectionStatus = .failed(String(localized: "settings.connection.missingToken"))
+            connectionStatus = .failed("settings.connection.missingToken")
             return
         }
 
@@ -162,14 +173,14 @@ final class AppState: ObservableObject {
             try await aiBuilderClient.testConnection(baseURL: aiBuilderEndpoint, token: token)
             connectionStatus = .success
         } catch {
-            connectionStatus = .failed(String(localized: "settings.connection.failed"))
+            connectionStatus = .failed("settings.connection.failed")
         }
     }
 
     func startRecording() async {
         guard hasSavedAIBuilderToken else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            recordingStatus = .error(String(localized: "record.error.missingToken"))
+            recordingStatus = .error("record.error.missingToken")
             return
         }
 
@@ -177,13 +188,13 @@ final class AppState: ObservableObject {
         recordDiagnostic("recording_permission_request_started")
         guard await audioRecorder.requestPermission() else {
             recordDiagnostic("recording_permission_denied")
-            recordingStatus = .error(String(localized: "record.error.microphoneDenied"))
+            recordingStatus = .error("record.error.microphoneDenied")
             return
         }
 
         do {
             transcript = ""
-            lastClipboardStatus = nil
+            lastClipboardStatusKey = nil
             openCodeSendStatus = .idle
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true"])
             try await audioRecorder.startRecording()
@@ -191,7 +202,7 @@ final class AppState: ObservableObject {
             recordingStatus = .recording
         } catch {
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
-            recordingStatus = .error(String(localized: "record.error.recordingFailed"))
+            recordingStatus = .error("record.error.recordingFailed")
         }
     }
 
@@ -205,7 +216,7 @@ final class AppState: ObservableObject {
             audioURL = try await audioRecorder.stopRecording()
         } catch {
             recordDiagnostic("recording_stop_failed", metadata: diagnosticMetadata(for: error))
-            recordingStatus = .error(String(localized: "record.error.transcriptionFailed"))
+            recordingStatus = .error("record.error.transcriptionFailed")
             return
         }
 
@@ -214,13 +225,13 @@ final class AppState: ObservableObject {
         recordDiagnostic("recording_stop_succeeded", metadata: audioMetadata)
         if audioMetadata["byteCount"] == "0" {
             recordDiagnostic("recording_audio_file_empty")
-            recordingStatus = .error(String(localized: "record.error.transcriptionFailed"))
+            recordingStatus = .error("record.error.transcriptionFailed")
             return
         }
 
         guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            recordingStatus = .error(String(localized: "record.error.missingToken"))
+            recordingStatus = .error("record.error.missingToken")
             return
         }
 
@@ -235,7 +246,7 @@ final class AppState: ObservableObject {
             recordingStatus = .ready
         } catch {
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
-            recordingStatus = .error(String(localized: "record.error.transcriptionFailed"))
+            recordingStatus = .error("record.error.transcriptionFailed")
         }
     }
 
@@ -247,10 +258,10 @@ final class AppState: ObservableObject {
         do {
             try clipboardWriter.write(transcript)
             recordDiagnostic("clipboard_copy_succeeded", metadata: ["characterCount": "\(transcript.count)"])
-            lastClipboardStatus = String(localized: "record.clipboard.copied")
+            lastClipboardStatusKey = "record.clipboard.copied"
         } catch {
             recordDiagnostic("clipboard_copy_failed", metadata: diagnosticMetadata(for: error))
-            lastClipboardStatus = String(localized: "record.clipboard.failed")
+            lastClipboardStatusKey = "record.clipboard.failed"
         }
     }
 
@@ -267,7 +278,7 @@ final class AppState: ObservableObject {
             hasSavedOpenCodePassword = true
             openCodeSendStatus = .idle
         } catch {
-            openCodeSendStatus = .failed(String(localized: "settings.openCode.saveFailed"))
+            openCodeSendStatus = .failed("settings.openCode.saveFailed")
         }
     }
 
@@ -275,7 +286,7 @@ final class AppState: ObservableObject {
         do {
             try keychainStore.deleteString(for: openCodePasswordKey)
         } catch {
-            openCodeSendStatus = .failed(String(localized: "settings.openCode.clearFailed"))
+            openCodeSendStatus = .failed("settings.openCode.clearFailed")
             return
         }
         openCodeServerURL = OpenCodeClient.defaultServerURL
@@ -316,7 +327,7 @@ final class AppState: ObservableObject {
         guard canCopyTranscript else { return }
         guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
             recordDiagnostic("opencode_send_failed", metadata: ["reason": "notConfigured"])
-            openCodeSendStatus = .failed(String(localized: "record.openCode.error.notConfigured"))
+            openCodeSendStatus = .failed("record.openCode.error.notConfigured")
             return
         }
 
@@ -333,7 +344,7 @@ final class AppState: ObservableObject {
             openCodeSendStatus = .success
         } catch {
             recordDiagnostic("opencode_send_failed", metadata: diagnosticMetadata(for: error))
-            openCodeSendStatus = .failed(String(localized: "record.openCode.error.sendFailed"))
+            openCodeSendStatus = .failed("record.openCode.error.sendFailed")
         }
     }
 }

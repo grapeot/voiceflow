@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RecordView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.localizationBundle) private var localizationBundle
 
     var body: some View {
         GeometryReader { geometry in
@@ -22,12 +23,12 @@ struct RecordView: View {
         .frame(minWidth: 400, idealWidth: 600, maxWidth: 800,
                minHeight: 400, idealHeight: 1000, maxHeight: 1500)
         #endif
-        .navigationTitle(Text("tab.record"))
+        .navigationTitle(Text(localized("tab.record")))
     }
 
     private var statusHeader: some View {
         VStack(spacing: 4) {
-            Text(appState.recordingStatus.localizedText)
+            recordingStatusText
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .minimumScaleFactor(0.7)
@@ -44,12 +45,16 @@ struct RecordView: View {
 
     private var statusLine: Text {
         if appState.openCodeSendStatus != .idle {
-            Text(appState.openCodeSendStatus.localizedText)
-        } else if let lastClipboardStatus = appState.lastClipboardStatus {
-            Text(lastClipboardStatus)
+            Text(localized(appState.openCodeSendStatus.localizedKey))
+        } else if let lastClipboardStatusKey = appState.lastClipboardStatusKey {
+            Text(localized(lastClipboardStatusKey))
         } else {
-            Text("record.clipboard.hint")
+            Text(localized("record.clipboard.hint"))
         }
+    }
+
+    private var recordingStatusText: Text {
+        Text(localized(appState.recordingStatus.localizedKey))
     }
 
     private var recordingControls: some View {
@@ -65,7 +70,7 @@ struct RecordView: View {
             Button(action: toggleRecording) {
                 HStack {
                     Image(systemName: appState.canStopRecording ? "stop.fill" : "play.fill")
-                    Text(appState.canStopRecording ? "record.stop" : "record.start")
+                    Text(localized(appState.canStopRecording ? "record.stop" : "record.start"))
                 }
                 .font(.title2)
             }
@@ -79,12 +84,20 @@ struct RecordView: View {
 
             Menu {
                 Button(action: appState.copyTranscript) {
-                    Label("record.copy", systemImage: "doc.on.doc")
+                    Label {
+                        Text(localized("record.copy"))
+                    } icon: {
+                        Image(systemName: "doc.on.doc")
+                    }
                 }
                 .disabled(!appState.canCopyTranscript)
 
                 Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
-                    Label("record.sendToOpenCode", systemImage: "paperplane.fill")
+                    Label {
+                        Text(localized("record.sendToOpenCode"))
+                    } icon: {
+                        Image(systemName: "paperplane.fill")
+                    }
                 }
                 .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
             } label: {
@@ -110,7 +123,7 @@ struct RecordView: View {
                     .accessibilityValue(appState.transcript)
 
                 if appState.transcript.isEmpty {
-                    Text("record.transcript.placeholder")
+                    Text(localized("record.transcript.placeholder"))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 28)
@@ -124,7 +137,7 @@ struct RecordView: View {
                 Button(action: appState.copyTranscript) {
                     HStack {
                         Image(systemName: "doc.on.doc")
-                        Text("record.copy")
+                        Text(localized("record.copy"))
                     }
                 }
                 .buttonStyle(ColoredButtonStyle(backgroundColor: .blue, fixedHeight: 60, fixedWidth: 150))
@@ -139,16 +152,16 @@ struct RecordView: View {
                             ProgressView()
                                 .scaleEffect(0.8)
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            Text("record.openCode.sending")
+                            Text(localized("record.openCode.sending"))
                         case .success:
                             Image(systemName: "checkmark.circle.fill")
-                            Text("record.openCode.sent")
+                            Text(localized("record.openCode.sent"))
                         case .failed:
                             Image(systemName: "exclamationmark.triangle.fill")
-                            Text("record.openCode.error.sendFailed")
+                            Text(localized("record.openCode.error.sendFailed"))
                         case .idle:
                             Text("🧠")
-                            Text("record.sendToOpenCode")
+                            Text(localized("record.sendToOpenCode"))
                         }
                     }
                 }
@@ -160,13 +173,13 @@ struct RecordView: View {
                 .frame(maxWidth: .infinity)
                 .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
                 .accessibilityIdentifier("record.sendOpenCodeButton")
-                .accessibilityLabel(Text("record.sendToOpenCode"))
+                .accessibilityLabel(Text(localized("record.sendToOpenCode")))
             }
             .padding(.top, 16)
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
 
-            Text("record.openCode.optional")
+            Text(localized("record.openCode.optional"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -180,6 +193,10 @@ struct RecordView: View {
         } else {
             Task { await appState.startRecording() }
         }
+    }
+
+    private func localized(_ key: String) -> String {
+        String(localized: String.LocalizationValue(key), bundle: localizationBundle)
     }
 }
 

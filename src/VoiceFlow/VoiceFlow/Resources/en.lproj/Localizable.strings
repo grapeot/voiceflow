@@ -55,3 +55,8 @@
 "settings.openCode.clear" = "Clear OpenCode Config";
 "settings.openCode.saveFailed" = "Could not save OpenCode configuration.";
 "settings.openCode.clearFailed" = "Could not clear OpenCode configuration.";
+"settings.language.title" = "Language";
+"settings.language.description" = "Use the system language, or keep VoiceFlow in a fixed language.";
+"settings.language.system" = "System";
+"settings.language.english" = "English";
+"settings.language.simplifiedChinese" = "Simplified Chinese";

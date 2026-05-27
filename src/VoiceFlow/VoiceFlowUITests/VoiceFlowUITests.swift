@@ -92,6 +92,33 @@ final class VoiceFlowUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsLanguagePreferenceOverridesSystemLanguage() throws {
+        var app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        app.buttons["Start Recording"].tap()
+        XCTAssertTrue(app.staticTexts["Save an AI Builder token before recording."].waitForExistence(timeout: 5))
+        openSettings(in: app, label: "Settings")
+        let languagePicker = app.segmentedControls["settings.languagePicker"]
+        XCTAssertTrue(reveal(languagePicker, in: app))
+
+        tapSegment(languagePicker, position: 0.84)
+
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["录音前请先保存 AI Builder token。"].waitForExistence(timeout: 5))
+
+        app.terminate()
+        app = launchApp(language: "zh-Hans", locale: "zh_Hans_US", extraArguments: ["-uiTestMode"])
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        openSettings(in: app, label: "设置")
+        let chineseSystemLanguagePicker = app.segmentedControls["settings.languagePicker"]
+        XCTAssertTrue(reveal(chineseSystemLanguagePicker, in: app))
+        tapSegment(chineseSystemLanguagePicker, position: 0.50)
+
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
@@ -101,14 +128,53 @@ final class VoiceFlowUITests: XCTestCase {
     @MainActor
     private func launchApp(language: String, locale: String, extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = extraArguments + ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
+        app.launchArguments = extraArguments + ["-uiTestResetPreferences", "-AppleLanguages", "(\(language))", "-AppleLocale", locale]
         app.launch()
         return app
     }
 
     @MainActor
     private func openSettings(in app: XCUIApplication, label: String) {
-        app.tabBars.buttons[label].tap()
+        for candidate in ["tab.settings", label, "Settings", "设置"] {
+            let button = app.tabBars.buttons[candidate]
+            if button.waitForExistence(timeout: 1) {
+                button.tap()
+                return
+            }
+        }
+
+        let tabBar = app.tabBars.firstMatch
+        if tabBar.waitForExistence(timeout: 1) {
+            tabBar.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
+            return
+        }
+
+        XCTFail("Settings tab was not found")
+    }
+
+    @MainActor
+    private func openRecord(in app: XCUIApplication, label: String) {
+        for candidate in ["tab.record", label, "Record", "录音"] {
+            let button = app.tabBars.buttons[candidate]
+            if button.waitForExistence(timeout: 1) {
+                button.tap()
+                return
+            }
+        }
+
+        let tabBar = app.tabBars.firstMatch
+        if tabBar.waitForExistence(timeout: 1) {
+            tabBar.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+            return
+        }
+
+        XCTFail("Record tab was not found")
+    }
+
+    @MainActor
+    private func tapSegment(_ segmentedControl: XCUIElement, position: Double) {
+        let coordinate = segmentedControl.coordinate(withNormalizedOffset: CGVector(dx: position, dy: 0.5))
+        coordinate.tap()
     }
 
     @MainActor
