@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-05-26 (WebSocket failure recovery)
+
+- 对齐 OpenCode 静默恢复：录音中 transient disconnect 不弹 modal；caption `record.status.reconnecting` / `record.error.streamDisconnected`
+- `TranscriptEpochMerger`：`transcriptSnapshot` + `streamEpoch`，recover 后 `isNewResponse` 不 wipe 断线前文本
+- Start 顺序：mic + cache 先启动，WebSocket deferred attach；recover 指数退避重试（最多 5 次）
+- Stop/finalize 等待 recover；finalize 失败保留 partial（ready + caption，无 modal）
+- 单元测试 51 项通过（+5 recovery/epoch tests）；live tests 仍 opt-in skip
+
 ### 2026-05-26 (Swift 6 + ticket WebSocket fix)
 
 - 实时转写改 ticket 流程：POST `/v1/audio/realtime/sessions` → `wss://.../ws?ticket=`（修复 Bearer 直连 WS 的 -1011）

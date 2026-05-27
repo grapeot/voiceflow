@@ -124,6 +124,13 @@ struct RecordView: View {
             .lineLimit(3)
             .multilineTextAlignment(.center)
             .accessibilityIdentifier("record.save.statusLine")
+        } else if let streamStatusCaptionKey = appState.streamStatusCaptionKey {
+            Text(localized(streamStatusCaptionKey))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("record.streamStatusCaption")
         } else if let lastClipboardStatusKey = appState.lastClipboardStatusKey {
             Text(localized(lastClipboardStatusKey))
                 .font(.caption)

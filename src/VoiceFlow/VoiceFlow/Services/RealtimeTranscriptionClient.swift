@@ -114,6 +114,7 @@ actor RealtimeTranscriptionSession {
 actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private let cache: AudioChunkCache
     private let makeSession: @Sendable () async throws -> RealtimeTranscriptionSession
+    private let onEvent: @Sendable (RealtimeTranscriptEvent) -> Void
     private var session: RealtimeTranscriptionSession?
     private var isRecovering = false
     private var phase: RealtimeConnectionPhase = .connecting
@@ -122,9 +123,11 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
     init(
         cache: AudioChunkCache,
+        onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void,
         makeSession: @escaping @Sendable () async throws -> RealtimeTranscriptionSession
     ) {
         self.cache = cache
+        self.onEvent = onEvent
         self.makeSession = makeSession
     }
 
@@ -133,6 +136,10 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func attachInitialSession(_ newSession: RealtimeTranscriptionSession) async throws {
+        guard session == nil, !isRecovering else {
+            await newSession.close()
+            return
+        }
         isRecovering = true
         phase = .recovering
         defer {
@@ -282,6 +289,8 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             }
         case .textDelta:
             break
+        case .recoveryStarted, .recoveryFailed:
+            break
         }
     }
 
@@ -289,19 +298,33 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         guard !isRecovering else { return }
         isRecovering = true
         phase = .recovering
+        onEvent(.recoveryStarted)
         if let session {
             await session.close()
         }
         session = nil
-        do {
-            let replacement = try await makeSession()
-            try await replayCache(to: replacement)
-            session = replacement
-            phase = .connected
-        } catch {
-            phase = .disconnected
+
+        var lastError = reason
+        for attempt in 0..<RealtimeTranscriptionConfig.maxRecoverAttempts {
+            if attempt > 0 {
+                let delayMs = RealtimeTranscriptionConfig.recoverBackoffBaseMilliseconds * (1 << (attempt - 1))
+                try? await Task.sleep(for: .milliseconds(delayMs))
+            }
+            do {
+                let replacement = try await makeSession()
+                try await replayCache(to: replacement)
+                session = replacement
+                phase = .connected
+                isRecovering = false
+                return
+            } catch {
+                lastError = error
+            }
         }
+
+        phase = .disconnected
         isRecovering = false
+        onEvent(.recoveryFailed(message: String(describing: lastError)))
     }
 
     private func replayCache(to targetSession: RealtimeTranscriptionSession) async throws {
@@ -332,25 +355,36 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         }
 
         let cache = try AudioChunkCache()
-        let handle = RealtimeLiveSessionHandle(cache: cache) {
+        var handle: RealtimeLiveSessionHandle!
+        handle = RealtimeLiveSessionHandle(cache: cache, onEvent: onEvent) {
             try await Self.makeSession(
                 baseURL: baseURL,
                 token: trimmedToken,
                 model: model,
-                onEvent: onEvent
+                onEvent: { event in
+                    onEvent(event)
+                    Task { await handle.handleServerEvent(event) }
+                }
             )
         }
 
-        let initialSession = try await Self.makeSession(
-            baseURL: baseURL,
-            token: trimmedToken,
-            model: model,
-            onEvent: { event in
-                onEvent(event)
-                Task { await handle.handleServerEvent(event) }
+        Task {
+            do {
+                let initialSession = try await Self.makeSession(
+                    baseURL: baseURL,
+                    token: trimmedToken,
+                    model: model,
+                    onEvent: { event in
+                        onEvent(event)
+                        Task { await handle.handleServerEvent(event) }
+                    }
+                )
+                try await handle.attachInitialSession(initialSession)
+            } catch {
+                onEvent(.recoveryFailed(message: String(describing: error)))
             }
-        )
-        try await handle.attachInitialSession(initialSession)
+        }
+
         return handle
     }
 
@@ -512,6 +546,8 @@ private final class BulkTranscriptionProgress: @unchecked Sendable {
         case .disconnected:
             receivedErrorValue = "WebSocket disconnected"
             finishedValue = true
+        case .recoveryStarted, .recoveryFailed:
+            break
         case .status:
             break
         }
@@ -543,6 +579,7 @@ final class MockRealtimeTranscriptionClient: RealtimeTranscribing, @unchecked Se
     nonisolated(unsafe) private var appendedChunkCountValue = 0
     nonisolated(unsafe) private var didFinalizeValue = false
     nonisolated(unsafe) private var didCancelValue = false
+    nonisolated(unsafe) private var liveEventHandler: (@Sendable (RealtimeTranscriptEvent) -> Void)?
 
     init(
         liveResult: Result<String, Error> = .success("mock stream transcript"),
@@ -558,8 +595,19 @@ final class MockRealtimeTranscriptionClient: RealtimeTranscribing, @unchecked Se
         model: String,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession {
+        lock.lock()
+        liveEventHandler = onEvent
+        lock.unlock()
         onEvent(.status(.connected))
         return MockLiveSession(client: self, onEvent: onEvent)
+    }
+
+    nonisolated func emitLiveEvent(_ event: RealtimeTranscriptEvent) async {
+        lock.lock()
+        let handler = liveEventHandler
+        lock.unlock()
+        handler?(event)
+        await Task { @MainActor in }.value
     }
 
     func transcribeBulkPCM(

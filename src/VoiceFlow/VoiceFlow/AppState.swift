@@ -78,6 +78,7 @@ final class AppState: ObservableObject {
     @Published var shouldPresentSavedRecordingAlert = false
     @Published var connectionStatus: ConnectionStatus = .untested
     @Published private(set) var streamConnectionPhase: RealtimeConnectionPhase = .disconnected
+    @Published private(set) var streamStatusCaptionKey: String?
     @Published private(set) var recordingTimerText = "00:00"
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
@@ -106,6 +107,7 @@ final class AppState: ObservableObject {
     private var lastStreamClipboardHash: Int?
     private var lastStreamClipboardUpdate: Date?
     private var userEditedTranscriptDuringStream = false
+    private var transcriptMerger = TranscriptEpochMerger()
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -304,8 +306,10 @@ final class AppState: ObservableObject {
 
         do {
             transcript = ""
+            transcriptMerger.reset()
             userEditedTranscriptDuringStream = false
             lastClipboardStatusKey = nil
+            streamStatusCaptionKey = nil
             lastSavedRecording = nil
             shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
@@ -333,7 +337,6 @@ final class AppState: ObservableObject {
             resetRecordingTimer()
             startRecordingTimer()
             recordingStatus = .recording
-            streamConnectionPhase = .connected
         } catch {
             await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
@@ -396,6 +399,7 @@ final class AppState: ObservableObject {
             await liveTranscriptionSession?.cancel()
             liveTranscriptionSession = nil
             streamConnectionPhase = .disconnected
+            streamStatusCaptionKey = nil
         default:
             break
         }
@@ -624,6 +628,9 @@ final class AppState: ObservableObject {
             case .connected, .connecting:
                 if recordingStatus == .recording {
                     streamConnectionPhase = .connected
+                    if streamStatusCaptionKey == "record.status.reconnecting" {
+                        streamStatusCaptionKey = nil
+                    }
                 }
             case .generating:
                 streamConnectionPhase = .generating
@@ -632,21 +639,38 @@ final class AppState: ObservableObject {
             }
         case .textDelta(let content, let isNewResponse):
             if !userEditedTranscriptDuringStream || isNewResponse {
-                transcript = TranscriptDeltaReducer.apply(
-                    current: transcript,
-                    content: content,
-                    isNewResponse: isNewResponse
-                )
+                transcript = transcriptMerger.apply(content: content, isNewResponse: isNewResponse)
                 throttledStreamClipboardWrite(transcript)
             }
         case .error(let message):
             recordDiagnostic("transcription_stream_error", metadata: ["reason": message])
             streamConnectionPhase = .disconnected
             if recordingStatus == .recording {
-                recordErrorAlertKey = "record.error.streamDisconnected"
+                streamStatusCaptionKey = "record.error.streamDisconnected"
+            } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                streamStatusCaptionKey = "record.error.streamDisconnected"
+            } else {
+                presentRecordError("record.error.transcriptionFailed")
             }
         case .disconnected:
             streamConnectionPhase = .disconnected
+            if recordingStatus == .recording {
+                streamStatusCaptionKey = "record.error.streamDisconnected"
+            }
+        case .recoveryStarted:
+            transcriptMerger.beginRecovery()
+            streamConnectionPhase = .recovering
+            if recordingStatus == .recording {
+                streamStatusCaptionKey = "record.status.reconnecting"
+            }
+        case .recoveryFailed(let message):
+            recordDiagnostic("transcription_stream_recovery_failed", metadata: ["reason": message])
+            streamConnectionPhase = .disconnected
+            if recordingStatus == .recording {
+                streamStatusCaptionKey = "record.error.streamDisconnected"
+            } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                streamStatusCaptionKey = "record.error.streamDisconnected"
+            }
         }
     }
 
@@ -656,7 +680,11 @@ final class AppState: ObservableObject {
             await liveTranscriptionSession?.appendAudioChunk(encodedChunk)
         }
         if let session = liveTranscriptionSession {
-            streamConnectionPhase = await session.connectionPhase
+            let phase = await session.connectionPhase
+            streamConnectionPhase = phase
+            if phase == .connected, streamStatusCaptionKey == "record.status.reconnecting" {
+                streamStatusCaptionKey = nil
+            }
         }
     }
 
@@ -685,6 +713,7 @@ final class AppState: ObservableObject {
             await session.cancel()
             liveTranscriptionSession = nil
             streamConnectionPhase = .disconnected
+            streamStatusCaptionKey = nil
 
             let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 3 else {
@@ -701,8 +730,10 @@ final class AppState: ObservableObject {
             await cancelLiveTranscriptionSession()
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
             if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                transcriptHistory.add(transcript)
+                copyTranscript()
                 recordingStatus = .ready
-                recordErrorAlertKey = "record.error.streamDisconnected"
+                streamStatusCaptionKey = "record.error.streamDisconnected"
             } else {
                 presentRecordError("record.error.transcriptionFailed")
             }
@@ -716,6 +747,7 @@ final class AppState: ObservableObject {
         }
         liveTranscriptionSession = nil
         streamConnectionPhase = .disconnected
+        streamStatusCaptionKey = nil
     }
 
     private func startStreamHeartbeat() {

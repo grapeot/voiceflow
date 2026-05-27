@@ -414,6 +414,57 @@ struct VoiceFlowTests {
         #expect(state.transcript == "older")
     }
 
+    @Test func streamRecoveryDuringRecordingUsesCaptionNotAlert() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        #expect(state.recordingStatus == .recording)
+
+        await realtimeClient.emitLiveEvent(.recoveryStarted)
+        #expect(state.streamStatusCaptionKey == "record.status.reconnecting")
+        #expect(state.recordErrorAlertKey == nil)
+
+        await realtimeClient.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
+        #expect(state.transcript == "after reconnect")
+
+        await realtimeClient.emitLiveEvent(.recoveryFailed(message: "network down"))
+        #expect(state.streamStatusCaptionKey == "record.error.streamDisconnected")
+        #expect(state.recordErrorAlertKey == nil)
+
+        await realtimeClient.emitLiveEvent(.error(message: "websocket error"))
+        #expect(state.recordErrorAlertKey == nil)
+        #expect(state.streamStatusCaptionKey == "record.error.streamDisconnected")
+    }
+
+    @Test func streamRecoveryPreservesTranscriptAcrossIsNewResponse() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+
+        await realtimeClient.emitLiveEvent(.textDelta(content: "before disconnect", isNewResponse: true))
+        await realtimeClient.emitLiveEvent(.recoveryStarted)
+        await realtimeClient.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
+
+        #expect(state.transcript == "before disconnectafter reconnect")
+        #expect(state.recordErrorAlertKey == nil)
+    }
+
     @Test func saveAndResendRecordingUsePersistedAudio() async throws {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-save-resend-test.wav")
         try Data("audio-bytes".utf8).write(to: fileURL)
