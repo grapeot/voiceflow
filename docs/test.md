@@ -1,75 +1,70 @@
 # 测试与验收策略
 
-## 文档阶段验收
+## 日常验证
 
-脚手架阶段必须满足：
+源码入口：`src/VoiceFlow/VoiceFlow.xcodeproj`
 
-```bash
-test -d .git
-test -f AGENTS.md
-test -f README.md
-test -f .gitignore
-test -f .env.example
-test -f docs/prd.md
-test -f docs/rfc.md
-test -f docs/working.md
-test -f docs/test.md
-```
-
-隐私扫描：
-
-```bash
-rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .
-```
-
-预期结果是零匹配。`.env.example` 只能出现 fake token。
-
-## App 阶段验收
-
-创建 Xcode 工程后，至少补齐以下验证：
-
-```bash
-xcodebuild -list -project src/VoiceFlow/VoiceFlow.xcodeproj
-xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build
-```
-
-日常开发优先跑 unit tests，不要默认跑完整 `test`（会连带启动 Simulator 跑 UI tests，明显更慢）：
+日常开发优先 unit tests（mock，不依赖真实 token/网络/麦克风）：
 
 ```bash
 ./scripts/test_unit.sh
 ```
 
-发布前或改 UI 后再跑完整测试（unit + UI）：
+改 UI 或发版前再跑完整 suite：
 
 ```bash
 ./scripts/test_all.sh
 ```
 
-等价命令：
+visionOS build（无 UI test）：
 
 ```bash
-# 快：只跑 VoiceFlowTests（Swift Testing，mock，不启动完整 UI 流程）
 xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' \
-  CODE_SIGNING_ALLOWED=NO -only-testing:VoiceFlowTests test
-
-# 慢：unit + UI tests
-xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' \
-  CODE_SIGNING_ALLOWED=NO test
+  -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' \
+  CODE_SIGNING_ALLOWED=NO build
 ```
 
-build 和 test 串行执行。重复跑 unit tests 时，可先 `build-for-testing`，再 `-only-testing:VoiceFlowTests test-without-building` 省编译时间。
+隐私扫描：
 
-## 单元测试目标
+```bash
+rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]+)' .
+rg --files -g '*.m4a' -g '*.wav' -g '*.caf'
+```
 
-第一批单元测试覆盖：KeychainStore 保存/读取/删除 token、endpoint 拼接、Bearer header 注入、TranscriptHistory 最近 5 条保留和回滚行为、Record 状态机合法转移、本地化 key 存在性。
+预期：凭据模式零匹配；仓库内无提交音频样本（测试用临时文件除外）。
 
-## 集成测试目标
+## 单元测试（VoiceFlowTests）
 
-连接测试和转写请求需要支持 offline mock。真实 API token 只在开发者本机或 CI secret 中配置，默认测试不依赖真实网络。
+Swift Testing + mock。当前覆盖包括但不限于：
 
-## 手工验证
+- AppState 初始状态、语言偏好持久化
+- Keychain token / OpenCode password 保存、清除（OpenCode 清除保留 URL/username）
+- AI Builder / OpenCode 连接测试与发送（含 mock HTTP、`URLProtocol`）
+- OpenCode URL 校验（HTTPS、Tailscale HTTP、拒绝 remote HTTP）
+- 录音主路径（mock recorder/transcriber/clipboard）
+- 录音诊断事件与安全摘要（不含 token/transcript）
+- TranscriptHistory 双向导航、保存/重发录音
+- Deep link 解析、`voiceflow://record` 触发录音、未知 URL 忽略
+- Multipart 上传 body 格式
 
-V0 手工验证只看用户路径：首次启动、Settings 保存 token、连接测试、Record 录音、停止转写、复制、历史回滚、发送到 OpenCode、中英文界面切换、无 token 状态提示。
+共享 HTTP mock 的 suite 使用 `@Suite(.serialized)`。
+
+## UI 测试（VoiceFlowUITests）
+
+XCUITest，launch argument `-uiTestMode` 启用内存 Keychain 与 mock 服务。覆盖英文/中文 shell、token 保存、mock 录音流、OpenCode 配置、语言切换、Settings UX、deep link 启动录音等。
+
+部分 UI test 在快速迭代中可能未每次跑通；发版前应执行 `./scripts/test_all.sh` 并修复失败项。
+
+## 手工验证清单
+
+- 首次启动 → Settings 保存 token → Test Connection
+- Record 录音 → 停止 → 转写 → 自动复制
+- 历史 chevron、保存/重发菜单
+- OpenCode 配置、连接测试、发送（或 mock 环境验证按钮状态）
+- 语言切换
+- Shortcuts 打开 `voiceflow://record`（真机）
+- 无 token / 无麦克风权限时的错误提示
+
+## 文档与仓库验收
+
+公开文档齐全：`README.md`、`docs/prd.md`、`docs/rfc.md`、`docs/test.md`、`docs/working.md`、`AGENTS.md`。`.env.example` 仅含 fake 示例。

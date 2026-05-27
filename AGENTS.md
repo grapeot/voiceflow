@@ -9,12 +9,11 @@ VoiceFlow 是面向 iOS 和 visionOS 的语音记录 app。仓库内容按可发
 ## 目录结构
 
 - `docs/prd.md`：产品需求和 V0 范围
-- `docs/rfc.md`：技术方案和实现阶段
+- `docs/rfc.md`：技术方案和 V0 交付状态
 - `docs/test.md`：测试策略和验收命令
 - `docs/working.md`：每日变更记录和经验教训
-- `src/`：后续放 Swift 源码或生成的 Xcode 工程说明文件
-- `scripts/`：稳定的开发/验证脚本
-- `tests/`：单元、集成和 UI 测试
+- `src/VoiceFlow/`：Xcode 工程与 Swift 源码
+- `scripts/`：`test_unit.sh`、`test_all.sh`
 
 ## 硬性规则
 
