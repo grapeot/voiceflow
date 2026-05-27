@@ -219,6 +219,18 @@ final class VoiceFlowUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeepLinkRecordStartsMockRecordingFlow() throws {
+        let app = launchApp(
+            language: "en",
+            locale: "en_US",
+            extraArguments: ["-uiTestMode", "-uiTestSavedToken", "-uiTestDeepLinkRecord"]
+        )
+
+        XCTAssertTrue(app.staticTexts["Recording..."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Stop"].exists)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()

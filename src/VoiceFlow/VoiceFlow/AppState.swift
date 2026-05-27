@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
+    enum AppTab: Hashable {
+        case record
+        case settings
+    }
+
     enum RecordingStatus: Equatable {
         case idle
         case requestingPermission
@@ -27,6 +32,8 @@ final class AppState: ObservableObject {
     }
 
     @Published var recordingStatus: RecordingStatus = .idle
+    @Published var selectedTab: AppTab = .record
+    @Published private(set) var pendingDeepLinkStartRecording = false
     @Published var recordErrorAlertKey: String?
     @Published var transcript: String = ""
     @Published var transcriptHistory = TranscriptHistory()
@@ -125,6 +132,25 @@ final class AppState: ObservableObject {
         }
         self.hasSavedAIBuilderToken = (try? self.keychainStore.readString(for: tokenKey)) != nil
         self.hasSavedOpenCodePassword = (try? self.keychainStore.readString(for: openCodePasswordKey)) != nil
+        if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestDeepLinkRecord") {
+            handleIncomingURL(URL(string: "voiceflow://record")!)
+        }
+    }
+
+    func handleIncomingURL(_ url: URL) {
+        recordDiagnostic("deeplink_received", metadata: DeepLink.diagnosticMetadata(for: url))
+        guard DeepLink.parse(url) == .startRecording else {
+            recordDiagnostic("deeplink_ignored", metadata: DeepLink.diagnosticMetadata(for: url))
+            return
+        }
+        selectedTab = .record
+        pendingDeepLinkStartRecording = true
+    }
+
+    func consumePendingDeepLinkStartRecordingIfNeeded() async {
+        guard pendingDeepLinkStartRecording else { return }
+        pendingDeepLinkStartRecording = false
+        await startRecording()
     }
 
     var canCopyTranscript: Bool {

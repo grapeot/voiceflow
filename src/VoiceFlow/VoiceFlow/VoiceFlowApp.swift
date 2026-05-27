@@ -30,17 +30,24 @@ struct VoiceFlowApp: App {
 
     @ViewBuilder
     private var localizedRootView: some View {
+        let root = MainTabView()
+            .id(appState.appLanguage.rawValue)
+            .environment(\.localizationBundle, appState.appLanguage.bundle)
+            .environmentObject(appState)
+            .task {
+                await appState.consumePendingDeepLinkStartRecordingIfNeeded()
+            }
+            .onOpenURL { url in
+                appState.handleIncomingURL(url)
+                Task {
+                    await appState.consumePendingDeepLinkStartRecordingIfNeeded()
+                }
+            }
+
         if let locale = appState.appLanguage.locale {
-            MainTabView()
-                .id(appState.appLanguage.rawValue)
-                .environment(\.locale, locale)
-                .environment(\.localizationBundle, appState.appLanguage.bundle)
-                .environmentObject(appState)
+            root.environment(\.locale, locale)
         } else {
-            MainTabView()
-                .id(appState.appLanguage.rawValue)
-                .environment(\.localizationBundle, appState.appLanguage.bundle)
-                .environmentObject(appState)
+            root
         }
     }
 }
