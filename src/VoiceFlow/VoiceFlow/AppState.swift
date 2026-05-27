@@ -29,6 +29,21 @@ final class AppState: ObservableObject {
                 "record.status.ready"
             }
         }
+
+        var indicatorAccessibilityValue: String {
+            switch self {
+            case .idle:
+                "idle"
+            case .requestingPermission:
+                "requestingPermission"
+            case .recording:
+                "recording"
+            case .transcribing:
+                "transcribing"
+            case .ready:
+                "ready"
+            }
+        }
     }
 
     @Published var recordingStatus: RecordingStatus = .idle

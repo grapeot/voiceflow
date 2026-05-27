@@ -30,6 +30,14 @@ struct VoiceFlowTests {
         #expect(state.appLanguage == .system)
     }
 
+    @Test func recordingStatusIndicatorAccessibilityValues() async throws {
+        #expect(AppState.RecordingStatus.idle.indicatorAccessibilityValue == "idle")
+        #expect(AppState.RecordingStatus.requestingPermission.indicatorAccessibilityValue == "requestingPermission")
+        #expect(AppState.RecordingStatus.recording.indicatorAccessibilityValue == "recording")
+        #expect(AppState.RecordingStatus.transcribing.indicatorAccessibilityValue == "transcribing")
+        #expect(AppState.RecordingStatus.ready.indicatorAccessibilityValue == "ready")
+    }
+
     @Test func languagePreferenceUsesUserDefaultsAndLocaleMapping() async throws {
         resetPreferenceDefaults()
         let state = AppState()

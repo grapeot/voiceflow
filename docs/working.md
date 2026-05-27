@@ -38,7 +38,7 @@
 - UI tests 增加语言偏好覆盖：英文系统切到中文、中文系统切到英文，并避免依赖语言切换后 tab bar accessibility 状态的瞬时变化。
 - Review 后将录音错误、连接失败、剪贴板状态和 OpenCode 失败状态改为保存本地化 key，由视图按当前 bundle 解析，避免语言切换后保留旧语言文案。
 - 为麦克风权限提示补齐 `InfoPlist.strings` 英文和简体中文资源；构建产物中已验证 `en.lproj` 和 `zh-Hans.lproj` 都包含 `InfoPlist.strings`。
-- Record 页录音错误改为 alert 弹窗展示，不再占用顶部大标题状态区；`RecordingStatus` 去掉 `.error`，错误后恢复为 `idle`。
+- Record 页录音错误改为 alert 弹窗展示，不再占用顶部大标题状态区；`RecordingStatus` 去掉 `.error`，错误后恢复为 `idle`。（后续又恢复固定「VoiceFlow」标题 + 指示灯，状态文案不再作为大标题。）
 - 录音失败 diagnostics 增加 `phase`、`errorDomain`、`errorCode`、`errorFourCC` 字段，便于定位 AVAudioSession 具体失败步骤。
 - 修复录音启动失败：`setPreferredInputNumberOfChannels(1)` 在部分设备上返回 `NSOSStatusErrorDomain -50`（paramErr），现改为 best-effort preference，不再阻断录音；输出 WAV 仍固定 mono 48 kHz。
 - 新增 `scripts/test_unit.sh`（只跑 VoiceFlowTests）和 `scripts/test_all.sh`（unit + UI）；关闭 launch UI test 的 `runsForEachTargetApplicationUIConfiguration`，避免重复启动 app。
@@ -58,6 +58,9 @@
 - 实现 deep link `voiceflow://record`：注册 URL scheme，根视图 `.onOpenURL` 切到 Record tab 并复用 `startRecording()`。
 - README 补充 Shortcuts / Action Button 用法。
 - 刷新 PRD/RFC/test/README/AGENTS：去掉过时的「实现阶段/待发布」表述，改为 V0 交付状态；明确外观偏好为剩余项。
+- Record 页顶部恢复参考版 UX：固定显示「VoiceFlow」标题 + 状态指示灯，不再用大标题展示「正在录音…」等状态文案；剪贴板/OpenCode 结果仍显示在标题下方 caption 区。
+- 新增 `RecordingStatusHeaderView`，指示灯颜色映射：录音中 green、请求权限/转写中 orange、空闲/完成 blue。
+- UI tests 改为通过 `record.statusIndicator` accessibility value 断言录音状态，并验证「VoiceFlow」标题常驻。
 
 ## Lessons Learned
 
@@ -157,6 +160,11 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
+
+### 2026-05-26 Record status indicator light
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
+- UI tests 已更新（`record.statusIndicator` + 「VoiceFlow」标题断言），本轮未跑。
 
 ### 2026-05-26 Documentation refresh
 

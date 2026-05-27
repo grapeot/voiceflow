@@ -62,11 +62,7 @@ struct RecordView: View {
 
     private var statusHeader: some View {
         VStack(spacing: 4) {
-            recordingStatusText
-                .font(.largeTitle)
-                .fontWeight(.bold)
-                .minimumScaleFactor(0.7)
-                .accessibilityIdentifier("record.status")
+            RecordingStatusHeaderView(recordingStatus: appState.recordingStatus)
 
             statusLine
                 .font(.caption)
@@ -92,10 +88,6 @@ struct RecordView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
         }
-    }
-
-    private var recordingStatusText: Text {
-        Text(localized(appState.recordingStatus.localizedKey))
     }
 
     private var recordingControls: some View {
