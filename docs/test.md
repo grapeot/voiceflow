@@ -120,7 +120,7 @@ export AI_BUILDER_TOKEN='your-token'
 
 ### 成本与行为
 
-- **会消耗 AI Builder API credits**（建立 WebSocket、发送 `start_recording`、可选 PCM 静音块、`stop_recording`）
+- **会消耗 AI Builder API credits**（创建 realtime session、建立 ticket WebSocket、可选 PCM 静音块、`commit` + `stop`）
 - 无 token 或未设 `VOICEFLOW_LIVE_WS=1` 时，live suite 内测试立即 return（通过但不连网）
 - 超时：握手 ~15s，finalize ~25s，避免 hang
 

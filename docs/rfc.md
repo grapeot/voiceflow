@@ -99,24 +99,29 @@ Settings：表单式 AI Builder token、只读 endpoint、OpenCode URL/username/
 #### 协议与会话
 
 ```text
-wss://<ai-builder-host>/api/v1/ws
-Authorization: Bearer <token>   # URLRequest header
+POST https://space.ai-builders.com/backend/v1/audio/realtime/sessions
+Authorization: Bearer <token>
+
+→ wss://space.ai-builders.com/backend/v1/audio/realtime/ws?ticket=<ticket>
+  # WebSocket 升级不带 Bearer；ticket 来自上一步 HTTP 响应
 ```
 
 默认 model：`gpt-realtime`（常量 `RealtimeTranscriptionConfig.defaultModel`）。
 
-控制消息（JSON text frame）：
+控制消息（JSON text frame，Student Portal realtime API）：
 
 | type | 方向 | 含义 |
 |---|---|---|
-| `start_recording` | client → server | 开始会话，携带 model |
-| `stop_recording` | client → server | 结束采集，请求进入 generating |
-| `status_request` | client → server | 查询连接/会话状态 |
-| `status` | server → client | `idle` / `connecting` / `connected` / `generating` |
-| `text` | server → client | 转写 delta；`content` 字符串，`isNewResponse` 可选 |
-| `error` | server → client | 错误文案，会话回到 idle |
+| `start` | client → server | 开始 live 段，可带 `model` / `vad` |
+| `commit` | client → server | 提交已发送音频，请求 finalize |
+| `stop` | client → server | 结束 realtime session |
+| `session_ready` | server → client | WS 已就绪 |
+| `transcript_delta` | server → client | 增量转写（`text` 字段） |
+| `transcript_completed` | server → client | 一轮完整转写 |
+| `session_stopped` | server → client | 会话结束 |
+| `error` | server → client | 错误文案 |
 
-音频（binary frame）：48 kHz PCM16 mono，按 ~0.5s（`RealtimeTranscriptionConfig.chunkByteSize` = 48000 bytes）分片；Stop 时 flush 剩余 buffer。bulk 重发按 48 KB 块顺序发送，无 sleep。
+音频（binary frame）：24 kHz PCM16 mono，按 ~0.5s（`chunkByteSize` = 24000 bytes）分片；Stop 时 flush 剩余 buffer → `commit` + `stop`。bulk 重发创建 session 时 `vad: false`，发完音频后 `commit` + `stop`。
 
 #### 客户端模块
 
@@ -135,9 +140,9 @@ Services/
 1. **AudioChunkCache**：所有 PCM 写入临时磁盘文件；断线后可从 offset 0 重放。
 2. **RealtimeLiveSessionHandle**（actor）：
    - `appendAudioChunk`：先写 cache，再 send；send 失败 → `recover()`。
-   - `recover()`：cancel 旧 session → 新建 WebSocket → `start_recording` → `replayCache` bulk 发送（20ms 轮询等待新数据，不按时序 sleep 模拟麦克风）。
+   - `recover()`：cancel 旧 session → 新建 ticket session → `start` → `replayCache` bulk 发送（20ms 轮询等待新数据，不按时序 sleep 模拟麦克风）。
    - `heartbeat()`：WebSocket ping；失败触发 recover。
-   - `finalize()`：flush send 队列 → `stop_recording` → 等待 `status: idle`（30s 超时）；失败时 recover 后重试 stop。
+   - `finalize()`：flush send 队列 → `commit` + `stop` → 等待 `session_stopped`（映射为 `status: idle`，30s 超时）；失败时 recover 后重试。
 3. **isRecovering 门闩**：恢复期间暂停 live send，避免与 replay 交错。
 
 `AppState` 集成：
