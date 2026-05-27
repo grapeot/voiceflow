@@ -202,6 +202,7 @@ struct RecordView: View {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $appState.transcript)
                     .padding()
+                    .padding(.bottom, 8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
@@ -216,6 +217,15 @@ struct RecordView: View {
                         .padding(.vertical, 28)
                         .allowsHitTesting(false)
                 }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Text(transcriptCharacterCountLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("record.transcriptCharacterCount")
+                    .allowsHitTesting(false)
             }
 
             Spacer(minLength: 0)
@@ -279,6 +289,13 @@ struct RecordView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
+    }
+
+    private var transcriptCharacterCountLabel: String {
+        String(
+            format: localized("record.transcript.characterCount"),
+            appState.transcript.count
+        )
     }
 
     private func toggleRecording() {

@@ -2,6 +2,7 @@
 "tab.settings" = "Settings";
 "record.transcript.title" = "Transcript";
 "record.transcript.placeholder" = "Your transcription will appear here.";
+"record.transcript.characterCount" = "%d characters";
 "record.controls.title" = "Controls";
 "record.start" = "Start Recording";
 "record.stop" = "Stop";

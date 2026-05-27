@@ -65,6 +65,7 @@
 - UI tests 改为通过 `record.statusIndicator` accessibility value 断言录音状态，并验证「VoiceFlow」标题常驻。
 - Record 页对齐 brainwave iOS：新增录音计时行（`RecordingTimerView`，`MM:SS`）；Start/Stop 按钮宽 120pt；布局增加 5% 计时区。
 - 规划 V1 实时流式转写：更新 PRD/RFC，定义 WebSocket stream、Stop finalize、增量 text 显示与 failure recovery；参考 AI Builder Space WebSocket realtime 行为。
+- Record 转写框右下角显示灰色小字字符数（`%d characters` / `%d 字`）。
 
 ## Lessons Learned
 
@@ -166,6 +167,11 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
+
+### 2026-05-26 Transcript character count
+
+- Record 转写框右下角显示字符数；英文 `%d characters`，中文 `%d 字`。
+- `./scripts/test_unit.sh`：通过。
 
 ### 2026-05-26 V1 realtime streaming design docs
 
