@@ -33,6 +33,11 @@
 - UI tests 改为覆盖新 GUI 下的英文/中文 shell、token 保存、mock 录音流和 OpenCode 配置流；Record 转写框增加 accessibility value，OpenCode 按钮增加稳定 accessibility label。
 - 增加录音诊断日志阶段：录音、权限、停止、空音频文件、转写上传、响应解析、剪贴板和 OpenCode 发送路径会记录 OSLog 安全摘要事件，只记录阶段、错误类型、字符数和音频字节数，不记录 token、转写文本、音频内容、文件路径、Authorization header 或原始响应正文。
 - 新增内存 diagnostics seam 和单元测试，覆盖成功路径、缺少 token、权限拒绝、录音启动失败、停止失败、空音频、上传失败、响应失败、剪贴板跳过/失败、OpenCode 发送成功/失败，以及诊断事件不包含 fake token、OpenCode password 或转写文本。
+- 完成 Settings 语言偏好阶段：新增 System / English / 简体中文 segmented picker，偏好写入 UserDefaults；System 使用主 bundle，English 和简体中文使用对应 `.lproj` bundle。
+- Record / Settings / tab label 的用户可见文案改为显式 bundle 本地化，语言偏好变化后会重建 root SwiftUI subtree，确保运行时切换立即反映到界面。
+- UI tests 增加语言偏好覆盖：英文系统切到中文、中文系统切到英文，并避免依赖语言切换后 tab bar accessibility 状态的瞬时变化。
+- Review 后将录音错误、连接失败、剪贴板状态和 OpenCode 失败状态改为保存本地化 key，由视图按当前 bundle 解析，避免语言切换后保留旧语言文案。
+- 为麦克风权限提示补齐 `InfoPlist.strings` 英文和简体中文资源；构建产物中已验证 `en.lproj` 和 `zh-Hans.lproj` 都包含 `InfoPlist.strings`。
 
 ## Lessons Learned
 
@@ -46,6 +51,10 @@
 - 旧 iOS 工程未命中 `requestRecordPermission` 调用；当前不需要同步改旧 repo。
 - `URLProtocol` 拦截到的 request body 可能在 `httpBodyStream` 而不是 `httpBody`，测试需要同时读取两种形态。
 - Swift Testing 默认并行运行；共享 `MockURLProtocol.requestHandler` 的测试需要 `@Suite(.serialized)`，否则不同 HTTP mock 会相互覆盖。
+- SwiftUI 的 `\.locale` 会影响部分格式化和 SwiftUI 环境，但不会可靠地让 `Localizable.strings` 在运行时改查另一个语言 bundle；运行时语言偏好需要显式选择 `.lproj` bundle 并把所有用户可见文案走同一条 bundle lookup。
+- SwiftUI `TabView` 在 root `.id(...)` 重建和语言切换后，UI test 中 tab bar 的 accessibility 查询可能短暂不稳定；语言偏好测试应验证用户可见结果，而不是把 tab bar 查询本身当成产品行为。
+- 可见状态不要在 model 中保存已经翻译好的字符串；保存本地化 key 可以让当前语言 bundle 在下一次 render 时重新解析，也让错误状态和剪贴板状态跟随运行时语言切换。
+- Xcode 生成 Info.plist 时，权限提示这类系统弹窗文案仍需要 `InfoPlist.strings` 做本地化，不能只依赖 build setting 中的英文默认值。
 
 ## Verification
 
@@ -91,5 +100,13 @@
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。Xcode/actool 对 RealityDevice14,1 trait set 有 warning，但 build 退出 0。
 - 五条 diagnostics 单元测试覆盖 success、missing token、permission denied、recording start/stop failure、empty audio、transcription upload/response failure、clipboard skipped/failed、OpenCode success/failure 和敏感文本排除。
+- `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]+)' .`：零匹配。
+- `rg --files -g '*.m4a' -g '*.wav' -g '*.caf'`：零匹配。
+
+### 2026-05-26 Language preference milestone
+
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。Xcode/actool 对 RealityDevice14,1 trait set 有 warning，但 build 退出 0。
+- 构建产物检查：`VoiceFlow.app/en.lproj` 和 `VoiceFlow.app/zh-Hans.lproj` 均包含 `InfoPlist.strings` 与 `Localizable.strings`。
 - `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]+)' .`：零匹配。
 - `rg --files -g '*.m4a' -g '*.wav' -g '*.caf'`：零匹配。
