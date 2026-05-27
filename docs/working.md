@@ -20,7 +20,11 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
-### 2026-05-27 (Swift 6 strict concurrency)
+### 2026-05-27 (recovery UX copy audit)
+
+- **i18n (en/zh)**: align stream recovery captions with silent auto-recover behavior — `record.status.reconnecting` uses "Auto-recovering" (en); `record.status.reconnected` → "Stream restored" / "流已恢复"; `record.error.streamDisconnected` drops outdated "tap Stop to finish" choice framing during recording.
+
+### 2026-05-27 (Swift 6 AudioRecorder warnings)
 
 - **Isolation**: `FinalizeTranscriptAccumulator` → `nonisolated struct` (Sendable value state inside `RealtimeLiveSessionHandle` actor); MainActor reserved for AppState UI only.
 - **Fix**: `deliverLiveSessionEvent` marked `nonisolated`; live session handle wired via `LiveSessionHandleBox` to avoid captured-var warnings in `@Sendable` closures.
