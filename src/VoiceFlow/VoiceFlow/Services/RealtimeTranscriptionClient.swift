@@ -1,5 +1,36 @@
 import Foundation
 
+private final class FinalizeTranscriptAccumulator {
+    private(set) var partialText = ""
+    private(set) var completedText: String?
+
+    var resolvedText: String {
+        RealtimeTranscriptionSupport.resolveFinalizeTranscript(partial: partialText, completed: completedText)
+    }
+
+    func reset() {
+        partialText = ""
+        completedText = nil
+    }
+
+    func preserveForRetry() -> String {
+        resolvedText
+    }
+
+    func restoreAfterRetry(_ text: String) {
+        partialText = text
+        completedText = nil
+    }
+
+    func appendDelta(_ content: String) {
+        partialText += content
+    }
+
+    func setCompleted(_ content: String) {
+        completedText = content
+    }
+}
+
 protocol RealtimeTranscribing: Sendable {
     func beginLiveSession(
         baseURL: String,
@@ -20,7 +51,7 @@ protocol RealtimeTranscribing: Sendable {
 protocol RealtimeLiveTranscriptionSession: Sendable {
     func appendAudioChunk(_ chunk: Data) async
     func heartbeat() async
-    func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws
+    func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws -> String
     func cancel() async
     var connectionPhase: RealtimeConnectionPhase { get async }
 }
@@ -145,7 +176,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private var phase: RealtimeConnectionPhase = .connecting
     private var isFinalizing = false
     private var finalizeContinuation: CheckedContinuation<Void, Error>?
-    private var finalizeTranscriptAccumulator = ""
+    private let finalizeText = FinalizeTranscriptAccumulator()
     private var finalizePartialCallback: (@Sendable (String) -> Void)?
 
     init(
@@ -199,16 +230,15 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         }
     }
 
-    func finalize(onPartialTranscript: (@Sendable (String) -> Void)? = nil) async throws {
+    func finalize(onPartialTranscript: (@Sendable (String) -> Void)? = nil) async throws -> String {
         isFinalizing = true
-        finalizeTranscriptAccumulator = ""
+        finalizeText.reset()
         finalizePartialCallback = onPartialTranscript
         phase = .generating
         defer {
             isFinalizing = false
             finalizeContinuation = nil
             finalizePartialCallback = nil
-            finalizeTranscriptAccumulator = ""
         }
 
         let maxAttempts = 2
@@ -230,14 +260,13 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 activeSession = recoveredSession
             }
 
-            finalizeTranscriptAccumulator = ""
             do {
                 try await waitForFinalizeResult {
                     try await activeSession.sendCommit()
                 }
-                let trimmed = finalizeTranscriptAccumulator.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return
+                let resolved = finalizeText.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !resolved.isEmpty {
+                    return finalizeText.resolvedText
                 }
                 lastError = RealtimeTranscriptionError.emptyTranscript
             } catch {
@@ -245,7 +274,11 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             }
 
             if attempt < maxAttempts - 1 {
+                let preserved = finalizeText.preserveForRetry()
                 await recover(reason: lastError)
+                if !preserved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    finalizeText.restoreAfterRetry(preserved)
+                }
             }
         }
 
@@ -336,7 +369,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             case .idle:
                 phase = .disconnected
                 if isFinalizing {
-                    let trimmed = finalizeTranscriptAccumulator.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmed = finalizeText.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty {
                         completeFinalize(with: .failure(RealtimeTranscriptionError.emptyTranscript))
                     } else {
@@ -359,13 +392,13 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 completeFinalize(with: .failure(RealtimeTranscriptionError.websocketError(message)))
             }
         case .textDelta(let content, let isNewResponse):
-            guard isFinalizing else { return }
-            finalizeTranscriptAccumulator = TranscriptDeltaReducer.apply(
-                current: finalizeTranscriptAccumulator,
-                content: content,
-                isNewResponse: isNewResponse
-            )
-            finalizePartialCallback?(finalizeTranscriptAccumulator)
+            guard isFinalizing, !content.isEmpty else { return }
+            if isNewResponse {
+                finalizeText.setCompleted(content)
+            } else {
+                finalizeText.appendDelta(content)
+            }
+            finalizePartialCallback?(finalizeText.resolvedText)
         case .recoveryStarted, .recoveryFailed:
             break
         }
@@ -774,7 +807,7 @@ private actor MockLiveSession: RealtimeLiveTranscriptionSession {
 
     func heartbeat() async {}
 
-    func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws {
+    func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws -> String {
         isFinalizing = true
         phase = .generating
         let text = try await client.resolvedLiveTranscript()
@@ -783,6 +816,7 @@ private actor MockLiveSession: RealtimeLiveTranscriptionSession {
         onPartialTranscript?(text)
         isFinalizing = false
         phase = .disconnected
+        return text
     }
 
     func cancel() async {

@@ -465,6 +465,50 @@ struct VoiceFlowTests {
         #expect(state.streamStatusCaptionKey == nil)
     }
 
+    @Test func stopTranscriptionShowsSingleAlertWhenStreamAndBulkFail() async throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-single-alert-test.wav")
+        try Data("audio-bytes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        let realtimeClient = MockRealtimeTranscriptionClient(
+            liveResult: .success("  "),
+            bulkResult: .failure(RealtimeTranscriptionError.emptyTranscript)
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        await state.stopRecording()
+
+        #expect(state.recordErrorAlertKey == "record.error.transcriptionFailed")
+        #expect(state.recordingStatus == .idle)
+    }
+
+    @Test func stopTranscriptionPrefersStreamResultWithoutAlert() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("stream success text"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        await state.stopRecording()
+
+        #expect(state.recordErrorAlertKey == nil)
+        #expect(state.transcript == "stream success text")
+        #expect(state.recordingStatus == .ready)
+    }
+
     @Test func streamRecoveryDuringRecordingDoesNotUpdateTranscript() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
@@ -670,7 +714,8 @@ struct VoiceFlowTests {
         #expect(eventNames.contains("recording_permission_request_started"))
         #expect(eventNames.contains("recording_start_succeeded"))
         #expect(eventNames.contains("recording_stop_succeeded"))
-        #expect(eventNames.contains("transcription_started"))
+        #expect(eventNames.contains("transcription_finalize_started"))
+        #expect(eventNames.contains("transcription_finalize_stream_done"))
         #expect(eventNames.contains("transcription_succeeded"))
         #expect(eventNames.contains("clipboard_copy_succeeded"))
         #expect(diagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "54")

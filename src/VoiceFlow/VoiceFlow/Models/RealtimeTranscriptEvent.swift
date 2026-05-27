@@ -77,6 +77,14 @@ enum RealtimeTranscriptionSupport: Sendable {
     nonisolated static func isRecoverableBufferTooSmallError(_ message: String) -> Bool {
         message.localizedCaseInsensitiveContains("buffer too small")
     }
+
+    nonisolated static func resolveFinalizeTranscript(partial: String, completed: String?) -> String {
+        let trimmedPartial = partial.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCompleted = completed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmedPartial.isEmpty { return trimmedCompleted }
+        if trimmedCompleted.isEmpty { return partial }
+        return trimmedPartial.count >= trimmedCompleted.count ? partial : trimmedCompleted
+    }
 }
 
 struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
