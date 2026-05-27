@@ -63,8 +63,8 @@
 - Record 页顶部恢复参考版 UX：固定显示「VoiceFlow」标题 + 状态指示灯，不再用大标题展示「正在录音…」等状态文案；剪贴板/OpenCode 结果仍显示在标题下方 caption 区。
 - 新增 `RecordingStatusHeaderView`，指示灯颜色映射：录音中 green、请求权限/转写中 orange、空闲/完成 blue。
 - UI tests 改为通过 `record.statusIndicator` accessibility value 断言录音状态，并验证「VoiceFlow」标题常驻。
-- 保存录音补齐 Files 可见性与确认 UX：启用 `UIFileSharingEnabled`；保存后弹窗显示文件名与 Files 路径，「在文件中打开」走系统分享面板；标题 caption 可再次打开。
-- 抽取 `RecordingFileSaver` 与 `SavedRecordingInfo`；更新 PRD/RFC 与相关单元/UI tests。
+- Record 页对齐 brainwave iOS：新增录音计时行（`RecordingTimerView`，`MM:SS`）；Start/Stop 按钮宽 120pt；布局增加 5% 计时区。
+- 规划 V1 实时流式转写：更新 PRD/RFC，定义 WebSocket stream、Stop finalize、增量 text 显示与 failure recovery；参考 AI Builder Space WebSocket realtime 行为。
 
 ## Lessons Learned
 
@@ -166,6 +166,11 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
+
+### 2026-05-26 V1 realtime streaming design docs
+
+- 更新 PRD/RFC：V1 WebSocket 边录边发、Stop finalize、text delta 增量显示、failure recovery 与 bulk resend 约束。
+- 文档-only PR；无代码变更。
 
 ### 2026-05-26 Record timer and control parity
 
