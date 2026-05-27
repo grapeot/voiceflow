@@ -4,6 +4,9 @@
 
 ### 2026-05-26
 
+- 更新 PRD/RFC，将后续工作顺序固定为：GUI 对齐、录音诊断日志、语言选择、外观选择、privacy review、GitHub master 发布、deep link 启动录音。
+- 将 Settings 的语言和外观偏好写入产品范围：默认跟随系统，同时允许用户手动选择 English / 简体中文、System / Light / Dark。
+- 将 deep link 作为发布后的最后阶段：注册 `voiceflow://record` 类 URL，供 Shortcuts、Action Button 或桌面快捷方式直接启动录音。
 - 创建 VoiceFlow 项目文档骨架。
 - 明确 V0 只包含 Record 和 Settings 两个 tab。
 - 确定 API token 使用 Keychain 保存，API 请求使用 Bearer auth。
@@ -26,6 +29,8 @@
 - UI test 模式覆盖 OpenCode 配置保存、遮罩显示和清除，不需要真实 OpenCode server。
 - OpenCode server URL 增加安全校验：远程 server 必须使用 HTTPS，HTTP 只允许 localhost / loopback，避免 Basic Auth 和 transcript 通过远程明文连接发送。
 - 新录音开始和新转写完成时会重置 OpenCode 发送状态，避免旧 transcript 的发送结果残留在 Record 页。
+- 完成 Record / Settings GUI 对齐阶段：Record 改为参考实现式状态区、录音控制区、大文本区和底部固定操作按钮；Settings 改为 label + rounded field 的表单节奏。
+- UI tests 改为覆盖新 GUI 下的英文/中文 shell、token 保存、mock 录音流和 OpenCode 配置流；Record 转写框增加 accessibility value，OpenCode 按钮增加稳定 accessibility label。
 
 ## Lessons Learned
 
@@ -71,3 +76,10 @@
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。Xcode/actool 对 RealityDevice14,1 trait set 有 warning，但 build 退出 0。
 - `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .`：零匹配。
+
+### 2026-05-26 GUI parity and planning update
+
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。Xcode/actool 对 RealityDevice14,1 trait set 有 warning，但 build 退出 0。
+- `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]+)' .`：零匹配。
+- `rg --files -g '*.m4a' -g '*.wav' -g '*.caf'`：零匹配。
