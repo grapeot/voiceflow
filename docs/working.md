@@ -57,6 +57,7 @@
 - OpenCode 说明文案更新：URL/username 保留在本机，仅密码进 Keychain。
 - 实现 deep link `voiceflow://record`：注册 URL scheme，根视图 `.onOpenURL` 切到 Record tab 并复用 `startRecording()`。
 - README 补充 Shortcuts / Action Button 用法。
+- 刷新 PRD/RFC/test/README/AGENTS：去掉过时的「实现阶段/待发布」表述，改为 V0 交付状态；明确外观偏好为剩余项。
 
 ## Lessons Learned
 
@@ -156,4 +157,8 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
-- 单元测试覆盖：双向历史导航、保存录音到 Documents、重发录音重新转写、OpenCode gating mock 连接。
+
+### 2026-05-26 Documentation refresh
+
+- 更新 PRD/RFC/test/README/AGENTS，反映 V0 已交付项与剩余项（外观偏好）。
+- 移除 RFC 中已完成的 Phase 0–7 路线图与已决「待确认问题」。
