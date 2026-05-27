@@ -34,13 +34,33 @@ xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destina
 xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build
 ```
 
-如果加入 XCTest，再补：
+日常开发优先跑 unit tests，不要默认跑完整 `test`（会连带启动 Simulator 跑 UI tests，明显更慢）：
 
 ```bash
-xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test
+./scripts/test_unit.sh
 ```
 
-build 和 test 串行执行。
+发布前或改 UI 后再跑完整测试（unit + UI）：
+
+```bash
+./scripts/test_all.sh
+```
+
+等价命令：
+
+```bash
+# 快：只跑 VoiceFlowTests（Swift Testing，mock，不启动完整 UI 流程）
+xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' \
+  CODE_SIGNING_ALLOWED=NO -only-testing:VoiceFlowTests test
+
+# 慢：unit + UI tests
+xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' \
+  CODE_SIGNING_ALLOWED=NO test
+```
+
+build 和 test 串行执行。重复跑 unit tests 时，可先 `build-for-testing`，再 `-only-testing:VoiceFlowTests test-without-building` 省编译时间。
 
 ## 单元测试目标
 

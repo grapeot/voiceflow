@@ -9,7 +9,6 @@ final class AppState: ObservableObject {
         case recording
         case transcribing
         case ready
-        case error(String)
 
         var localizedKey: String {
             switch self {
@@ -23,13 +22,12 @@ final class AppState: ObservableObject {
                 "record.status.transcribing"
             case .ready:
                 "record.status.ready"
-            case .error(let key):
-                key
             }
         }
     }
 
     @Published var recordingStatus: RecordingStatus = .idle
+    @Published var recordErrorAlertKey: String?
     @Published var transcript: String = ""
     @Published var transcriptHistory = TranscriptHistory()
     @Published var hasSavedAIBuilderToken = false
@@ -180,7 +178,7 @@ final class AppState: ObservableObject {
     func startRecording() async {
         guard hasSavedAIBuilderToken else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            recordingStatus = .error("record.error.missingToken")
+            presentRecordError("record.error.missingToken")
             return
         }
 
@@ -188,7 +186,7 @@ final class AppState: ObservableObject {
         recordDiagnostic("recording_permission_request_started")
         guard await audioRecorder.requestPermission() else {
             recordDiagnostic("recording_permission_denied")
-            recordingStatus = .error("record.error.microphoneDenied")
+            presentRecordError("record.error.microphoneDenied")
             return
         }
 
@@ -202,8 +200,12 @@ final class AppState: ObservableObject {
             recordingStatus = .recording
         } catch {
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
-            recordingStatus = .error("record.error.recordingFailed")
+            presentRecordError("record.error.recordingFailed")
         }
+    }
+
+    func dismissRecordError() {
+        recordErrorAlertKey = nil
     }
 
     func stopRecording() async {
@@ -216,7 +218,7 @@ final class AppState: ObservableObject {
             audioURL = try await audioRecorder.stopRecording()
         } catch {
             recordDiagnostic("recording_stop_failed", metadata: diagnosticMetadata(for: error))
-            recordingStatus = .error("record.error.transcriptionFailed")
+            presentRecordError("record.error.transcriptionFailed")
             return
         }
 
@@ -225,13 +227,13 @@ final class AppState: ObservableObject {
         recordDiagnostic("recording_stop_succeeded", metadata: audioMetadata)
         if audioMetadata["byteCount"] == "0" {
             recordDiagnostic("recording_audio_file_empty")
-            recordingStatus = .error("record.error.transcriptionFailed")
+            presentRecordError("record.error.transcriptionFailed")
             return
         }
 
         guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            recordingStatus = .error("record.error.missingToken")
+            presentRecordError("record.error.missingToken")
             return
         }
 
@@ -246,7 +248,7 @@ final class AppState: ObservableObject {
             recordingStatus = .ready
         } catch {
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
-            recordingStatus = .error("record.error.transcriptionFailed")
+            presentRecordError("record.error.transcriptionFailed")
         }
     }
 
@@ -295,12 +297,17 @@ final class AppState: ObservableObject {
         openCodeSendStatus = .idle
     }
 
+    private func presentRecordError(_ key: String) {
+        recordErrorAlertKey = key
+        recordingStatus = .idle
+    }
+
     private func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
         diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
     }
 
     private func diagnosticMetadata(for error: Error) -> [String: String] {
-        ["errorType": String(describing: type(of: error))]
+        DiagnosticErrorMetadata.metadata(for: error)
     }
 
     private func audioFileMetadata(for url: URL) -> [String: String] {

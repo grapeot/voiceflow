@@ -12,6 +12,30 @@ enum AudioRecorderError: Error {
     case couldNotCreateRecorder
     case recordingDidNotStart
     case noActiveRecording
+    case sessionSetupFailed(phase: SessionSetupPhase, underlying: NSError)
+
+    enum SessionSetupPhase: String {
+        case setCategory
+        case setActive
+        case createRecorder
+    }
+
+    var diagnosticMetadata: [String: String] {
+        switch self {
+        case .sessionSetupFailed(let phase, let underlying):
+            return [
+                "phase": phase.rawValue,
+                "errorDomain": underlying.domain,
+                "errorCode": String(underlying.code)
+            ]
+        case .recordingDidNotStart:
+            return ["phase": "beginRecording"]
+        case .couldNotCreateRecorder:
+            return ["phase": "createRecorder"]
+        case .noActiveRecording:
+            return ["phase": "stopRecording"]
+        }
+    }
 }
 
 final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
@@ -34,11 +58,13 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
 
     func startRecording() async throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-        try session.setPreferredSampleRate(48_000)
-        try session.setPreferredInputNumberOfChannels(1)
-        try session.setPreferredIOBufferDuration(0.02)
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        try performSessionSetup(phase: .setCategory) {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+        }
+        applySessionPreferences(session)
+        try performSessionSetup(phase: .setActive) {
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        }
 
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -53,7 +79,9 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
             AVLinearPCMIsNonInterleaved: false
         ]
 
-        let recorder = try AVAudioRecorder(url: outputURL, settings: settings)
+        let recorder = try performSessionSetup(phase: .createRecorder) {
+            try AVAudioRecorder(url: outputURL, settings: settings)
+        }
         recorder.delegate = self
         recorder.prepareToRecord()
         guard recorder.record() else {
@@ -62,6 +90,26 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
 
         self.recorder = recorder
         self.recordingURL = outputURL
+    }
+
+    private func applySessionPreferences(_ session: AVAudioSession) {
+        // Preferences are best-effort; hardware may reject mono input (-50 paramErr).
+        try? session.setPreferredSampleRate(48_000)
+        try? session.setPreferredInputNumberOfChannels(1)
+        try? session.setPreferredIOBufferDuration(0.02)
+    }
+
+    private func performSessionSetup<T>(
+        phase: AudioRecorderError.SessionSetupPhase,
+        operation: () throws -> T
+    ) throws -> T {
+        do {
+            return try operation()
+        } catch let error as AudioRecorderError {
+            throw error
+        } catch {
+            throw AudioRecorderError.sessionSetupFailed(phase: phase, underlying: error as NSError)
+        }
     }
 
     func stopRecording() async throws -> URL {

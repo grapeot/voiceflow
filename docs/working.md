@@ -38,6 +38,10 @@
 - UI tests 增加语言偏好覆盖：英文系统切到中文、中文系统切到英文，并避免依赖语言切换后 tab bar accessibility 状态的瞬时变化。
 - Review 后将录音错误、连接失败、剪贴板状态和 OpenCode 失败状态改为保存本地化 key，由视图按当前 bundle 解析，避免语言切换后保留旧语言文案。
 - 为麦克风权限提示补齐 `InfoPlist.strings` 英文和简体中文资源；构建产物中已验证 `en.lproj` 和 `zh-Hans.lproj` 都包含 `InfoPlist.strings`。
+- Record 页录音错误改为 alert 弹窗展示，不再占用顶部大标题状态区；`RecordingStatus` 去掉 `.error`，错误后恢复为 `idle`。
+- 录音失败 diagnostics 增加 `phase`、`errorDomain`、`errorCode`、`errorFourCC` 字段，便于定位 AVAudioSession 具体失败步骤。
+- 修复录音启动失败：`setPreferredInputNumberOfChannels(1)` 在部分设备上返回 `NSOSStatusErrorDomain -50`（paramErr），现改为 best-effort preference，不再阻断录音；输出 WAV 仍固定 mono 48 kHz。
+- 新增 `scripts/test_unit.sh`（只跑 VoiceFlowTests）和 `scripts/test_all.sh`（unit + UI）；关闭 launch UI test 的 `runsForEachTargetApplicationUIConfiguration`，避免重复启动 app。
 
 ## Lessons Learned
 
@@ -55,6 +59,8 @@
 - SwiftUI `TabView` 在 root `.id(...)` 重建和语言切换后，UI test 中 tab bar 的 accessibility 查询可能短暂不稳定；语言偏好测试应验证用户可见结果，而不是把 tab bar 查询本身当成产品行为。
 - 可见状态不要在 model 中保存已经翻译好的字符串；保存本地化 key 可以让当前语言 bundle 在下一次 render 时重新解析，也让错误状态和剪贴板状态跟随运行时语言切换。
 - Xcode 生成 Info.plist 时，权限提示这类系统弹窗文案仍需要 `InfoPlist.strings` 做本地化，不能只依赖 build setting 中的英文默认值。
+- `AVAudioSession.setPreferred*` 是 preference，不是 contract；把 `setPreferredInputNumberOfChannels(1)` 当硬 requirement 会在部分 input route 上触发 `-50 paramErr`。
+- `xcodebuild test` 默认会跑 UI tests 并多次冷启动 Simulator app；日常迭代用 `-only-testing:VoiceFlowTests` 或 `./scripts/test_unit.sh`。
 
 ## Verification
 

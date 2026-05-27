@@ -61,7 +61,8 @@ struct VoiceFlowTests {
         )
 
         await state.startRecording()
-        #expect(state.recordingStatus == .error("record.error.missingToken"))
+        #expect(state.recordingStatus == .idle)
+        #expect(state.recordErrorAlertKey == "record.error.missingToken")
 
         state.saveAIBuilderToken("fake-token")
         await state.testAIBuilderConnection()
@@ -417,6 +418,19 @@ struct VoiceFlowTests {
         #expect(emptyAudioDiagnostics.events.containsSensitiveText(["fake-sensitive-token"]) == false)
     }
 
+    @Test func diagnosticErrorMetadataCapturesPhaseDomainAndCode() async throws {
+        let metadata = DiagnosticErrorMetadata.metadata(
+            for: AudioRecorderError.sessionSetupFailed(
+                phase: .setCategory,
+                underlying: NSError(domain: "com.apple.coreaudio.avfaudio", code: 561_017_449)
+            )
+        )
+
+        #expect(metadata["phase"] == "setCategory")
+        #expect(metadata["errorDomain"] == "com.apple.coreaudio.avfaudio")
+        #expect(metadata["errorCode"] == "561017449")
+    }
+
     @Test func recordingDiagnosticsCaptureStartStopAndClipboardFailures() async throws {
         let startDiagnostics = InMemoryRecordingDiagnostics()
         let startState = AppState(
@@ -428,6 +442,25 @@ struct VoiceFlowTests {
         await startState.startRecording()
 
         #expect(startDiagnostics.events.map(\.name).contains("recording_start_failed"))
+        let startFailureEvent = startDiagnostics.events.first { $0.name == "recording_start_failed" }
+        #expect(startFailureEvent?.metadata["phase"] == "beginRecording")
+
+        let detailedDiagnostics = InMemoryRecordingDiagnostics()
+        let detailedState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(startError: AudioRecorderError.sessionSetupFailed(
+                phase: .setActive,
+                underlying: NSError(domain: NSOSStatusErrorDomain, code: 560_557_684)
+            )),
+            diagnostics: detailedDiagnostics
+        )
+        detailedState.saveAIBuilderToken("fake-sensitive-token")
+        await detailedState.startRecording()
+
+        let detailedFailureEvent = detailedDiagnostics.events.first { $0.name == "recording_start_failed" }
+        #expect(detailedFailureEvent?.metadata["phase"] == "setActive")
+        #expect(detailedFailureEvent?.metadata["errorDomain"] == NSOSStatusErrorDomain)
+        #expect(detailedFailureEvent?.metadata["errorCode"] == "560557684")
 
         let stopDiagnostics = InMemoryRecordingDiagnostics()
         let stopState = AppState(

@@ -24,6 +24,30 @@ struct RecordView: View {
                minHeight: 400, idealHeight: 1000, maxHeight: 1500)
         #endif
         .navigationTitle(Text(localized("tab.record")))
+        .alert(
+            Text(localized("record.error.alert.title")),
+            isPresented: recordErrorAlertPresented
+        ) {
+            Button(localized("record.error.alert.ok"), role: .cancel) {
+                appState.dismissRecordError()
+            }
+            .accessibilityIdentifier("record.error.alert.okButton")
+        } message: {
+            if let key = appState.recordErrorAlertKey {
+                Text(localized(key))
+            }
+        }
+    }
+
+    private var recordErrorAlertPresented: Binding<Bool> {
+        Binding(
+            get: { appState.recordErrorAlertKey != nil },
+            set: { isPresented in
+                if !isPresented {
+                    appState.dismissRecordError()
+                }
+            }
+        )
     }
 
     private var statusHeader: some View {

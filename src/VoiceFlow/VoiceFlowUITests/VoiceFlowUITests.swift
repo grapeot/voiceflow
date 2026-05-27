@@ -97,7 +97,10 @@ final class VoiceFlowUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
         app.buttons["Start Recording"].tap()
-        XCTAssertTrue(app.staticTexts["Save an AI Builder token before recording."].waitForExistence(timeout: 5))
+        let missingTokenAlert = app.alerts.firstMatch
+        XCTAssertTrue(missingTokenAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(missingTokenAlert.staticTexts["Save an AI Builder token before recording."].exists)
+        missingTokenAlert.buttons["OK"].tap()
         openSettings(in: app, label: "Settings")
         let languagePicker = app.segmentedControls["settings.languagePicker"]
         XCTAssertTrue(reveal(languagePicker, in: app))
@@ -105,7 +108,11 @@ final class VoiceFlowUITests: XCTestCase {
         tapSegment(languagePicker, position: 0.84)
 
         XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["录音前请先保存 AI Builder token。"].waitForExistence(timeout: 5))
+        app.buttons["开始录音"].tap()
+        let chineseMissingTokenAlert = app.alerts.firstMatch
+        XCTAssertTrue(chineseMissingTokenAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(chineseMissingTokenAlert.staticTexts["录音前请先保存 AI Builder token。"].exists)
+        chineseMissingTokenAlert.buttons["好"].tap()
 
         app.terminate()
         app = launchApp(language: "zh-Hans", locale: "zh_Hans_US", extraArguments: ["-uiTestMode"])
