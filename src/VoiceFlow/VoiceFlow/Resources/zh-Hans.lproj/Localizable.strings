@@ -2,6 +2,7 @@
 "tab.settings" = "设置";
 "record.transcript.title" = "转写文本";
 "record.transcript.placeholder" = "转写结果会显示在这里。";
+"record.transcript.characterCount" = "%d 字";
 "record.controls.title" = "控制";
 "record.start" = "开始录音";
 "record.stop" = "停止";
