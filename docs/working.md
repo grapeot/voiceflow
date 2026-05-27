@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-27 (代码审查与脚本去重)
+
+- 审查记录：`docs/code_review_2026-05-27.md`
+- `voiceflow_run_ui_suite` 合并三个 `test_ui_*.sh` 的重复逻辑
+- `launchVoiceFlowApp` launch 后等待 `record.startButton`（降低冷启动 flake）
+- `AppState` init 与 `resetForUITest` 共用 `applyUITestLaunchArgumentSeeds()`
+
 ### 2026-05-27 (UI 测试分层与修复)
 
 **问题（优化前，`./scripts/test_all.sh`）**：13 条 UI（含 perf + Launch 截图），5 条失败；墙钟 ~382s。失败原因包括：`record.statusIndicator` 在 XCUITest 不可见、语言切换后未切回 Record tab、Stop 后 `transcribing` 中间态导致误判、OpenCode 文本框 append 而非替换。

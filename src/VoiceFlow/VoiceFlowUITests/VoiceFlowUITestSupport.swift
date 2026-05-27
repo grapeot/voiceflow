@@ -24,6 +24,7 @@ extension XCTestCase {
             locale,
         ]
         app.launch()
+        _ = app.buttons["record.startButton"].waitForExistence(timeout: 10)
         return app
     }
 

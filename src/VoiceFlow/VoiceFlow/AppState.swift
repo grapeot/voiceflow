@@ -158,14 +158,8 @@ final class AppState: ObservableObject {
             self.openCodeClient = OpenCodeClient()
         }
         self.diagnostics = diagnostics ?? (isUITestMode ? InMemoryRecordingDiagnostics() : OSRecordingDiagnostics())
-        if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestSavedToken") {
-            try? self.keychainStore.saveString("fake-ui-token", for: tokenKey)
-        }
-        if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestSavedOpenCode") {
-            self.openCodeServerURL = OpenCodeClient.defaultServerURL
-            self.openCodeUsername = OpenCodeClient.defaultUsername
-            try? self.keychainStore.saveString("fake-opencode-password", for: openCodePasswordKey)
-            self.openCodeConnectionStatus = .success
+        if isUITestMode {
+            applyUITestLaunchArgumentSeeds()
         }
         self.hasSavedAIBuilderToken = (try? self.keychainStore.readString(for: tokenKey)) != nil
         self.hasSavedOpenCodePassword = (try? self.keychainStore.readString(for: openCodePasswordKey)) != nil
