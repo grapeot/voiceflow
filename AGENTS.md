@@ -13,7 +13,7 @@ VoiceFlow 是面向 iOS 和 visionOS 的语音记录 app。仓库内容按可发
 - `docs/test.md`：测试策略和验收命令
 - `docs/working.md`：每日变更记录和经验教训
 - `src/VoiceFlow/`：Xcode 工程与 Swift 源码
-- `scripts/`：`test_unit.sh`、`test_all.sh`
+- `scripts/`：`pin_simulator.sh`、`test_unit.sh`、`test_all.sh`
 
 ## 硬性规则
 

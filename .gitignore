@@ -30,6 +30,7 @@ Secrets.plist
 *.key
 
 # Local artifacts
+.voiceflow/
 logs/
 recordings/
 tmp/

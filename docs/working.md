@@ -4,7 +4,9 @@
 
 ### 2026-05-26
 
-- 更新 PRD/RFC，将后续工作顺序固定为：GUI 对齐、录音诊断日志、语言选择、外观选择、privacy review、GitHub master 发布、deep link 启动录音。
+- 增加自适应 Simulator pinning：`scripts/lib/simulator.sh` 在本机 `.voiceflow/simulator-udid` 记录 UDID，测试脚本复用已 boot 的 Simulator，并优先 `test-without-building`。
+- 新增 `scripts/pin_simulator.sh` 用于手动预热；`test_unit.sh` / `test_all.sh` 接入 pinning 与 rebuild fallback。
+- 更新 `docs/test.md`：Agent 默认只跑 unit test，除非用户明确要求 UI test。
 - 将 Settings 的语言和外观偏好写入产品范围：默认跟随系统，同时允许用户手动选择 English / 简体中文、System / Light / Dark。
 - 将 deep link 作为发布后的最后阶段：注册 `voiceflow://record` 类 URL，供 Shortcuts、Action Button 或桌面快捷方式直接启动录音。
 - 创建 VoiceFlow 项目文档骨架。
