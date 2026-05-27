@@ -20,6 +20,14 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-27 (Swift 6 strict concurrency)
+
+- **Isolation**: `FinalizeTranscriptAccumulator` → `nonisolated struct` (Sendable value state inside `RealtimeLiveSessionHandle` actor); MainActor reserved for AppState UI only.
+- **Fix**: `deliverLiveSessionEvent` marked `nonisolated`; live session handle wired via `LiveSessionHandleBox` to avoid captured-var warnings in `@Sendable` closures.
+- **Fix**: `MockLiveSession` actor replaced with `nonisolated MockLiveSessionProxy` struct forwarding to `MockRealtimeTranscriptionClient` actor (invalid `nonisolated` actor init removed).
+- **Fix**: `makeFinalizePartialHandler()` uses `Task { @MainActor [weak self] in guard let self ... }`.
+- **Build**: `SWIFT_STRICT_CONCURRENCY = complete` on VoiceFlow + VoiceFlowTests targets; 59 unit tests pass.
+
 ### 2026-05-27 (structured compare + MainActor + append merge)
 
 - **Comparison doc** (table above): truncation = replace-on-`isNewResponse` vs OpenCode append; main-thread bugs = finalize partial callback off MainActor.
