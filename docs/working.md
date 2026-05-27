@@ -2,6 +2,15 @@
 
 ## Changelog
 
+### 2026-05-26 (disconnect stop + finalize regression)
+
+- **Root cause (short recording failure)**: `waitForFinalizeResult` used `TaskGroup.next()` racing `sendCommit` against the idle continuation — commit returned immediately, group cancelled the waiter, finalize exited before transcript events arrived → `tooShort`.
+- **Fix**: start continuation wait + timeout tasks first, then `await sendCommit()`, then `await group.next()` so finalize blocks until `session_stopped`/transcript.
+- **Stop-after-disconnect**: align with OpenCode — `commit` only when `enqueuedAudioBytes >= 100ms`; defer `stop` until `transcript_completed`; recover + replay if session bytes lag cache; bulk fallback from `last-recording.wav` on stream failure/tooShort.
+- **Swift 6**: replace `BulkTranscriptionProgress`/`MockRealtimeTranscriptionClient` `NSLock` with actor isolation; live test `EventCollector` → actor.
+- **VAD off for live stream** (align OpenCode): session create + `start` use `vad: false`; client owns commit on stop, avoids server-side empty-buffer VAD commits.
+- **UX captions** (en/zh): `record.status.reconnecting`, new `record.status.reconnected`, updated `record.error.streamDisconnected`; silently ignore recoverable `buffer too small` during recording.
+
 ### 2026-05-26 (WebSocket failure recovery)
 
 - 对齐 OpenCode 静默恢复：录音中 transient disconnect 不弹 modal；caption `record.status.reconnecting` / `record.error.streamDisconnected`

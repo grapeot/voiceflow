@@ -22,12 +22,13 @@
 "record.status.recording" = "Recording...";
 "record.status.transcribing" = "Transcribing...";
 "record.status.ready" = "Transcript ready";
-"record.status.reconnecting" = "Reconnecting stream...";
+"record.status.reconnecting" = "Stream interrupted. Reconnecting—you can keep recording.";
+"record.status.reconnected" = "Stream reconnected. You can keep recording.";
 "record.error.missingToken" = "Save an AI Builder token before recording.";
 "record.error.microphoneDenied" = "Microphone access is disabled. Enable it in Settings to record.";
 "record.error.recordingFailed" = "Recording failed. Try again.";
 "record.error.transcriptionFailed" = "Transcription failed. Your token and recording were not logged.";
-"record.error.streamDisconnected" = "Stream disconnected. Partial transcript is kept; tap Stop to finish or start a new recording.";
+"record.error.streamDisconnected" = "Stream interrupted. Recovery failed—you can keep recording or tap Stop to finish.";
 "record.error.alert.title" = "Recording Error";
 "record.error.alert.ok" = "OK";
 "record.clipboard.copied" = "Copied to clipboard.";
