@@ -167,6 +167,13 @@
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
 
+### 2026-05-26 Record timer and control parity
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过（37 tests）。
+- 新增 `RecordingTimerFormatter` / `RecordingTimerView`；`AppState` 在录音期间每秒更新 `recordingTimerText`。
+- Start/Stop 按钮宽 120pt，对齐 brainwave iOS `RecordingControls`。
+- UI tests 未跑。
+
 ### 2026-05-26 ATS Tailscale ts.net exception
 
 - 对齐 brainwave iOS：在 `URLScheme.plist` 为 `ts.net` 增加 `NSExceptionAllowsInsecureHTTPLoads` + `NSIncludesSubdomains`，修复 OpenCode 连接 `http://*.ts.net` 时 ATS `-1022`。

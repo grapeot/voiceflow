@@ -19,6 +19,7 @@ struct VoiceFlowTests {
         let state = AppState()
 
         #expect(state.recordingStatus == .idle)
+        #expect(state.recordingTimerText == "00:00")
         #expect(state.transcript.isEmpty)
         #expect(state.hasSavedAIBuilderToken == false)
         #expect(state.isOpenCodeConfigured == false)
@@ -36,6 +37,13 @@ struct VoiceFlowTests {
         #expect(AppState.RecordingStatus.recording.indicatorAccessibilityValue == "recording")
         #expect(AppState.RecordingStatus.transcribing.indicatorAccessibilityValue == "transcribing")
         #expect(AppState.RecordingStatus.ready.indicatorAccessibilityValue == "ready")
+    }
+
+    @Test func recordingTimerFormatterFormatsElapsedTime() async throws {
+        #expect(RecordingTimerFormatter.format(elapsedSeconds: 0) == "00:00")
+        #expect(RecordingTimerFormatter.format(elapsedSeconds: 5) == "00:05")
+        #expect(RecordingTimerFormatter.format(elapsedSeconds: 65) == "01:05")
+        #expect(RecordingTimerFormatter.format(elapsedSeconds: 3599) == "59:59")
     }
 
     @Test func languagePreferenceUsesUserDefaultsAndLocaleMapping() async throws {

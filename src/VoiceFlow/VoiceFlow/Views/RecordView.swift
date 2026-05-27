@@ -11,11 +11,14 @@ struct RecordView: View {
                 statusHeader
                     .frame(height: geometry.size.height * 0.10)
 
+                RecordingTimerView(timeString: appState.recordingTimerText)
+                    .frame(height: geometry.size.height * 0.05)
+
                 recordingControls
                     .frame(height: geometry.size.height * 0.12)
 
                 transcriptPanel
-                    .frame(height: geometry.size.height * 0.68)
+                    .frame(height: geometry.size.height * 0.73)
             }
             .padding()
             .contentShape(Rectangle())
@@ -151,7 +154,7 @@ struct RecordView: View {
             .buttonStyle(ColoredButtonStyle(
                 backgroundColor: appState.canStopRecording ? .red : .blue,
                 fixedHeight: 60,
-                fixedWidth: 180
+                fixedWidth: 120
             ))
             .disabled(!appState.canStartRecording && !appState.canStopRecording)
             .accessibilityIdentifier(appState.canStopRecording ? "record.stopButton" : "record.startButton")

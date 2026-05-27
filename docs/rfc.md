@@ -24,11 +24,13 @@ VoiceFlow/
       ColoredButtonStyle.swift
       KeyboardDismissOnTap.swift
       RecordingStatusHeaderView.swift
+      RecordingTimerView.swift
   Models/
     AppLanguage.swift
     ConnectionStatus.swift
     DeepLink.swift
     OpenCodeSendStatus.swift
+    RecordingTimerFormatter.swift
     TranscriptHistory.swift
     SavedRecordingInfo.swift
   Services/
@@ -72,7 +74,7 @@ https://space.ai-builders.com/backend
 
 ## GUI
 
-Record：顶部状态、中间控制区（左/右历史、Start/Stop、保存/重发菜单）、大文本区、底部 Copy 与 Send to OpenCode（旁有 info 按钮）。
+Record：顶部 VoiceFlow 标题 + 状态灯、录音计时（`MM:SS`）、控制区（左/右历史、Start/Stop 宽 120pt、保存/重发菜单）、大文本区、底部 Copy 与 Send to OpenCode（旁有 info 按钮）。
 
 Settings：表单式 AI Builder token、只读 endpoint、OpenCode URL/username/password、连接测试与失败 detail、语言 segmented picker。点击文本框外收起键盘。
 
