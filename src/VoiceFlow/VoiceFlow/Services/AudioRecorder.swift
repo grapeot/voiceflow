@@ -90,12 +90,21 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
 final class MockAudioRecorder: AudioRecording {
     var permissionGranted: Bool
     var outputURL: URL
+    var startError: Error?
+    var stopError: Error?
     private(set) var didStart = false
     private(set) var didStop = false
 
-    init(permissionGranted: Bool = true, outputURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-ui-test.wav")) {
+    init(
+        permissionGranted: Bool = true,
+        outputURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-ui-test.wav"),
+        startError: Error? = nil,
+        stopError: Error? = nil
+    ) {
         self.permissionGranted = permissionGranted
         self.outputURL = outputURL
+        self.startError = startError
+        self.stopError = stopError
     }
 
     func requestPermission() async -> Bool {
@@ -103,10 +112,16 @@ final class MockAudioRecorder: AudioRecording {
     }
 
     func startRecording() async throws {
+        if let startError {
+            throw startError
+        }
         didStart = true
     }
 
     func stopRecording() async throws -> URL {
+        if let stopError {
+            throw stopError
+        }
         didStop = true
         return outputURL
     }

@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
     private let transcriptionClient: AIBuilderTranscribing
     private let clipboardWriter: ClipboardWriting
     private let openCodeClient: OpenCodeSending
+    private let diagnostics: RecordingDiagnosticsReporting
     private let tokenKey = "aiBuilderToken"
     private let openCodePasswordKey = "openCodePassword"
     private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
@@ -62,7 +63,8 @@ final class AppState: ObservableObject {
         audioRecorder: AudioRecording? = nil,
         transcriptionClient: AIBuilderTranscribing? = nil,
         clipboardWriter: ClipboardWriting? = nil,
-        openCodeClient: OpenCodeSending? = nil
+        openCodeClient: OpenCodeSending? = nil,
+        diagnostics: RecordingDiagnosticsReporting? = nil
     ) {
         let isUITestMode = ProcessInfo.processInfo.arguments.contains("-uiTestMode")
         self.openCodeServerURL = UserDefaults.standard.string(forKey: Self.openCodeServerURLDefaultsKey) ?? OpenCodeClient.defaultServerURL
@@ -79,6 +81,7 @@ final class AppState: ObservableObject {
         self.transcriptionClient = transcriptionClient ?? (isUITestMode ? MockAIBuilderTranscriptionClient(result: .success("Mock transcription")) : AIBuilderTranscriptionClient())
         self.clipboardWriter = clipboardWriter ?? (isUITestMode ? MockClipboardWriter() : SystemClipboardWriter())
         self.openCodeClient = openCodeClient ?? (isUITestMode ? MockOpenCodeClient(result: .success(())) : OpenCodeClient())
+        self.diagnostics = diagnostics ?? (isUITestMode ? InMemoryRecordingDiagnostics() : OSRecordingDiagnostics())
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestSavedToken") {
             try? self.keychainStore.saveString("fake-ui-token", for: tokenKey)
         }
@@ -165,12 +168,15 @@ final class AppState: ObservableObject {
 
     func startRecording() async {
         guard hasSavedAIBuilderToken else {
+            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
             recordingStatus = .error(String(localized: "record.error.missingToken"))
             return
         }
 
         recordingStatus = .requestingPermission
+        recordDiagnostic("recording_permission_request_started")
         guard await audioRecorder.requestPermission() else {
+            recordDiagnostic("recording_permission_denied")
             recordingStatus = .error(String(localized: "record.error.microphoneDenied"))
             return
         }
@@ -179,9 +185,12 @@ final class AppState: ObservableObject {
             transcript = ""
             lastClipboardStatus = nil
             openCodeSendStatus = .idle
+            recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true"])
             try await audioRecorder.startRecording()
+            recordDiagnostic("recording_start_succeeded")
             recordingStatus = .recording
         } catch {
+            recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
             recordingStatus = .error(String(localized: "record.error.recordingFailed"))
         }
     }
@@ -189,33 +198,58 @@ final class AppState: ObservableObject {
     func stopRecording() async {
         guard recordingStatus == .recording else { return }
         recordingStatus = .transcribing
+        recordDiagnostic("recording_stop_requested")
+
+        let audioURL: URL
+        do {
+            audioURL = try await audioRecorder.stopRecording()
+        } catch {
+            recordDiagnostic("recording_stop_failed", metadata: diagnosticMetadata(for: error))
+            recordingStatus = .error(String(localized: "record.error.transcriptionFailed"))
+            return
+        }
+
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let audioMetadata = audioFileMetadata(for: audioURL)
+        recordDiagnostic("recording_stop_succeeded", metadata: audioMetadata)
+        if audioMetadata["byteCount"] == "0" {
+            recordDiagnostic("recording_audio_file_empty")
+            recordingStatus = .error(String(localized: "record.error.transcriptionFailed"))
+            return
+        }
+
+        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
+            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
+            recordingStatus = .error(String(localized: "record.error.missingToken"))
+            return
+        }
 
         do {
-            let audioURL = try await audioRecorder.stopRecording()
-            defer { try? FileManager.default.removeItem(at: audioURL) }
-
-            guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-                recordingStatus = .error(String(localized: "record.error.missingToken"))
-                return
-            }
-
+            recordDiagnostic("transcription_started", metadata: ["hasToken": "true"])
             let transcribedText = try await transcriptionClient.transcribe(audioFileURL: audioURL, baseURL: aiBuilderEndpoint, token: token)
+            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)"])
             transcript = transcribedText
             openCodeSendStatus = .idle
             transcriptHistory.add(transcribedText)
             copyTranscript()
             recordingStatus = .ready
         } catch {
+            recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
             recordingStatus = .error(String(localized: "record.error.transcriptionFailed"))
         }
     }
 
     func copyTranscript() {
-        guard canCopyTranscript else { return }
+        guard canCopyTranscript else {
+            recordDiagnostic("clipboard_copy_skipped", metadata: ["hasTranscript": "false"])
+            return
+        }
         do {
             try clipboardWriter.write(transcript)
+            recordDiagnostic("clipboard_copy_succeeded", metadata: ["characterCount": "\(transcript.count)"])
             lastClipboardStatus = String(localized: "record.clipboard.copied")
         } catch {
+            recordDiagnostic("clipboard_copy_failed", metadata: diagnosticMetadata(for: error))
             lastClipboardStatus = String(localized: "record.clipboard.failed")
         }
     }
@@ -250,14 +284,44 @@ final class AppState: ObservableObject {
         openCodeSendStatus = .idle
     }
 
+    private func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
+        diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
+    }
+
+    private func diagnosticMetadata(for error: Error) -> [String: String] {
+        ["errorType": String(describing: type(of: error))]
+    }
+
+    private func audioFileMetadata(for url: URL) -> [String: String] {
+        let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
+        return ["byteCount": byteCount.map(String.init) ?? "unknown"]
+    }
+
+    private func transcriptionFailureEventName(for error: Error) -> String {
+        if let transcriptionError = error as? AIBuilderTranscriptionError {
+            switch transcriptionError {
+            case .invalidBaseURL, .requestFailed:
+                return "transcription_upload_failed"
+            case .invalidResponse, .emptyTranscript:
+                return "transcription_response_failed"
+            }
+        }
+        if error is DecodingError {
+            return "transcription_response_failed"
+        }
+        return "transcription_upload_failed"
+    }
+
     func sendTranscriptToOpenCode() async {
         guard canCopyTranscript else { return }
         guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
+            recordDiagnostic("opencode_send_failed", metadata: ["reason": "notConfigured"])
             openCodeSendStatus = .failed(String(localized: "record.openCode.error.notConfigured"))
             return
         }
 
         openCodeSendStatus = .sending
+        recordDiagnostic("opencode_send_started", metadata: ["characterCount": "\(transcript.count)"])
         do {
             try await openCodeClient.sendTranscript(
                 transcript,
@@ -265,8 +329,10 @@ final class AppState: ObservableObject {
                 username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
                 password: password
             )
+            recordDiagnostic("opencode_send_succeeded", metadata: ["characterCount": "\(transcript.count)"])
             openCodeSendStatus = .success
         } catch {
+            recordDiagnostic("opencode_send_failed", metadata: diagnosticMetadata(for: error))
             openCodeSendStatus = .failed(String(localized: "record.openCode.error.sendFailed"))
         }
     }

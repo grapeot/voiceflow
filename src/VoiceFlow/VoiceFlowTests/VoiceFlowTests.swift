@@ -281,6 +281,186 @@ struct VoiceFlowTests {
         #expect(clipboard.writtenText == "voice text")
     }
 
+    @Test func recordingDiagnosticsCaptureSafeSuccessPath() async throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-diagnostics-test.wav")
+        try Data("audio".utf8).write(to: fileURL)
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        let diagnostics = InMemoryRecordingDiagnostics()
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            transcriptionClient: MockAIBuilderTranscriptionClient(result: .success("private dictated words")),
+            clipboardWriter: MockClipboardWriter(),
+            diagnostics: diagnostics
+        )
+
+        state.saveAIBuilderToken("fake-sensitive-token")
+        await state.startRecording()
+        await state.stopRecording()
+
+        let eventNames = diagnostics.events.map(\.name)
+        #expect(eventNames.contains("recording_permission_request_started"))
+        #expect(eventNames.contains("recording_start_succeeded"))
+        #expect(eventNames.contains("recording_stop_succeeded"))
+        #expect(eventNames.contains("transcription_started"))
+        #expect(eventNames.contains("transcription_succeeded"))
+        #expect(eventNames.contains("clipboard_copy_succeeded"))
+        #expect(diagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "5")
+        #expect(diagnostics.events.containsSensitiveText(["fake-sensitive-token", "private dictated words"]) == false)
+    }
+
+    @Test func recordingDiagnosticsCapturePermissionAndTranscriptionFailures() async throws {
+        let keychain = InMemoryKeychainStore()
+        let permissionDiagnostics = InMemoryRecordingDiagnostics()
+        let deniedState = AppState(
+            keychainStore: keychain,
+            audioRecorder: MockAudioRecorder(permissionGranted: false),
+            diagnostics: permissionDiagnostics
+        )
+        deniedState.saveAIBuilderToken("fake-sensitive-token")
+        await deniedState.startRecording()
+
+        #expect(permissionDiagnostics.events.map(\.name).contains("recording_permission_denied"))
+        #expect(permissionDiagnostics.events.containsSensitiveText(["fake-sensitive-token"]) == false)
+
+        let failureFileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-diagnostics-failure.wav")
+        try Data("audio".utf8).write(to: failureFileURL)
+        let failureDiagnostics = InMemoryRecordingDiagnostics()
+        let failingState = AppState(
+            keychainStore: keychain,
+            audioRecorder: MockAudioRecorder(outputURL: failureFileURL),
+            transcriptionClient: MockAIBuilderTranscriptionClient(result: .failure(AIBuilderTranscriptionError.requestFailed)),
+            diagnostics: failureDiagnostics
+        )
+        failingState.saveAIBuilderToken("fake-sensitive-token")
+        await failingState.startRecording()
+        await failingState.stopRecording()
+
+        #expect(failureDiagnostics.events.map(\.name).contains("transcription_upload_failed"))
+        #expect(failureDiagnostics.events.containsSensitiveText(["fake-sensitive-token"]) == false)
+    }
+
+    @Test func recordingDiagnosticsCaptureMissingTokenStartStopAndEmptyAudio() async throws {
+        let missingTokenDiagnostics = InMemoryRecordingDiagnostics()
+        let missingTokenState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(),
+            diagnostics: missingTokenDiagnostics
+        )
+        await missingTokenState.startRecording()
+
+        #expect(missingTokenDiagnostics.events.map(\.name).contains("recording_missing_token"))
+
+        let emptyFileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-diagnostics-empty.wav")
+        FileManager.default.createFile(atPath: emptyFileURL.path, contents: Data())
+        let emptyAudioDiagnostics = InMemoryRecordingDiagnostics()
+        let emptyAudioState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(outputURL: emptyFileURL),
+            diagnostics: emptyAudioDiagnostics
+        )
+        emptyAudioState.saveAIBuilderToken("fake-sensitive-token")
+        await emptyAudioState.startRecording()
+        await emptyAudioState.stopRecording()
+
+        #expect(emptyAudioDiagnostics.events.map(\.name).contains("recording_audio_file_empty"))
+        #expect(emptyAudioDiagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "0")
+        #expect(emptyAudioDiagnostics.events.containsSensitiveText(["fake-sensitive-token"]) == false)
+    }
+
+    @Test func recordingDiagnosticsCaptureStartStopAndClipboardFailures() async throws {
+        let startDiagnostics = InMemoryRecordingDiagnostics()
+        let startState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(startError: AudioRecorderError.recordingDidNotStart),
+            diagnostics: startDiagnostics
+        )
+        startState.saveAIBuilderToken("fake-sensitive-token")
+        await startState.startRecording()
+
+        #expect(startDiagnostics.events.map(\.name).contains("recording_start_failed"))
+
+        let stopDiagnostics = InMemoryRecordingDiagnostics()
+        let stopState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(stopError: AudioRecorderError.noActiveRecording),
+            diagnostics: stopDiagnostics
+        )
+        stopState.saveAIBuilderToken("fake-sensitive-token")
+        await stopState.startRecording()
+        await stopState.stopRecording()
+
+        #expect(stopDiagnostics.events.map(\.name).contains("recording_stop_failed"))
+
+        let skippedClipboardDiagnostics = InMemoryRecordingDiagnostics()
+        let skippedClipboardState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            diagnostics: skippedClipboardDiagnostics
+        )
+        skippedClipboardState.copyTranscript()
+
+        #expect(skippedClipboardDiagnostics.events.map(\.name).contains("clipboard_copy_skipped"))
+
+        let failedClipboardDiagnostics = InMemoryRecordingDiagnostics()
+        let failedClipboardState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            clipboardWriter: MockClipboardWriter(writeError: ClipboardTestError.writeFailed),
+            diagnostics: failedClipboardDiagnostics
+        )
+        failedClipboardState.transcript = "private dictated words"
+        failedClipboardState.copyTranscript()
+
+        #expect(failedClipboardDiagnostics.events.map(\.name).contains("clipboard_copy_failed"))
+        #expect(failedClipboardDiagnostics.events.containsSensitiveText(["private dictated words"]) == false)
+    }
+
+    @Test func recordingDiagnosticsCaptureTranscriptionResponseAndOpenCodeEvents() async throws {
+        let responseFileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-diagnostics-response.wav")
+        try Data("audio".utf8).write(to: responseFileURL)
+        let responseDiagnostics = InMemoryRecordingDiagnostics()
+        let responseState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(outputURL: responseFileURL),
+            transcriptionClient: MockAIBuilderTranscriptionClient(result: .failure(AIBuilderTranscriptionError.emptyTranscript)),
+            diagnostics: responseDiagnostics
+        )
+        responseState.saveAIBuilderToken("fake-sensitive-token")
+        await responseState.startRecording()
+        await responseState.stopRecording()
+
+        #expect(responseDiagnostics.events.map(\.name).contains("transcription_response_failed"))
+
+        let openCodeSuccessDiagnostics = InMemoryRecordingDiagnostics()
+        let openCodeSuccessState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            openCodeClient: MockOpenCodeClient(result: .success(())),
+            diagnostics: openCodeSuccessDiagnostics
+        )
+        openCodeSuccessState.transcript = "private dictated words"
+        openCodeSuccessState.saveOpenCodePassword("fake-opencode-password")
+        await openCodeSuccessState.sendTranscriptToOpenCode()
+
+        let successEventNames = openCodeSuccessDiagnostics.events.map(\.name)
+        #expect(successEventNames.contains("opencode_send_started"))
+        #expect(successEventNames.contains("opencode_send_succeeded"))
+        #expect(openCodeSuccessDiagnostics.events.containsSensitiveText(["fake-opencode-password", "private dictated words"]) == false)
+
+        let openCodeFailureDiagnostics = InMemoryRecordingDiagnostics()
+        let openCodeFailureState = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            openCodeClient: MockOpenCodeClient(result: .failure(OpenCodeClientError.promptSendFailed)),
+            diagnostics: openCodeFailureDiagnostics
+        )
+        openCodeFailureState.transcript = "private dictated words"
+        openCodeFailureState.saveOpenCodePassword("fake-opencode-password")
+        await openCodeFailureState.sendTranscriptToOpenCode()
+
+        #expect(openCodeFailureDiagnostics.events.map(\.name).contains("opencode_send_failed"))
+        #expect(openCodeFailureDiagnostics.events.containsSensitiveText(["fake-opencode-password", "private dictated words"]) == false)
+    }
+
+
 }
 
 private func resetOpenCodeDefaults() {
@@ -313,6 +493,20 @@ private func requestBodyData(for request: URLRequest) throws -> Data {
         data.append(buffer, count: count)
     }
     return data
+}
+
+
+private extension Array where Element == RecordingDiagnosticEvent {
+    func containsSensitiveText(_ sensitiveTexts: [String]) -> Bool {
+        let haystack = flatMap { event in
+            [event.name] + event.metadata.flatMap { [$0.key, $0.value] }
+        }.joined(separator: " ")
+        return sensitiveTexts.contains { haystack.contains($0) }
+    }
+}
+
+private enum ClipboardTestError: Error {
+    case writeFailed
 }
 
 final class MockURLProtocol: URLProtocol {

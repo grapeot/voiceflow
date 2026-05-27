@@ -12,9 +12,17 @@ struct SystemClipboardWriter: ClipboardWriting {
 }
 
 final class MockClipboardWriter: ClipboardWriting {
+    var writeError: Error?
     private(set) var writtenText: String?
 
+    init(writeError: Error? = nil) {
+        self.writeError = writeError
+    }
+
     func write(_ text: String) throws {
+        if let writeError {
+            throw writeError
+        }
         writtenText = text
     }
 }
