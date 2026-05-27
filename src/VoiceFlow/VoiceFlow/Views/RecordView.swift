@@ -6,23 +6,19 @@ struct RecordView: View {
     @State private var showOpenCodeInfo = false
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 8) {
-                statusHeader
-                    .frame(height: geometry.size.height * 0.10)
+        VStack(spacing: 8) {
+            statusHeader
 
-                RecordingTimerView(timeString: appState.recordingTimerText)
-                    .frame(height: geometry.size.height * 0.05)
+            RecordingTimerView(timeString: appState.recordingTimerText)
 
-                recordingControls
-                    .frame(height: geometry.size.height * 0.12)
+            recordingControls
 
-                transcriptPanel
-                    .frame(height: geometry.size.height * 0.73)
-            }
-            .padding()
-            .contentShape(Rectangle())
+            transcriptPanel
+                .frame(maxHeight: .infinity)
         }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .contentShape(Rectangle())
         #if os(visionOS)
         .frame(minWidth: 400, idealWidth: 600, maxWidth: 800,
                minHeight: 400, idealHeight: 1000, maxHeight: 1500)
@@ -194,13 +190,14 @@ struct RecordView: View {
             .disabled(!appState.canNavigateNextTranscript)
             .accessibilityIdentifier("record.historyNextButton")
         }
-        .padding()
+        .padding(.horizontal)
     }
 
     private var transcriptPanel: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $appState.transcript)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding()
                     .padding(.bottom, 8)
                     .overlay(
@@ -227,8 +224,7 @@ struct RecordView: View {
                     .accessibilityIdentifier("record.transcriptCharacterCount")
                     .allowsHitTesting(false)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(spacing: 12) {
                 Button(action: appState.copyTranscript) {
@@ -285,10 +281,11 @@ struct RecordView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .padding(.top, 16)
+            .padding(.top, 12)
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 8)
         }
+        .clipped()
     }
 
     private var transcriptCharacterCountLabel: String {

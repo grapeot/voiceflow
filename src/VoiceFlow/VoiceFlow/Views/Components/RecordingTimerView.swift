@@ -6,7 +6,9 @@ struct RecordingTimerView: View {
     var body: some View {
         Text(timeString)
             .font(.title)
-            .padding()
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
             .accessibilityIdentifier("record.recordingTimer")
             .accessibilityValue(timeString)
     }

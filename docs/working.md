@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-05-26 (layout)
+
+- Record 页去掉 GeometryReader 百分比高度（原先四段合计 100%，再加 spacing/padding 导致 Copy / OpenCode 按钮溢出 tab bar）；改为 flex 布局，transcript 区占剩余空间并 `.clipped()`
+- Record tab 包一层 `NavigationStack`，与 Settings 一致，避免 safe area 处理不对称
+- 录音计时器 top padding 16pt → 8pt；按钮区 bottom padding 20pt → 8pt
+
 ### 2026-05-26
 
 - 创建 VoiceFlow 公开仓库与文档骨架（PRD / RFC / test / AGENTS）
