@@ -15,7 +15,8 @@ voiceflow_xcodebuild_common_args \
   "$PROJECT" \
   VoiceFlow \
   "$VOICEFLOW_TEST_DESTINATION" \
-  -only-testing:VoiceFlowTests
+  -only-testing:VoiceFlowTests \
+  -skip-testing:VoiceFlowTests/LiveWebSocketIntegrationTests
 
 if [[ "${VOICEFLOW_TEST_REBUILD:-}" == "1" ]]; then
   voiceflow_xcodebuild_run build-for-testing
