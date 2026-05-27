@@ -38,6 +38,29 @@ final class VoiceFlowUITests: XCTestCase {
     }
 
     @MainActor
+    func testTokenIsMaskedAfterSavingAndCanBeCleared() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestMode", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        app.tabBars.buttons["Settings"].tap()
+        let tokenField = app.secureTextFields["settings.apiTokenField"]
+        XCTAssertTrue(tokenField.waitForExistence(timeout: 5))
+        tokenField.tap()
+        tokenField.typeText("fake-ui-token")
+        app.buttons["settings.saveTokenButton"].tap()
+
+        XCTAssertTrue(app.staticTexts["settings.apiTokenMaskedValue"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["fake-ui-token"].exists)
+
+        app.buttons["settings.testConnectionButton"].tap()
+        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: 5))
+
+        app.buttons["settings.clearTokenButton"].tap()
+        XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testChineseAppShell() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_Hans_US"]

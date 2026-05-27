@@ -8,9 +8,19 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("settings.apiToken.placeholder", text: $tokenInput)
-                        .textContentType(.password)
-                        .accessibilityIdentifier("settings.apiTokenField")
+                    if appState.hasSavedAIBuilderToken {
+                        HStack {
+                            Text("settings.apiToken.placeholder")
+                            Spacer()
+                            Text(appState.tokenDisplayValue)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("settings.apiTokenMaskedValue")
+                        }
+                    } else {
+                        SecureField("settings.apiToken.placeholder", text: $tokenInput)
+                            .textContentType(.password)
+                            .accessibilityIdentifier("settings.apiTokenField")
+                    }
 
                     HStack {
                         Text("settings.apiToken.status")
@@ -29,8 +39,31 @@ struct SettingsView: View {
                             .accessibilityIdentifier("settings.endpointValue")
                     }
 
-                    Button("settings.testConnection") {}
-                        .accessibilityIdentifier("settings.testConnectionButton")
+                    HStack {
+                        Button("settings.apiToken.save") {
+                            appState.saveAIBuilderToken(tokenInput)
+                            tokenInput = ""
+                        }
+                        .disabled(appState.hasSavedAIBuilderToken || tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("settings.saveTokenButton")
+
+                        Button("settings.apiToken.clear", role: .destructive) {
+                            appState.clearAIBuilderToken()
+                            tokenInput = ""
+                        }
+                        .disabled(!appState.hasSavedAIBuilderToken)
+                        .accessibilityIdentifier("settings.clearTokenButton")
+                    }
+
+                    Button("settings.testConnection") {
+                        Task { await appState.testAIBuilderConnection() }
+                    }
+                    .disabled(!appState.hasSavedAIBuilderToken || appState.connectionStatus == .testing)
+                    .accessibilityIdentifier("settings.testConnectionButton")
+
+                    Text(appState.connectionStatus.localizedText)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("settings.connectionStatus")
                 } header: {
                     Text("settings.aiBuilder.title")
                 } footer: {
