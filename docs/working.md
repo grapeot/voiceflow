@@ -86,6 +86,7 @@
 - OpenCode 发送应独立于转写主路径 gating：配置保存不等于可发送，连接测试通过后再启用发送按钮，避免误发到未验证 server。
 - Tailscale MagicDNS（`*.ts.net`）可按私有网络处理，HTTP 不应与公网 remote HTTP 使用同一拒绝规则。
 - iOS 要在 Files app 中浏览 app Documents，必须在 Info.plist 启用 `UIFileSharingEnabled`；仅有 `copyItem` 到 Documents 不够。
+- 对 app sandbox 内的 file URL，不要直接塞给 `UIActivityViewController`；真机会报 `NSOSStatusErrorDomain -10814`。本地文件预览用 SwiftUI `.quickLookPreview` 更稳。
 
 ## Verification
 
@@ -165,6 +166,11 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
+
+### 2026-05-26 Save recording preview fix
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
+- 修复保存后「Open in Files」：`UIActivityViewController` + sandbox URL 在真机报 `-10814`；改 `.quickLookPreview`，alert dismiss 后延迟再弹出。
 
 ### 2026-05-26 Save recording Files UX
 

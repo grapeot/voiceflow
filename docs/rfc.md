@@ -22,7 +22,6 @@ VoiceFlow/
     SettingsView.swift
     Components/
       ColoredButtonStyle.swift
-      DocumentShareSheet.swift
       KeyboardDismissOnTap.swift
       RecordingStatusHeaderView.swift
   Models/
@@ -92,7 +91,7 @@ ready -> (start again) -> requestingPermission -> ...
 
 历史：`TranscriptHistory` index 0 为最新；`navigatePrevious` 更旧，`navigateNext` 更新。录音完成后持久化 `last-recording.wav`（Application Support）供保存到 Documents 与重发转写。
 
-保存录音：`RecordingFileSaver` 把 `last-recording.wav` 复制到 Documents，文件名 `recording_yyyy-MM-dd_HH-mm-ss.wav`。`URLScheme.plist` 启用 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，使 Files → On My iPhone → VoiceFlow 可见。保存成功设置 `lastSavedRecording` 并弹窗确认；「Open in Files」走 `UIActivityViewController` 分享面板。标题下方 caption 保留可点击的最近保存文件名。
+保存录音：`RecordingFileSaver` 把 `last-recording.wav` 复制到 Documents，文件名 `recording_yyyy-MM-dd_HH-mm-ss.wav`。`URLScheme.plist` 启用 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，使 Files → On My iPhone → VoiceFlow 可见。保存成功设置 `lastSavedRecording` 并弹窗确认；「Open in Files」用 SwiftUI `.quickLookPreview` 预览本地 WAV（避免直接对 sandbox URL 调 `UIActivityViewController` 触发 `-10814`），预览内分享按钮可再导出。标题下方 caption 可再次点开预览。
 
 ## 录音诊断
 

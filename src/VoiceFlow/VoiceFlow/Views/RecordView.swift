@@ -4,7 +4,7 @@ struct RecordView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
     @State private var showOpenCodeInfo = false
-    @State private var shareRecordingURL: URL?
+    @State private var previewRecordingURL: URL?
 
     var body: some View {
         GeometryReader { geometry in
@@ -53,10 +53,10 @@ struct RecordView: View {
             isPresented: savedRecordingAlertPresented
         ) {
             Button(localized("record.save.openInFiles")) {
-                if let url = appState.lastSavedRecording?.fileURL {
-                    shareRecordingURL = url
-                }
                 appState.acknowledgeSavedRecordingAlert()
+                if let url = appState.lastSavedRecording?.fileURL {
+                    presentSavedRecordingPreview(for: url)
+                }
             }
             .accessibilityIdentifier("record.save.openInFilesButton")
             Button(localized("record.error.alert.ok"), role: .cancel) {
@@ -74,12 +74,16 @@ struct RecordView: View {
             }
         }
         #if os(iOS)
-        .sheet(isPresented: shareSheetPresented, onDismiss: { shareRecordingURL = nil }) {
-            if let url = shareRecordingURL {
-                DocumentShareSheet(url: url)
-            }
-        }
+        .quickLookPreview($previewRecordingURL)
         #endif
+    }
+
+    private func presentSavedRecordingPreview(for url: URL) {
+        Task { @MainActor in
+            // Wait for any alert dismissal animation so Quick Look does not fight the gesture gate.
+            try? await Task.sleep(for: .milliseconds(400))
+            previewRecordingURL = url
+        }
     }
 
     private var savedRecordingAlertPresented: Binding<Bool> {
@@ -88,17 +92,6 @@ struct RecordView: View {
             set: { isPresented in
                 if !isPresented {
                     appState.acknowledgeSavedRecordingAlert()
-                }
-            }
-        )
-    }
-
-    private var shareSheetPresented: Binding<Bool> {
-        Binding(
-            get: { shareRecordingURL != nil },
-            set: { isPresented in
-                if !isPresented {
-                    shareRecordingURL = nil
                 }
             }
         )
@@ -138,7 +131,7 @@ struct RecordView: View {
                 .multilineTextAlignment(.center)
         } else if let savedRecording = appState.lastSavedRecording {
             Button {
-                shareRecordingURL = savedRecording.fileURL
+                presentSavedRecordingPreview(for: savedRecording.fileURL)
             } label: {
                 Text(
                     String(
