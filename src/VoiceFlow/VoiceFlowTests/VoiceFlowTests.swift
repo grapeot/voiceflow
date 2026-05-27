@@ -713,6 +713,49 @@ struct VoiceFlowTests {
         #expect(openCodeFailureDiagnostics.events.containsSensitiveText(["fake-opencode-password", "private dictated words"]) == false)
     }
 
+    @Test func deepLinkParserAcceptsRecordURLVariants() async throws {
+        #expect(DeepLink.parse(URL(string: "voiceflow://record")!) == .startRecording)
+        #expect(DeepLink.parse(URL(string: "voiceflow://record/")!) == .startRecording)
+        #expect(DeepLink.parse(URL(string: "voiceflow:///record")!) == .startRecording)
+        #expect(DeepLink.parse(URL(string: "voiceflow://settings")!) == nil)
+        #expect(DeepLink.parse(URL(string: "https://example.test/record")!) == nil)
+    }
+
+    @Test func deepLinkRecordURLStartsRecordingAndSwitchesToRecordTab() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder
+        )
+
+        state.selectedTab = .settings
+        state.handleIncomingURL(URL(string: "voiceflow://record?token=ignored")!)
+
+        #expect(state.selectedTab == .record)
+        #expect(state.pendingDeepLinkStartRecording == true)
+
+        state.saveAIBuilderToken("fake-token")
+        await state.consumePendingDeepLinkStartRecordingIfNeeded()
+
+        #expect(state.pendingDeepLinkStartRecording == false)
+        #expect(state.recordingStatus == .recording)
+    }
+
+    @Test func deepLinkIgnoresUnknownURLsAndDoesNotLogQueryValues() async throws {
+        let diagnostics = InMemoryRecordingDiagnostics()
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            diagnostics: diagnostics
+        )
+
+        state.handleIncomingURL(URL(string: "voiceflow://settings?secret=abc")!)
+
+        #expect(state.pendingDeepLinkStartRecording == false)
+        #expect(diagnostics.events.map(\.name).contains("deeplink_ignored"))
+        #expect(diagnostics.events.containsSensitiveText(["abc"]) == false)
+    }
+
 
 }
 

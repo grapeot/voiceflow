@@ -55,6 +55,8 @@
 - 连接测试失败时在 Settings 展示具体错误信息（`ConnectionStatus.detail`）。
 - Settings 点击文本框外区域自动收起键盘（API token 与 OpenCode 字段均适用）。
 - OpenCode 说明文案更新：URL/username 保留在本机，仅密码进 Keychain。
+- 实现 deep link `voiceflow://record`：注册 URL scheme，根视图 `.onOpenURL` 切到 Record tab 并复用 `startRecording()`。
+- README 补充 Shortcuts / Action Button 用法。
 
 ## Lessons Learned
 
@@ -148,4 +150,10 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：OpenCode 清除仅删密码、连接失败 detail。
 - UI tests 本轮未跑；新增 Settings UX 相关 UI test 待后续单独验证。
+
+### 2026-05-26 Deep link record
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
+- 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
+- UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
 - 单元测试覆盖：双向历史导航、保存录音到 Documents、重发录音重新转写、OpenCode gating mock 连接。

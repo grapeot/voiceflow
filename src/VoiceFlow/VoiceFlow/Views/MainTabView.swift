@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct MainTabView: View {
+    @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
 
     var body: some View {
-        TabView {
+        TabView(selection: $appState.selectedTab) {
             RecordView()
                 .tabItem {
                     Label {
@@ -14,6 +15,7 @@ struct MainTabView: View {
                     }
                         .accessibilityIdentifier("tab.record")
                 }
+                .tag(AppState.AppTab.record)
                 .accessibilityIdentifier("tab.record")
 
             SettingsView()
@@ -25,6 +27,7 @@ struct MainTabView: View {
                     }
                         .accessibilityIdentifier("tab.settings")
                 }
+                .tag(AppState.AppTab.settings)
                 .accessibilityIdentifier("tab.settings")
         }
     }
