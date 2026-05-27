@@ -6,7 +6,9 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $appState.selectedTab) {
-            RecordView()
+            NavigationStack {
+                RecordView()
+            }
                 .tabItem {
                     Label {
                         Text(localized("tab.record"))
