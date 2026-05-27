@@ -10,6 +10,17 @@
 "record.history" = "History";
 "record.sendToOpenCode" = "Send to OpenCode";
 "record.openCode.optional" = "OpenCode is optional. Voice input works without it.";
+"record.status.idle" = "Ready to record";
+"record.status.requestingPermission" = "Requesting microphone access...";
+"record.status.recording" = "Recording...";
+"record.status.transcribing" = "Transcribing...";
+"record.status.ready" = "Transcript ready";
+"record.error.missingToken" = "Save an AI Builder token before recording.";
+"record.error.microphoneDenied" = "Microphone access is disabled. Enable it in Settings to record.";
+"record.error.recordingFailed" = "Recording failed. Try again.";
+"record.error.transcriptionFailed" = "Transcription failed. Your token and recording were not logged.";
+"record.clipboard.copied" = "Copied to clipboard.";
+"record.clipboard.failed" = "Could not copy to clipboard.";
 "settings.aiBuilder.title" = "AI Builder Space";
 "settings.apiToken.placeholder" = "API token";
 "settings.apiToken.status" = "Token";
