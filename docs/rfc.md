@@ -145,10 +145,10 @@ Services/
    - `finalize()`：flush send 队列 → `commit` + `stop` → 等待 `session_stopped`（映射为 `status: idle`，30s 超时）；失败时 recover 后重试。
 3. **isRecovering 门闩**：恢复期间暂停 live send，避免与 replay 交错。
 
-`AppState` 集成：
+`AppState` 集成（转写 UI 对齐 OpenCode iOS）：
 
-- Start：`beginLiveSession`（非阻塞 WS）→ `AudioRecorder.startRecording` → `AudioChunkEncoder` → session.append；WS attach 在后台 Task。
-- Stop：stop mic → persist WAV → flush encoder → `session.finalize`（等待 recover）→ history + clipboard。
+- Start：`beginLiveSession`（非阻塞 WS）→ `AudioRecorder.startRecording` → `AudioChunkEncoder` → session.append；WS attach 在后台 Task；`transcript` 保持空，忽略录音/recover 期的 `transcript_delta`。
+- Stop：stop mic → persist WAV → flush encoder → `session.finalize`（等待 recover）→ 仅在 finalize 阶段应用 WS 转写与 partial 回调 → history + clipboard。
 - `streamConnectionPhase` 驱动状态灯：connected=绿、recovering/connecting/generating=橙、disconnected=红。
 - 剪贴板：stream 期间 throttle（1s、同 hash 跳过）。
 - Scene：background cancel session；active heartbeat。
@@ -158,8 +158,8 @@ Services/
 
 | 场景 | 检测 | 行为 | partial transcript |
 |---|---|---|---|
-| send/ping 失败 | URLSession 错误 | recover + 指数退避重试 + replay cache | 保留；`recoveryStarted` 触发 epoch snapshot |
-| receive disconnect | receive 失败 / `.disconnected` | 录音中 recover；finalize 中断开：等待 recover 后重试 | 保留 |
+| send/ping 失败 | URLSession 错误 | recover + 指数退避重试 + replay cache | UI 不更新；仅 caption |
+| receive disconnect | receive 失败 / `.disconnected` | 录音中 recover；finalize 中断开：等待 recover 后重试 | UI 不更新 |
 | Start 时 socket 慢 | session nil | mic/cache 先启动，deferred attach；cache 累积后 bulk 重放 | N/A |
 | server `error` | JSON type=error | 录音中：caption only（无 modal）；phase→disconnected | 保留 |
 | recover 持久失败 | 重试耗尽 `.recoveryFailed` | caption `record.error.streamDisconnected`；录音继续 | 保留 |
@@ -170,7 +170,7 @@ Services/
 
 #### UI
 
-- 转写区 `TextEditor` 随 text delta append；`TranscriptEpochMerger` 在 recover 后 `isNewResponse` 只替换当前 epoch，不 wipe snapshot。
+- 转写区 `TextEditor` 仅在 Stop 后 transcribing/finalize 阶段随 text delta 更新；录音与 recover 期间不消费 WS 转写（`RealtimeLiveSessionHandle.shouldNotifyUI` + `AppState` 双门闩）。
 - 状态灯：connected=绿、recovering/connecting/generating=橙、disconnected=红。
 - 录音中 transient 问题：caption `record.status.reconnecting` 或 `record.error.streamDisconnected`（非 modal）。
 

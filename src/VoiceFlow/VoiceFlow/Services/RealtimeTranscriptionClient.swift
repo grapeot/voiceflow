@@ -120,6 +120,8 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private var phase: RealtimeConnectionPhase = .connecting
     private var isFinalizing = false
     private var finalizeContinuation: CheckedContinuation<Void, Error>?
+    private var finalizeTranscriptAccumulator = ""
+    private var finalizePartialCallback: (@Sendable (String) -> Void)?
 
     init(
         cache: AudioChunkCache,
@@ -174,10 +176,14 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)? = nil) async throws {
         isFinalizing = true
+        finalizeTranscriptAccumulator = ""
+        finalizePartialCallback = onPartialTranscript
         phase = .generating
         defer {
             isFinalizing = false
             finalizeContinuation = nil
+            finalizePartialCallback = nil
+            finalizeTranscriptAccumulator = ""
         }
 
         while isRecovering {
@@ -233,7 +239,19 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 group.cancelAll()
             }
         }
-        _ = onPartialTranscript
+    }
+
+    func ingestServerEvent(_ event: RealtimeTranscriptEvent) {
+        handleServerEvent(event)
+    }
+
+    func shouldNotifyUI(for event: RealtimeTranscriptEvent) -> Bool {
+        switch event {
+        case .textDelta:
+            return isFinalizing
+        default:
+            return true
+        }
     }
 
     private func storeFinalizeContinuation(_ continuation: CheckedContinuation<Void, Error>) {
@@ -287,8 +305,14 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             if isFinalizing {
                 completeFinalize(with: .failure(RealtimeTranscriptionError.websocketError(message)))
             }
-        case .textDelta:
-            break
+        case .textDelta(let content, let isNewResponse):
+            guard isFinalizing else { return }
+            finalizeTranscriptAccumulator = TranscriptDeltaReducer.apply(
+                current: finalizeTranscriptAccumulator,
+                content: content,
+                isNewResponse: isNewResponse
+            )
+            finalizePartialCallback?(finalizeTranscriptAccumulator)
         case .recoveryStarted, .recoveryFailed:
             break
         }
@@ -362,8 +386,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
                 token: trimmedToken,
                 model: model,
                 onEvent: { event in
-                    onEvent(event)
-                    Task { await handle.handleServerEvent(event) }
+                    Self.deliverLiveSessionEvent(event, handle: handle, onEvent: onEvent)
                 }
             )
         }
@@ -375,8 +398,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
                     token: trimmedToken,
                     model: model,
                     onEvent: { event in
-                        onEvent(event)
-                        Task { await handle.handleServerEvent(event) }
+                        Self.deliverLiveSessionEvent(event, handle: handle, onEvent: onEvent)
                     }
                 )
                 try await handle.attachInitialSession(initialSession)
@@ -434,6 +456,19 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             throw RealtimeTranscriptionError.emptyTranscript
         }
         return trimmed
+    }
+
+    private static func deliverLiveSessionEvent(
+        _ event: RealtimeTranscriptEvent,
+        handle: RealtimeLiveSessionHandle,
+        onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
+    ) {
+        Task {
+            await handle.ingestServerEvent(event)
+            if await handle.shouldNotifyUI(for: event) {
+                onEvent(event)
+            }
+        }
     }
 
     private static func makeSession(
@@ -580,6 +615,7 @@ final class MockRealtimeTranscriptionClient: RealtimeTranscribing, @unchecked Se
     nonisolated(unsafe) private var didFinalizeValue = false
     nonisolated(unsafe) private var didCancelValue = false
     nonisolated(unsafe) private var liveEventHandler: (@Sendable (RealtimeTranscriptEvent) -> Void)?
+    nonisolated(unsafe) private var activeLiveSession: MockLiveSession?
 
     init(
         liveResult: Result<String, Error> = .success("mock stream transcript"),
@@ -595,19 +631,27 @@ final class MockRealtimeTranscriptionClient: RealtimeTranscribing, @unchecked Se
         model: String,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession {
+        let session = MockLiveSession(client: self, onEvent: onEvent)
         lock.lock()
         liveEventHandler = onEvent
+        activeLiveSession = session
         lock.unlock()
         onEvent(.status(.connected))
-        return MockLiveSession(client: self, onEvent: onEvent)
+        return session
     }
 
     nonisolated func emitLiveEvent(_ event: RealtimeTranscriptEvent) async {
         lock.lock()
-        let handler = liveEventHandler
+        let session = activeLiveSession
         lock.unlock()
-        handler?(event)
-        await Task { @MainActor in }.value
+        if let session {
+            await session.ingest(event)
+        } else {
+            lock.lock()
+            let handler = liveEventHandler
+            lock.unlock()
+            handler?(event)
+        }
     }
 
     func transcribeBulkPCM(
@@ -668,10 +712,21 @@ private actor MockLiveSession: RealtimeLiveTranscriptionSession {
     private let client: MockRealtimeTranscriptionClient
     private let onEvent: @Sendable (RealtimeTranscriptEvent) -> Void
     private var phase: RealtimeConnectionPhase = .connected
+    private var isFinalizing = false
 
     init(client: MockRealtimeTranscriptionClient, onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) {
         self.client = client
         self.onEvent = onEvent
+    }
+
+    func ingest(_ event: RealtimeTranscriptEvent) {
+        switch event {
+        case .textDelta:
+            guard isFinalizing else { return }
+            onEvent(event)
+        default:
+            onEvent(event)
+        }
     }
 
     var connectionPhase: RealtimeConnectionPhase {
@@ -685,9 +740,13 @@ private actor MockLiveSession: RealtimeLiveTranscriptionSession {
     func heartbeat() async {}
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws {
+        isFinalizing = true
         phase = .generating
-        let text = try client.simulateFinalize(onEvent: onEvent)
+        let text = try client.liveResult.get()
+        ingest(.textDelta(content: text, isNewResponse: true))
+        ingest(.status(.idle))
         onPartialTranscript?(text)
+        isFinalizing = false
         phase = .disconnected
     }
 
