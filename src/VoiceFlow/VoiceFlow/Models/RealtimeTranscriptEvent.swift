@@ -12,6 +12,8 @@ enum RealtimeTranscriptEvent: Equatable, Sendable {
     case textDelta(content: String, isNewResponse: Bool)
     case error(message: String)
     case disconnected
+    case recoveryStarted
+    case recoveryFailed(message: String)
 }
 
 enum RealtimeConnectionPhase: Sendable, Hashable {
@@ -58,6 +60,8 @@ enum RealtimeTranscriptionConfig: Sendable {
     nonisolated static let sessionCreatePath = "/v1/audio/realtime/sessions"
     nonisolated static let commitMessage = "{\"type\":\"commit\"}"
     nonisolated static let stopMessage = "{\"type\":\"stop\"}"
+    nonisolated static let maxRecoverAttempts = 5
+    nonisolated static let recoverBackoffBaseMilliseconds = 300
 
     nonisolated static var chunkByteSize: Int {
         Int(sampleRate * chunkDurationSeconds) * 2
@@ -165,6 +169,37 @@ enum TranscriptDeltaReducer: Sendable {
             return content
         }
         return current + content
+    }
+}
+
+struct TranscriptEpochMerger: Sendable, Equatable {
+    private(set) var transcriptSnapshot: String = ""
+    private(set) var streamEpoch: Int = 0
+    private var epochText: String = ""
+
+    var mergedTranscript: String {
+        transcriptSnapshot + epochText
+    }
+
+    mutating func reset() {
+        transcriptSnapshot = ""
+        epochText = ""
+        streamEpoch = 0
+    }
+
+    mutating func beginRecovery() {
+        transcriptSnapshot = mergedTranscript
+        epochText = ""
+        streamEpoch += 1
+    }
+
+    mutating func apply(content: String, isNewResponse: Bool) -> String {
+        if isNewResponse {
+            epochText = content
+        } else {
+            epochText += content
+        }
+        return mergedTranscript
     }
 }
 

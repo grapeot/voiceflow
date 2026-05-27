@@ -147,8 +147,8 @@ Services/
 
 `AppState` 集成：
 
-- Start：`beginLiveSession` → `AudioRecorder.startRecording(onPCMChunk:)` → `AudioChunkEncoder` → session.append。
-- Stop：stop mic → persist WAV → flush encoder → `session.finalize` → history + clipboard。
+- Start：`beginLiveSession`（非阻塞 WS）→ `AudioRecorder.startRecording` → `AudioChunkEncoder` → session.append；WS attach 在后台 Task。
+- Stop：stop mic → persist WAV → flush encoder → `session.finalize`（等待 recover）→ history + clipboard。
 - `streamConnectionPhase` 驱动状态灯：connected=绿、recovering/connecting/generating=橙、disconnected=红。
 - 剪贴板：stream 期间 throttle（1s、同 hash 跳过）。
 - Scene：background cancel session；active heartbeat。
@@ -158,20 +158,21 @@ Services/
 
 | 场景 | 检测 | 行为 | partial transcript |
 |---|---|---|---|
-| send/ping 失败 | URLSession 错误 | recover + replay cache | 保留 |
-| receive disconnect | receive 失败 / `.disconnected` | 录音中断开：recover；finalize 中断开：超时错误 | 保留 |
-| Start 时 socket 慢 | session nil | cache 累积，attach/replay 后 bulk 发送 | N/A |
-| server `error` | JSON type=error | alert；phase→disconnected | 保留 |
-| finalize 超时 | 30s 无 idle | 错误；若有 partial 则 ready + alert | 保留 |
+| send/ping 失败 | URLSession 错误 | recover + 指数退避重试 + replay cache | 保留；`recoveryStarted` 触发 epoch snapshot |
+| receive disconnect | receive 失败 / `.disconnected` | 录音中 recover；finalize 中断开：等待 recover 后重试 | 保留 |
+| Start 时 socket 慢 | session nil | mic/cache 先启动，deferred attach；cache 累积后 bulk 重放 | N/A |
+| server `error` | JSON type=error | 录音中：caption only（无 modal）；phase→disconnected | 保留 |
+| recover 持久失败 | 重试耗尽 `.recoveryFailed` | caption `record.error.streamDisconnected`；录音继续 | 保留 |
+| finalize 超时/失败 | 30s 无 idle / 错误 | 若有 partial：ready + caption（无 modal）+ history/clipboard | 保留 |
 | 正常 idle | status idle | history + auto copy（>3 字符） | 最终文本 |
 | Resend | bulk 完成 idle | 同 V0 历史/clipboard | 替换为 bulk 结果 |
 | Background | scenePhase | cancel session；回前台需重新录音 | 保留 |
 
 #### UI
 
-- 转写区 `TextEditor` 随 `text` delta append；`isNewResponse` 替换当前轮次。
-- 状态灯见上；录音计时器不变。
-- 断开提示 key：`record.error.streamDisconnected`（保留 partial 时弹出）。
+- 转写区 `TextEditor` 随 text delta append；`TranscriptEpochMerger` 在 recover 后 `isNewResponse` 只替换当前 epoch，不 wipe snapshot。
+- 状态灯：connected=绿、recovering/connecting/generating=橙、disconnected=红。
+- 录音中 transient 问题：caption `record.status.reconnecting` 或 `record.error.streamDisconnected`（非 modal）。
 
 #### 测试
 

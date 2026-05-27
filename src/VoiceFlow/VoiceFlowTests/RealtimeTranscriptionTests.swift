@@ -4,6 +4,40 @@ import Testing
 
 @Suite(.serialized)
 struct RealtimeTranscriptionTests {
+    @Test func transcriptEpochMergerPreservesSnapshotAfterRecovery() {
+        var merger = TranscriptEpochMerger()
+        _ = merger.apply(content: "hello ", isNewResponse: true)
+        _ = merger.apply(content: "world", isNewResponse: false)
+        #expect(merger.mergedTranscript == "hello world")
+        #expect(merger.streamEpoch == 0)
+
+        merger.beginRecovery()
+        #expect(merger.transcriptSnapshot == "hello world")
+        #expect(merger.streamEpoch == 1)
+
+        let afterNewResponse = merger.apply(content: "again", isNewResponse: true)
+        #expect(afterNewResponse == "hello worldagain")
+    }
+
+    @Test func transcriptEpochMergerAppendsWithinEpochAfterRecovery() {
+        var merger = TranscriptEpochMerger()
+        _ = merger.apply(content: "prefix", isNewResponse: true)
+        merger.beginRecovery()
+        _ = merger.apply(content: "part1", isNewResponse: true)
+        let merged = merger.apply(content: " part2", isNewResponse: false)
+        #expect(merged == "prefixpart1 part2")
+    }
+
+    @Test func transcriptEpochMergerResetClearsSnapshotAndEpoch() {
+        var merger = TranscriptEpochMerger()
+        _ = merger.apply(content: "text", isNewResponse: true)
+        merger.beginRecovery()
+        merger.reset()
+        #expect(merger.mergedTranscript.isEmpty)
+        #expect(merger.streamEpoch == 0)
+        #expect(merger.transcriptSnapshot.isEmpty)
+    }
+
     @Test func transcriptDeltaReducerAppendsByDefault() {
         let result = TranscriptDeltaReducer.apply(current: "hello", content: " world", isNewResponse: false)
         #expect(result == "hello world")

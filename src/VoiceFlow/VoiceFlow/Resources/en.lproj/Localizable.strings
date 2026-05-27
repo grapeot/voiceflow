@@ -22,6 +22,7 @@
 "record.status.recording" = "Recording...";
 "record.status.transcribing" = "Transcribing...";
 "record.status.ready" = "Transcript ready";
+"record.status.reconnecting" = "Reconnecting stream...";
 "record.error.missingToken" = "Save an AI Builder token before recording.";
 "record.error.microphoneDenied" = "Microphone access is disabled. Enable it in Settings to record.";
 "record.error.recordingFailed" = "Recording failed. Try again.";
