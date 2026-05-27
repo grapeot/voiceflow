@@ -2,7 +2,6 @@
 "tab.settings" = "设置";
 "record.transcript.title" = "转写文本";
 "record.transcript.placeholder" = "转写结果会显示在这里。";
-"record.clipboard.hint" = "转写完成后会自动复制到剪贴板。";
 "record.controls.title" = "控制";
 "record.start" = "开始录音";
 "record.stop" = "停止";
@@ -10,6 +9,7 @@
 "record.history" = "历史";
 "record.sendToOpenCode" = "发送到 OpenCode";
 "record.openCode.optional" = "OpenCode 是可选配置；发送时会把当前转写文本传到你配置的服务器。";
+"record.openCode.info.accessibility" = "关于 OpenCode";
 "record.status.idle" = "可以开始录音";
 "record.status.requestingPermission" = "正在请求麦克风权限...";
 "record.status.recording" = "正在录音...";
@@ -27,6 +27,7 @@
 "record.openCode.sending" = "正在发送到 OpenCode...";
 "record.openCode.sent" = "已发送到 OpenCode。";
 "record.openCode.error.notConfigured" = "OpenCode 未配置。";
+"record.openCode.error.connectionNotVerified" = "请先在设置中测试 OpenCode 连接。";
 "record.openCode.error.sendFailed" = "发送到 OpenCode 失败。";
 "settings.aiBuilder.title" = "AI Builder Space";
 "settings.apiToken.placeholder" = "API token";
@@ -46,7 +47,13 @@
 "settings.connection.saveFailed" = "无法保存 token。";
 "settings.connection.clearFailed" = "无法清除 token。";
 "settings.openCode.title" = "OpenCode";
-"settings.openCode.optionalHint" = "可选。不配置时仍可使用语音输入。远程服务器请使用 HTTPS；HTTP 只允许 localhost。";
+"settings.openCode.optionalHint" = "可选。不配置时仍可使用语音输入。远程服务器请使用 HTTPS；localhost 和 Tailscale（*.ts.net）主机允许 HTTP。";
+"settings.openCode.testConnection" = "测试 OpenCode 连接";
+"settings.openCode.connection.untested" = "未测试";
+"settings.openCode.connection.testing" = "测试中...";
+"settings.openCode.connection.success" = "连接正常";
+"settings.openCode.connection.failed" = "连接失败";
+"settings.openCode.connection.missingConfig" = "请先保存 OpenCode 配置。";
 "settings.openCode.serverURL" = "服务器地址";
 "settings.openCode.username" = "用户名";
 "settings.openCode.password" = "密码";

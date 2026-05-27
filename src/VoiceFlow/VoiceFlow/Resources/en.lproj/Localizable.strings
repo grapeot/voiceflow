@@ -2,7 +2,6 @@
 "tab.settings" = "Settings";
 "record.transcript.title" = "Transcript";
 "record.transcript.placeholder" = "Your transcription will appear here.";
-"record.clipboard.hint" = "Completed transcriptions will be copied automatically.";
 "record.controls.title" = "Controls";
 "record.start" = "Start Recording";
 "record.stop" = "Stop";
@@ -10,6 +9,7 @@
 "record.history" = "History";
 "record.sendToOpenCode" = "Send to OpenCode";
 "record.openCode.optional" = "OpenCode is optional. Sending transmits the current transcript to your configured server.";
+"record.openCode.info.accessibility" = "About OpenCode";
 "record.status.idle" = "Ready to record";
 "record.status.requestingPermission" = "Requesting microphone access...";
 "record.status.recording" = "Recording...";
@@ -27,6 +27,7 @@
 "record.openCode.sending" = "Sending to OpenCode...";
 "record.openCode.sent" = "Sent to OpenCode.";
 "record.openCode.error.notConfigured" = "OpenCode is not configured.";
+"record.openCode.error.connectionNotVerified" = "Test the OpenCode connection in Settings first.";
 "record.openCode.error.sendFailed" = "Failed to send to OpenCode.";
 "settings.aiBuilder.title" = "AI Builder Space";
 "settings.apiToken.placeholder" = "API token";
@@ -46,7 +47,13 @@
 "settings.connection.saveFailed" = "Could not save the token.";
 "settings.connection.clearFailed" = "Could not clear the token.";
 "settings.openCode.title" = "OpenCode";
-"settings.openCode.optionalHint" = "Optional. VoiceFlow works without OpenCode. Use HTTPS for remote servers; HTTP is limited to localhost.";
+"settings.openCode.optionalHint" = "Optional. VoiceFlow works without OpenCode. Use HTTPS for remote servers; HTTP is allowed for localhost and Tailscale (*.ts.net) hosts.";
+"settings.openCode.testConnection" = "Test OpenCode Connection";
+"settings.openCode.connection.untested" = "Not tested";
+"settings.openCode.connection.testing" = "Testing...";
+"settings.openCode.connection.success" = "Connection OK";
+"settings.openCode.connection.failed" = "Connection failed";
+"settings.openCode.connection.missingConfig" = "Save OpenCode configuration first.";
 "settings.openCode.serverURL" = "Server URL";
 "settings.openCode.username" = "Username";
 "settings.openCode.password" = "Password";

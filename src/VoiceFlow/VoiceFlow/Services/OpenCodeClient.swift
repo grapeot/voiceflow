@@ -2,6 +2,7 @@ import Foundation
 
 protocol OpenCodeSending {
     func sendTranscript(_ text: String, serverURL: String, username: String, password: String) async throws
+    func testConnection(serverURL: String, username: String, password: String) async throws
 }
 
 enum OpenCodeClientError: Error, Equatable {
@@ -31,6 +32,24 @@ struct OpenCodeClient: OpenCodeSending {
         try await sendPrompt(sessionID: sessionID, text: text, baseURL: baseURL, username: username, password: password)
     }
 
+    func testConnection(serverURL: String, username: String, password: String) async throws {
+        let baseURL = try validatedBaseURL(serverURL)
+        let url = baseURL.appending(path: "session")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(authHeaderValue(username: username, password: password), forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw OpenCodeClientError.invalidResponse
+        }
+        guard http.statusCode == 200 else {
+            throw OpenCodeClientError.sessionCreationFailed
+        }
+    }
+
     internal func authHeaderValue(username: String, password: String) -> String {
         let credentials = "\(username):\(password)"
         return "Basic \(Data(credentials.utf8).base64EncodedString())"
@@ -47,7 +66,7 @@ struct OpenCodeClient: OpenCodeSending {
             throw OpenCodeClientError.invalidURL
         }
 
-        if scheme == "http", !Self.isLoopbackHost(host) {
+        if scheme == "http", !Self.allowsInsecureHTTP(for: host) {
             throw OpenCodeClientError.insecureRemoteURL
         }
         guard scheme == "https" || scheme == "http" else {
@@ -63,8 +82,16 @@ struct OpenCodeClient: OpenCodeSending {
         return url
     }
 
+    static func allowsInsecureHTTP(for host: String) -> Bool {
+        isLoopbackHost(host) || isTailscaleHost(host)
+    }
+
     private static func isLoopbackHost(_ host: String) -> Bool {
         host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+    }
+
+    private static func isTailscaleHost(_ host: String) -> Bool {
+        host.hasSuffix(".ts.net")
     }
 
     private func createSession(baseURL: URL, username: String, password: String) async throws -> String {
@@ -118,8 +145,22 @@ struct OpenCodeClient: OpenCodeSending {
 
 struct MockOpenCodeClient: OpenCodeSending {
     let result: Result<Void, Error>
+    let testConnectionResult: Result<Void, Error>?
+
+    init(result: Result<Void, Error>, testConnectionResult: Result<Void, Error>? = nil) {
+        self.result = result
+        self.testConnectionResult = testConnectionResult
+    }
 
     func sendTranscript(_ text: String, serverURL: String, username: String, password: String) async throws {
+        try result.get()
+    }
+
+    func testConnection(serverURL: String, username: String, password: String) async throws {
+        if let testConnectionResult {
+            try testConnectionResult.get()
+            return
+        }
         try result.get()
     }
 }

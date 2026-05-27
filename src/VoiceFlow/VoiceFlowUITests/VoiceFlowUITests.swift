@@ -75,6 +75,8 @@ final class VoiceFlowUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Configured"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["settings.openCodePasswordMaskedValue"].exists)
+        app.buttons["settings.testOpenCodeConnectionButton"].tap()
+        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: 5))
 
         app.buttons["settings.clearOpenCodeButton"].tap()
         XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: 5))

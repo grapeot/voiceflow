@@ -43,6 +43,11 @@
 - 修复录音启动失败：`setPreferredInputNumberOfChannels(1)` 在部分设备上返回 `NSOSStatusErrorDomain -50`（paramErr），现改为 best-effort preference，不再阻断录音；输出 WAV 仍固定 mono 48 kHz。
 - 新增 `scripts/test_unit.sh`（只跑 VoiceFlowTests）和 `scripts/test_all.sh`（unit + UI）；关闭 launch UI test 的 `runsForEachTargetApplicationUIConfiguration`，避免重复启动 app。
 - 完成 privacy review：工作区与 commit history 隐私扫描零命中；`.gitignore` 补充 `.venv/`；对外文档去掉内部实现来源表述；发布到 GitHub public repo `grapeot/voiceflow`。
+- Record 页去掉「转写完成后会自动复制」常驻提示；转写成功后仍自动写入剪贴板，状态区只在复制成功/失败时显示结果。
+- Record 页 OpenCode 说明移到「发送到 OpenCode」旁的 info 按钮，点击后弹窗展示。
+- OpenCode 发送默认禁用；Settings 保存配置并通过连接测试后，Record 页发送按钮才可用。
+- Settings 增加 OpenCode 连接测试；URL/username/password 变更后连接状态回到未测试。
+- OpenCode HTTP 校验对齐 Tailscale：除 localhost/loopback 外，`*.ts.net` 主机也允许 HTTP。
 
 ## Lessons Learned
 
@@ -61,6 +66,8 @@
 - Xcode 生成 Info.plist 时，权限提示这类系统弹窗文案仍需要 `InfoPlist.strings` 做本地化，不能只依赖 build setting 中的英文默认值。
 - `AVAudioSession.setPreferred*` 是 preference，不是 contract；把 `setPreferredInputNumberOfChannels(1)` 当硬 requirement 会在部分 input route 上触发 `-50 paramErr`。
 - `xcodebuild test` 默认会跑 UI tests 并多次冷启动 Simulator app；日常迭代用 `-only-testing:VoiceFlowTests` 或 `./scripts/test_unit.sh`。
+- OpenCode 发送应独立于转写主路径 gating：配置保存不等于可发送，连接测试通过后再启用发送按钮，避免误发到未验证 server。
+- Tailscale MagicDNS（`*.ts.net`）可按私有网络处理，HTTP 不应与公网 remote HTTP 使用同一拒绝规则。
 
 ## Verification
 
@@ -116,3 +123,9 @@
 - 构建产物检查：`VoiceFlow.app/en.lproj` 和 `VoiceFlow.app/zh-Hans.lproj` 均包含 `InfoPlist.strings` 与 `Localizable.strings`。
 - `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]+)' .`：零匹配。
 - `rg --files -g '*.m4a' -g '*.wav' -g '*.caf'`：零匹配。
+
+### 2026-05-26 OpenCode gating and Record UI update
+
+- `./scripts/test_all.sh`（VoiceFlowTests + VoiceFlowUITests）：通过。
+- 单元测试覆盖：转写后仍自动复制、OpenCode 连接测试 gating、Tailscale HTTP 允许、remote HTTP 仍拒绝。
+- UI tests 覆盖：转写后显示复制成功状态、OpenCode info 按钮、配置后需测试连接才能发送。

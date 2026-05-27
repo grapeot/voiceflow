@@ -3,6 +3,7 @@ import SwiftUI
 struct RecordView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
+    @State private var showOpenCodeInfo = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -37,6 +38,15 @@ struct RecordView: View {
                 Text(localized(key))
             }
         }
+        .alert(
+            Text(localized("record.sendToOpenCode")),
+            isPresented: $showOpenCodeInfo
+        ) {
+            Button(localized("record.error.alert.ok"), role: .cancel) {}
+                .accessibilityIdentifier("record.openCode.info.okButton")
+        } message: {
+            Text(localized("record.openCode.optional"))
+        }
     }
 
     private var recordErrorAlertPresented: Binding<Bool> {
@@ -67,13 +77,20 @@ struct RecordView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var statusLine: Text {
+    @ViewBuilder
+    private var statusLine: some View {
         if appState.openCodeSendStatus != .idle {
             Text(localized(appState.openCodeSendStatus.localizedKey))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
         } else if let lastClipboardStatusKey = appState.lastClipboardStatusKey {
             Text(localized(lastClipboardStatusKey))
-        } else {
-            Text(localized("record.clipboard.hint"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
         }
     }
 
@@ -169,45 +186,52 @@ struct RecordView: View {
                 .disabled(!appState.canCopyTranscript)
                 .accessibilityIdentifier("record.copyButton")
 
-                Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
-                    HStack {
-                        switch appState.openCodeSendStatus {
-                        case .sending:
-                            ProgressView()
-                                .scaleEffect(0.8)
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            Text(localized("record.openCode.sending"))
-                        case .success:
-                            Image(systemName: "checkmark.circle.fill")
-                            Text(localized("record.openCode.sent"))
-                        case .failed:
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(localized("record.openCode.error.sendFailed"))
-                        case .idle:
-                            Text("🧠")
-                            Text(localized("record.sendToOpenCode"))
+                HStack(spacing: 8) {
+                    Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
+                        HStack {
+                            switch appState.openCodeSendStatus {
+                            case .sending:
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                Text(localized("record.openCode.sending"))
+                            case .success:
+                                Image(systemName: "checkmark.circle.fill")
+                                Text(localized("record.openCode.sent"))
+                            case .failed:
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                Text(localized("record.openCode.error.sendFailed"))
+                            case .idle:
+                                Text("🧠")
+                                Text(localized("record.sendToOpenCode"))
+                            }
                         }
                     }
+                    .buttonStyle(ColoredButtonStyle(
+                        backgroundColor: appState.openCodeSendStatus == .success ? .green : appState.openCodeSendStatus.isFailed ? .red : .purple,
+                        fixedHeight: 60,
+                        fixedWidth: 170
+                    ))
+                    .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
+                    .accessibilityIdentifier("record.sendOpenCodeButton")
+                    .accessibilityLabel(Text(localized("record.sendToOpenCode")))
+
+                    Button {
+                        showOpenCodeInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("record.openCode.infoButton")
+                    .accessibilityLabel(Text(localized("record.openCode.info.accessibility")))
                 }
-                .buttonStyle(ColoredButtonStyle(
-                    backgroundColor: appState.openCodeSendStatus == .success ? .green : appState.openCodeSendStatus.isFailed ? .red : .purple,
-                    fixedHeight: 60,
-                    fixedWidth: 170
-                ))
                 .frame(maxWidth: .infinity)
-                .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
-                .accessibilityIdentifier("record.sendOpenCodeButton")
-                .accessibilityLabel(Text(localized("record.sendToOpenCode")))
             }
             .padding(.top, 16)
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
-
-            Text(localized("record.openCode.optional"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
         }
     }
 

@@ -32,13 +32,24 @@ final class AppState: ObservableObject {
     @Published var transcriptHistory = TranscriptHistory()
     @Published var hasSavedAIBuilderToken = false
     @Published var openCodeServerURL: String {
-        didSet { UserDefaults.standard.set(openCodeServerURL, forKey: Self.openCodeServerURLDefaultsKey) }
+        didSet {
+            UserDefaults.standard.set(openCodeServerURL, forKey: Self.openCodeServerURLDefaultsKey)
+            if oldValue != openCodeServerURL {
+                openCodeConnectionStatus = .untested
+            }
+        }
     }
     @Published var openCodeUsername: String {
-        didSet { UserDefaults.standard.set(openCodeUsername, forKey: Self.openCodeUsernameDefaultsKey) }
+        didSet {
+            UserDefaults.standard.set(openCodeUsername, forKey: Self.openCodeUsernameDefaultsKey)
+            if oldValue != openCodeUsername {
+                openCodeConnectionStatus = .untested
+            }
+        }
     }
     @Published var hasSavedOpenCodePassword = false
     @Published var openCodeSendStatus: OpenCodeSendStatus = .idle
+    @Published var openCodeConnectionStatus: ConnectionStatus = .untested
     @Published var lastClipboardStatusKey: String?
     @Published var connectionStatus: ConnectionStatus = .untested
     @Published var appLanguage: AppLanguage {
@@ -98,6 +109,7 @@ final class AppState: ObservableObject {
             self.openCodeServerURL = OpenCodeClient.defaultServerURL
             self.openCodeUsername = OpenCodeClient.defaultUsername
             try? self.keychainStore.saveString("fake-opencode-password", for: openCodePasswordKey)
+            self.openCodeConnectionStatus = .success
         }
         self.hasSavedAIBuilderToken = (try? self.keychainStore.readString(for: tokenKey)) != nil
         self.hasSavedOpenCodePassword = (try? self.keychainStore.readString(for: openCodePasswordKey)) != nil
@@ -108,7 +120,7 @@ final class AppState: ObservableObject {
     }
 
     var canSendToOpenCode: Bool {
-        canCopyTranscript && isOpenCodeConfigured
+        canCopyTranscript && isOpenCodeConfigured && openCodeConnectionStatus == .success
     }
 
     var isOpenCodeConfigured: Bool {
@@ -279,6 +291,7 @@ final class AppState: ObservableObject {
             try keychainStore.saveString(trimmed, for: openCodePasswordKey)
             hasSavedOpenCodePassword = true
             openCodeSendStatus = .idle
+            openCodeConnectionStatus = .untested
         } catch {
             openCodeSendStatus = .failed("settings.openCode.saveFailed")
         }
@@ -295,6 +308,26 @@ final class AppState: ObservableObject {
         openCodeUsername = OpenCodeClient.defaultUsername
         hasSavedOpenCodePassword = false
         openCodeSendStatus = .idle
+        openCodeConnectionStatus = .untested
+    }
+
+    func testOpenCodeConnection() async {
+        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
+            openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig")
+            return
+        }
+
+        openCodeConnectionStatus = .testing
+        do {
+            try await openCodeClient.testConnection(
+                serverURL: openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password
+            )
+            openCodeConnectionStatus = .success
+        } catch {
+            openCodeConnectionStatus = .failed("settings.openCode.connection.failed")
+        }
     }
 
     private func presentRecordError(_ key: String) {
@@ -335,6 +368,11 @@ final class AppState: ObservableObject {
         guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
             recordDiagnostic("opencode_send_failed", metadata: ["reason": "notConfigured"])
             openCodeSendStatus = .failed("record.openCode.error.notConfigured")
+            return
+        }
+        guard openCodeConnectionStatus == .success else {
+            recordDiagnostic("opencode_send_failed", metadata: ["reason": "connectionNotVerified"])
+            openCodeSendStatus = .failed("record.openCode.error.connectionNotVerified")
             return
         }
 
