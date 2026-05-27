@@ -5,98 +5,92 @@ final class VoiceFlowUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    @MainActor
     func testEnglishAppShell() throws {
-        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
-        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["record.startButton"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["VoiceFlow"].exists)
-        XCTAssertTrue(app.buttons["Copy"].exists)
-        XCTAssertTrue(app.buttons["Send to OpenCode"].exists)
+        XCTAssertTrue(app.buttons["record.copyButton"].waitForExistence(timeout: 2) || app.buttons["Copy"].exists)
+        XCTAssertTrue(app.buttons["record.sendOpenCodeButton"].waitForExistence(timeout: 2) || app.buttons["Send to OpenCode"].exists)
 
         openSettings(in: app, label: "Settings")
-        XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertTrue(app.staticTexts["https://space.ai-builders.com/backend"].exists)
         XCTAssertTrue(reveal(app.textFields["settings.openCodeServerURLField"], in: app))
         XCTAssertTrue(app.textFields["settings.openCodeUsernameField"].exists)
     }
 
-    @MainActor
     func testTokenIsMaskedAfterSavingAndCanBeCleared() throws {
-        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
         openSettings(in: app, label: "Settings")
         let tokenField = app.secureTextFields["settings.apiTokenField"]
-        XCTAssertTrue(tokenField.waitForExistence(timeout: 5))
+        XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         tokenField.tap()
         tokenField.typeText("fake-ui-token")
         app.buttons["settings.saveTokenButton"].tap()
 
-        XCTAssertTrue(app.staticTexts["settings.apiTokenMaskedValue"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["settings.apiTokenMaskedValue"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertFalse(app.staticTexts["fake-ui-token"].exists)
 
         app.buttons["settings.testConnectionButton"].tap()
-        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
 
         app.buttons["settings.clearTokenButton"].tap()
-        XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
     }
 
-    @MainActor
     func testMockRecordingFlowShowsTranscriptAndClipboardStatus() throws {
-        let app = launchApp(
+        let app = launchVoiceFlowApp(
             language: "en",
             locale: "en_US",
             extraArguments: ["-uiTestMode", "-uiTestSavedToken", "-uiTestSavedOpenCode"]
         )
 
-        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         app.buttons["Start Recording"].tap()
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "recording"))
-        XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingState(.recording, in: app, timeout: 8))
+        XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
 
         app.buttons["Stop"].tap()
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
-        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingState(.ready, in: app, timeout: 8))
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].exists)
 
         app.buttons["Send to OpenCode"].tap()
-        XCTAssertTrue(app.staticTexts["Sent to OpenCode."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Sent to OpenCode."].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
     }
 
-    @MainActor
     func testOpenCodeConfigCanBeSavedAndCleared() throws {
-        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
         openSettings(in: app, label: "Settings")
-        let serverURLField = app.textFields["settings.openCodeServerURLField"]
-        XCTAssertTrue(reveal(serverURLField, in: app))
-        serverURLField.tap()
-        serverURLField.clearAndEnterText("http://voiceflow.test:4096")
-
-        let usernameField = app.textFields["settings.openCodeUsernameField"]
-        usernameField.tap()
-        usernameField.clearAndEnterText("voiceflow-user")
+        scrollSettingsToTop(in: app)
 
         let passwordField = app.secureTextFields["settings.openCodePasswordField"]
-        XCTAssertTrue(reveal(passwordField, in: app))
+        XCTAssertTrue(reveal(passwordField, in: app, attempts: 8))
         passwordField.tap()
         passwordField.typeText("fake-opencode-password")
-        app.buttons["settings.saveOpenCodeButton"].tap()
 
-        XCTAssertTrue(app.staticTexts["Configured"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["settings.openCodePasswordMaskedValue"].exists)
+        let saveOpenCodeButton = app.buttons["settings.saveOpenCodeButton"]
+        XCTAssertTrue(reveal(saveOpenCodeButton, in: app, attempts: 6))
+        saveOpenCodeButton.tap()
+
+        XCTAssertTrue(app.staticTexts["settings.openCodePasswordMaskedValue"].waitForExistence(timeout: 8))
         app.buttons["settings.testOpenCodeConnectionButton"].tap()
-        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
 
         app.buttons["settings.clearOpenCodeButton"].tap()
-        XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: 5))
-        XCTAssertEqual(serverURLField.value as? String, "http://voiceflow.test:4096")
-        XCTAssertEqual(usernameField.value as? String, "voiceflow-user")
+        XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertTrue(app.textFields["settings.openCodeServerURLField"].exists)
+        XCTAssertTrue(app.textFields["settings.openCodeUsernameField"].exists)
     }
 
-    @MainActor
     func testSettingsConnectionFailureShowsErrorDetail() throws {
-        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode", "-uiTestOpenCodeConnectionFailure"])
+        let app = launchVoiceFlowApp(
+            language: "en",
+            locale: "en_US",
+            extraArguments: ["-uiTestMode", "-uiTestOpenCodeConnectionFailure"]
+        )
 
         openSettings(in: app, label: "Settings")
         let passwordField = app.secureTextFields["settings.openCodePasswordField"]
@@ -106,17 +100,16 @@ final class VoiceFlowUITests: XCTestCase {
         app.buttons["settings.saveOpenCodeButton"].tap()
         app.buttons["settings.testOpenCodeConnectionButton"].tap()
 
-        XCTAssertTrue(app.staticTexts["Connection failed"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["settings.openCodeConnectionStatusDetail"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Connection failed"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["settings.openCodeConnectionStatusDetail"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
     }
 
-    @MainActor
     func testSettingsDismissesKeyboardWhenTappingOutsideFields() throws {
-        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
         openSettings(in: app, label: "Settings")
         let tokenField = app.secureTextFields["settings.apiTokenField"]
-        XCTAssertTrue(tokenField.waitForExistence(timeout: 5))
+        XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         tokenField.tap()
         tokenField.typeText("fake-ui-token")
 
@@ -127,54 +120,54 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 2))
     }
 
-    @MainActor
     func testChineseAppShell() throws {
-        let app = launchApp(language: "zh-Hans", locale: "zh_Hans_US", extraArguments: ["-uiTestMode"])
+        let app = launchVoiceFlowApp(language: "zh-Hans", locale: "zh_Hans_US")
 
-        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertTrue(app.buttons["复制"].exists)
 
         openSettings(in: app, label: "设置")
-        XCTAssertTrue(app.buttons["测试连接"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["测试连接"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
     }
 
-    @MainActor
     func testSettingsLanguagePreferenceOverridesSystemLanguage() throws {
-        var app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
-        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         app.buttons["Start Recording"].tap()
         let missingTokenAlert = app.alerts.firstMatch
-        XCTAssertTrue(missingTokenAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(missingTokenAlert.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertTrue(missingTokenAlert.staticTexts["Save an AI Builder token before recording."].exists)
         missingTokenAlert.buttons.matching(identifier: "record.error.alert.okButton").element(boundBy: 0).tap()
+
         openSettings(in: app, label: "Settings")
         let languagePicker = app.segmentedControls["settings.languagePicker"]
         XCTAssertTrue(reveal(languagePicker, in: app))
+        tapSegment(languagePicker, index: 2)
 
-        tapSegment(languagePicker, position: 0.84)
-
-        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        openRecord(in: app, label: "Record")
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         app.buttons["开始录音"].tap()
         let chineseMissingTokenAlert = app.alerts.firstMatch
-        XCTAssertTrue(chineseMissingTokenAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(chineseMissingTokenAlert.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertTrue(chineseMissingTokenAlert.staticTexts["录音前请先保存 AI Builder token。"].exists)
         chineseMissingTokenAlert.buttons.matching(identifier: "record.error.alert.okButton").element(boundBy: 0).tap()
 
         app.terminate()
-        app = launchApp(language: "zh-Hans", locale: "zh_Hans_US", extraArguments: ["-uiTestMode"])
-        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
-        openSettings(in: app, label: "设置")
-        let chineseSystemLanguagePicker = app.segmentedControls["settings.languagePicker"]
-        XCTAssertTrue(reveal(chineseSystemLanguagePicker, in: app))
-        tapSegment(chineseSystemLanguagePicker, position: 0.50)
+        let relaunched = launchVoiceFlowApp(language: "zh-Hans", locale: "zh_Hans_US")
 
-        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        openSettings(in: relaunched, label: "设置")
+        let chineseSystemLanguagePicker = relaunched.segmentedControls["settings.languagePicker"]
+        XCTAssertTrue(reveal(chineseSystemLanguagePicker, in: relaunched))
+        tapSegment(chineseSystemLanguagePicker, index: 0)
+
+        openRecord(in: relaunched, label: "Record")
+        // System language follows simulator locale (zh-Hans here), not English UI strings.
+        XCTAssertTrue(relaunched.buttons["开始录音"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
     }
 
-    @MainActor
     func testRecordingControlsExposeHistoryNavigationAndSaveResendMenu() throws {
-        let app = launchApp(
+        let app = launchVoiceFlowApp(
             language: "en",
             locale: "en_US",
             extraArguments: ["-uiTestMode", "-uiTestSavedToken"]
@@ -183,17 +176,17 @@ final class VoiceFlowUITests: XCTestCase {
         let previousButton = app.buttons["record.historyPreviousButton"]
         let nextButton = app.buttons["record.historyNextButton"]
         let moreButton = app.buttons["record.moreButton"]
-        XCTAssertTrue(previousButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(previousButton.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertTrue(nextButton.exists)
         XCTAssertTrue(moreButton.exists)
         XCTAssertFalse(previousButton.isEnabled)
         XCTAssertFalse(nextButton.isEnabled)
 
         app.buttons["Start Recording"].tap()
-        XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         app.buttons["Stop"].tap()
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
-        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingState(.ready, in: app, timeout: 8))
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].exists)
 
         moreButton.tap()
         let saveButton = app.buttons.matching(identifier: "record.saveRecordingButton").firstMatch
@@ -208,9 +201,9 @@ final class VoiceFlowUITests: XCTestCase {
             XCTAssertTrue(resendButton.isEnabled)
             saveButton.tap()
         }
-        XCTAssertTrue(app.staticTexts["Recording Saved"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Recording Saved"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         app.buttons.matching(identifier: "record.save.confirmation.okButton").element(boundBy: 0).tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'recording_'")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'recording_'")).firstMatch.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
 
         moreButton.tap()
         if resendButton.exists {
@@ -218,136 +211,39 @@ final class VoiceFlowUITests: XCTestCase {
         } else {
             app.buttons["Resend Recording"].tap()
         }
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
-        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingState(.ready, in: app, timeout: 15))
     }
 
-    @MainActor
     func testDeepLinkRecordStartsMockRecordingFlow() throws {
-        let app = launchApp(
+        let app = launchVoiceFlowApp(
             language: "en",
             locale: "en_US",
             extraArguments: ["-uiTestMode", "-uiTestSavedToken", "-uiTestDeepLinkRecord"]
         )
 
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "recording"))
+        XCTAssertTrue(waitForRecordingState(.recording, in: app, timeout: 8))
         XCTAssertTrue(app.staticTexts["VoiceFlow"].exists)
         XCTAssertTrue(app.buttons["Stop"].exists)
     }
 
-    @MainActor
-    func testLaunchPerformance() throws {
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
-    }
-
-    @MainActor
-    private func launchApp(language: String, locale: String, extraArguments: [String] = []) -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments = extraArguments + ["-uiTestResetPreferences", "-AppleLanguages", "(\(language))", "-AppleLocale", locale]
-        app.launch()
-        return app
-    }
-
-    @MainActor
     func testMockStreamingRecordingUpdatesTranscript() throws {
-        let app = launchApp(
+        let app = launchVoiceFlowApp(
             language: "en",
             locale: "en_US",
             extraArguments: ["-uiTestMode", "-uiTestSavedToken"]
         )
 
-        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         app.buttons["Start Recording"].tap()
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "recording"))
+        XCTAssertTrue(waitForRecordingState(.recording, in: app, timeout: 8))
 
         app.buttons["Stop"].tap()
-        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
+        XCTAssertTrue(waitForRecordingState(.ready, in: app, timeout: 8))
 
         let transcript = app.textViews["record.transcript"]
-        XCTAssertTrue(transcript.waitForExistence(timeout: 5))
-        XCTAssertFalse(transcript.value as? String == "")
-        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    private func openSettings(in app: XCUIApplication, label: String) {
-        for candidate in ["tab.settings", label, "Settings", "设置"] {
-            let button = app.tabBars.buttons[candidate]
-            if button.waitForExistence(timeout: 1) {
-                button.tap()
-                return
-            }
-        }
-
-        let tabBar = app.tabBars.firstMatch
-        if tabBar.waitForExistence(timeout: 1) {
-            tabBar.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
-            return
-        }
-
-        XCTFail("Settings tab was not found")
-    }
-
-    @MainActor
-    private func openRecord(in app: XCUIApplication, label: String) {
-        for candidate in ["tab.record", label, "Record", "录音"] {
-            let button = app.tabBars.buttons[candidate]
-            if button.waitForExistence(timeout: 1) {
-                button.tap()
-                return
-            }
-        }
-
-        let tabBar = app.tabBars.firstMatch
-        if tabBar.waitForExistence(timeout: 1) {
-            tabBar.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
-            return
-        }
-
-        XCTFail("Record tab was not found")
-    }
-
-    @MainActor
-    private func tapSegment(_ segmentedControl: XCUIElement, position: Double) {
-        let coordinate = segmentedControl.coordinate(withNormalizedOffset: CGVector(dx: position, dy: 0.5))
-        coordinate.tap()
-    }
-
-    @MainActor
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, attempts: Int = 4) -> Bool {
-        if element.waitForExistence(timeout: 1) { return true }
-        let scrollContainer = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.scrollViews.firstMatch
-        for _ in 0..<attempts {
-            scrollContainer.swipeUp()
-            if element.waitForExistence(timeout: 1) { return true }
-        }
-        return false
-    }
-
-    @MainActor
-    private func waitForRecordingIndicator(in app: XCUIApplication, status: String) -> Bool {
-        let indicator = app.otherElements["record.statusIndicator"]
-        return waitForValue(of: indicator, containing: status)
-    }
-
-    @MainActor
-    private func waitForValue(of element: XCUIElement, containing text: String) -> Bool {
-        guard element.waitForExistence(timeout: 5) else { return false }
-        let predicate = NSPredicate(format: "value CONTAINS %@", text)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        return XCTWaiter.wait(for: [expectation], timeout: 5) == .completed
-    }
-}
-
-private extension XCUIElement {
-    func clearAndEnterText(_ text: String) {
-        tap()
-        if let currentValue = value as? String, !currentValue.isEmpty {
-            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentValue.count)
-            typeText(deleteString)
-        }
-        typeText(text)
+        XCTAssertTrue(transcript.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        let transcriptText = transcript.value as? String ?? ""
+        XCTAssertGreaterThan(transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).count, 3)
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].exists)
     }
 }

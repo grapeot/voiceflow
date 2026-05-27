@@ -20,6 +20,34 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-27 (UI 测试分层与修复)
+
+**问题（优化前，`./scripts/test_all.sh`）**：13 条 UI（含 perf + Launch 截图），5 条失败；墙钟 ~382s。失败原因包括：`record.statusIndicator` 在 XCUITest 不可见、语言切换后未切回 Record tab、Stop 后 `transcribing` 中间态导致误判、OpenCode 文本框 append 而非替换。
+
+**措施（Phases A–F，按当前代码落地）**
+
+| Phase | 内容 |
+|-------|------|
+| A | `test_ui_smoke.sh` / `test_ui_full.sh` / `test_ui_perf.sh` / `test_ui.sh`；`test_all.sh` = unit + ui_full |
+| B | `AppState.resetForUITest()` + Settings `uitest.resetState`（共享 app 暂缓，用例仍 per-launch 保证隔离） |
+| C | 长文本粘贴辅助保留于 support；短 token/密码用 `typeText` |
+| D | `VoiceFlowUITestsPerformance` 独立；perf 不进 smoke/full |
+| E | 修复上述失败用例；`RecordingStatusHeaderView` 补 `accessibilityElement()` |
+| F | OpenCode UI 收窄为密码路径；流式录音 UX 由 `testMockStreamingRecordingUpdatesTranscript` 覆盖 |
+
+**耗时对比（同机 iPhone 17 Pro pinned，2026-05-27）**
+
+| 命令 | 结果 | 墙钟 / 备注 |
+|------|------|-------------|
+| 优化前 `test_all` | 5 failed / 13 UI | **~382s** |
+| `test_unit.sh` | 59 passed | **~3.6s** |
+| `test_ui_smoke.sh` | 3 passed | **~50s** |
+| `test_ui_full.sh` | 11 passed | **~208s**（套件内 ~196s） |
+| `test_ui_perf.sh` | 2 passed | **~30s** |
+| `test_all.sh`（现） | unit + full | **~212s** |
+
+Agent 默认仍只跑 `test_unit.sh`；发版前 `test_all.sh` 或 `test_ui_full.sh`。
+
 ### 2026-05-27 (recovery UX copy audit)
 
 - **i18n (en/zh)**: align stream recovery captions with silent auto-recover behavior — `record.status.reconnecting` uses "Auto-recovering" (en); `record.status.reconnected` → "Stream restored" / "流已恢复"; `record.error.streamDisconnected` drops outdated "tap Stop to finish" choice framing during recording.

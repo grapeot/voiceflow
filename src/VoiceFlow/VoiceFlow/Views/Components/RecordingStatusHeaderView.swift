@@ -34,9 +34,10 @@ struct RecordingStatusHeaderView: View {
                 .frame(width: 12, height: 12)
                 .animation(.easeInOut, value: recordingStatus)
                 .animation(.easeInOut, value: streamConnectionPhase)
+                .accessibilityElement()
                 .accessibilityIdentifier("record.statusIndicator")
-                .accessibilityLabel(Text("Recording status"))
-                .accessibilityValue(Text(accessibilityStatusValue))
+                .accessibilityLabel("Recording status")
+                .accessibilityValue(accessibilityStatusValue)
         }
         .accessibilityIdentifier("record.statusHeader")
     }

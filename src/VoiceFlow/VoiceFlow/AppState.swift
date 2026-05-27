@@ -190,6 +190,67 @@ final class AppState: ObservableObject {
         await startRecording()
     }
 
+    /// Clears UI-test state between XCTest cases without relaunching (only when `-uiTestMode`).
+    func resetForUITest() async {
+        guard ProcessInfo.processInfo.arguments.contains("-uiTestMode") else { return }
+
+        await cancelLiveTranscriptionSession()
+        stopRecordingTimer()
+        recordErrorAlertKey = nil
+        pendingDeepLinkStartRecording = false
+        transcript = ""
+        transcriptHistory = TranscriptHistory()
+        userEditedTranscriptDuringStream = false
+        lastClipboardStatusKey = nil
+        streamStatusCaptionKey = nil
+        lastSavedRecording = nil
+        shouldPresentSavedRecordingAlert = false
+        openCodeSendStatus = .idle
+        connectionStatus = .untested
+        openCodeConnectionStatus = .untested
+        recordingStatus = .idle
+        streamConnectionPhase = .disconnected
+        recordingTimerText = "00:00"
+        lastRecordingURL = nil
+        lastStreamClipboardHash = nil
+        lastStreamClipboardUpdate = nil
+        isTranscriptionTeardown = false
+        selectedTab = .record
+        audioChunkEncoder = AudioChunkEncoder()
+
+        UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
+        openCodeServerURL = OpenCodeClient.defaultServerURL
+        openCodeUsername = OpenCodeClient.defaultUsername
+        appLanguage = .system
+
+        try? keychainStore.deleteString(for: tokenKey)
+        try? keychainStore.deleteString(for: openCodePasswordKey)
+        hasSavedAIBuilderToken = false
+        hasSavedOpenCodePassword = false
+
+        applyUITestLaunchArgumentSeeds()
+    }
+
+    private func applyUITestLaunchArgumentSeeds() {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-uiTestSavedToken") {
+            try? keychainStore.saveString("fake-ui-token", for: tokenKey)
+            hasSavedAIBuilderToken = true
+        }
+        if arguments.contains("-uiTestSavedOpenCode") {
+            openCodeServerURL = OpenCodeClient.defaultServerURL
+            openCodeUsername = OpenCodeClient.defaultUsername
+            try? keychainStore.saveString("fake-opencode-password", for: openCodePasswordKey)
+            hasSavedOpenCodePassword = true
+            openCodeConnectionStatus = .success
+        }
+        if arguments.contains("-uiTestOpenCodeConnectionFailure") {
+            openCodeConnectionStatus = .untested
+        }
+    }
+
     var canCopyTranscript: Bool {
         !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
