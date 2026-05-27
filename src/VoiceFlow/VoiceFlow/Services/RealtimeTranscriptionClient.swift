@@ -32,7 +32,7 @@ actor RealtimeTranscriptionSession {
     private let onEvent: @Sendable (RealtimeTranscriptEvent) -> Void
     private var receiveTask: Task<Void, Never>?
     private var isClosed = false
-    private var hasSentStop = false
+    private var hasSentCommit = false
 
     init(
         webSocketTask: URLSessionWebSocketTask,
@@ -43,13 +43,15 @@ actor RealtimeTranscriptionSession {
         self.urlSession = urlSession
         self.sender = RealtimeWebSocketSender(task: webSocketTask)
         self.onEvent = onEvent
-        receiveTask = Task { [weak self] in
-            await self?.receiveLoop()
-        }
     }
 
-    func sendStartRecording(model: String) async throws {
-        let message = try RealtimeMessageParser.startRecordingMessage(model: model)
+    func startReceiving() {
+        guard receiveTask == nil else { return }
+        receiveTask = Task { await receiveLoop() }
+    }
+
+    func sendStartControl(model: String, vad: Bool = true) async throws {
+        let message = try RealtimeMessageParser.startControlMessage(model: model, vad: vad)
         try await sender.send(.string(message))
     }
 
@@ -58,15 +60,12 @@ actor RealtimeTranscriptionSession {
         try await sender.send(.data(chunk))
     }
 
-    func sendStopRecording() async throws {
-        guard !hasSentStop else { return }
-        hasSentStop = true
+    func sendCommitAndStop() async throws {
+        guard !hasSentCommit else { return }
+        hasSentCommit = true
         try await sender.flush()
-        try await sender.send(.string(RealtimeMessageParser.stopRecordingMessage))
-    }
-
-    func sendStatusRequest() async throws {
-        try await sender.send(.string(RealtimeMessageParser.statusRequestMessage))
+        try await sender.send(.string(RealtimeTranscriptionConfig.commitMessage))
+        try await sender.send(.string(RealtimeTranscriptionConfig.stopMessage))
     }
 
     func ping() async throws {
@@ -98,8 +97,10 @@ actor RealtimeTranscriptionSession {
         while !Task.isCancelled, !isClosed {
             do {
                 let message = try await webSocketTask.receive()
-                let event = try RealtimeMessageParser.parseMessage(message)
-                onEvent(event)
+                let socketEvent = try RealtimeMessageParser.parseSocketMessage(message)
+                if let event = RealtimeMessageParser.parseSocketEvent(socketEvent) {
+                    onEvent(event)
+                }
             } catch {
                 if !Task.isCancelled, !isClosed {
                     onEvent(.disconnected)
@@ -136,7 +137,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         phase = .recovering
         defer {
             isRecovering = false
-            if phase == .recovering {
+            if case .recovering = phase {
                 phase = .connected
             }
         }
@@ -166,6 +167,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)? = nil) async throws {
         isFinalizing = true
+        phase = .generating
         defer {
             isFinalizing = false
             finalizeContinuation = nil
@@ -184,14 +186,11 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             throw RealtimeTranscriptionError.sessionUnavailable
         }
 
-        phase = .generating
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
                     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                        Task {
-                            await self.storeFinalizeContinuation(continuation)
-                        }
+                        Task { await self.storeFinalizeContinuation(continuation) }
                     }
                 }
                 group.addTask {
@@ -199,7 +198,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                     throw RealtimeTranscriptionError.connectionLost("Timed out waiting for transcription to finish")
                 }
                 group.addTask {
-                    try await session.sendStopRecording()
+                    try await session.sendCommitAndStop()
                 }
                 try await group.next()
                 group.cancelAll()
@@ -212,13 +211,11 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             guard let recoveredSession = self.session else {
                 throw RealtimeTranscriptionError.sessionUnavailable
             }
-            try await recoveredSession.sendStopRecording()
+            try await recoveredSession.sendCommitAndStop()
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
                     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                        Task {
-                            await self.storeFinalizeContinuation(continuation)
-                        }
+                        Task { await self.storeFinalizeContinuation(continuation) }
                     }
                 }
                 group.addTask {
@@ -368,34 +365,15 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             throw RealtimeTranscriptionError.emptyTranscript
         }
 
-        var transcript = ""
-        var finished = false
-        var receivedError: String?
+        let progress = BulkTranscriptionProgress()
 
         let session = try await Self.makeSession(
             baseURL: baseURL,
             token: token,
             model: model,
+            vad: false,
             onEvent: { event in
-                switch event {
-                case .textDelta(let content, let isNewResponse):
-                    transcript = TranscriptDeltaReducer.apply(
-                        current: transcript,
-                        content: content,
-                        isNewResponse: isNewResponse
-                    )
-                    onPartialTranscript?(transcript)
-                case .status(.idle):
-                    finished = true
-                case .error(let message):
-                    receivedError = message
-                    finished = true
-                case .disconnected:
-                    receivedError = "WebSocket disconnected"
-                    finished = true
-                case .status:
-                    break
-                }
+                progress.handle(event, onPartialTranscript: onPartialTranscript)
             }
         )
 
@@ -406,18 +384,18 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             try await session.sendAudioChunk(pcmData.subdata(in: start..<end))
         }
 
-        try await session.sendStopRecording()
+        try await session.sendCommitAndStop()
 
         let deadline = Date().addingTimeInterval(30)
-        while !finished, Date() < deadline {
+        while !progress.isFinished, Date() < deadline {
             try await Task.sleep(for: .milliseconds(100))
         }
 
-        if let receivedError {
+        if let receivedError = progress.receivedError {
             throw RealtimeTranscriptionError.websocketError(receivedError)
         }
 
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = progress.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw RealtimeTranscriptionError.emptyTranscript
         }
@@ -428,32 +406,143 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String,
+        vad: Bool = true,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeTranscriptionSession {
-        let websocketURL = try RealtimeWebSocketURLBuilder.websocketURL(from: baseURL)
-        var request = URLRequest(url: websocketURL)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let normalizedBase = try RealtimeAPIURLBuilder.normalizedBaseURL(from: baseURL)
+        let sessionResponse = try await createRealtimeSession(
+            baseURL: normalizedBase,
+            token: token,
+            model: model,
+            vad: vad
+        )
+        let websocketURL = try RealtimeAPIURLBuilder.realtimeWebSocketURL(
+            baseURL: normalizedBase,
+            relativePath: sessionResponse.wsURL
+        )
 
         let urlSession = URLSession(configuration: .default)
-        let webSocketTask = urlSession.webSocketTask(with: request)
+        let webSocketTask = urlSession.webSocketTask(with: websocketURL)
         webSocketTask.resume()
+
+        let readyEvent = try await receiveSocketEvent(task: webSocketTask)
+        guard readyEvent.type == "session_ready" else {
+            webSocketTask.cancel(with: .goingAway, reason: nil)
+            urlSession.invalidateAndCancel()
+            throw RealtimeTranscriptionError.websocketError("Expected session_ready, got \(readyEvent.type)")
+        }
+        onEvent(.status(.connected))
 
         let session = RealtimeTranscriptionSession(
             webSocketTask: webSocketTask,
             urlSession: urlSession,
             onEvent: onEvent
         )
-        try await session.sendStartRecording(model: model)
+        await session.startReceiving()
+        try await session.sendStartControl(model: model, vad: vad)
         return session
+    }
+
+    private static func createRealtimeSession(
+        baseURL: URL,
+        token: String,
+        model: String,
+        vad: Bool
+    ) async throws -> RealtimeSessionCreateResponse {
+        guard let url = RealtimeAPIURLBuilder.buildAPIURL(
+            base: baseURL,
+            path: RealtimeTranscriptionConfig.sessionCreatePath
+        ) else {
+            throw RealtimeTranscriptionError.invalidBaseURL
+        }
+
+        let payload: [String: Any] = [
+            "model": model,
+            "vad": vad,
+            "silence_duration_ms": 1200
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw RealtimeTranscriptionError.invalidMessage
+        }
+        guard http.statusCode < 400 else {
+            throw RealtimeTranscriptionError.httpError(statusCode: http.statusCode)
+        }
+        return try JSONDecoder().decode(RealtimeSessionCreateResponse.self, from: data)
+    }
+
+    private static func receiveSocketEvent(task: URLSessionWebSocketTask) async throws -> RealtimeSocketEvent {
+        let message = try await task.receive()
+        return try RealtimeMessageParser.parseSocketMessage(message)
+    }
+}
+
+private final class BulkTranscriptionProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var transcriptValue = ""
+    nonisolated(unsafe) private var finishedValue = false
+    nonisolated(unsafe) private var receivedErrorValue: String?
+
+    nonisolated func handle(
+        _ event: RealtimeTranscriptEvent,
+        onPartialTranscript: (@Sendable (String) -> Void)?
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        switch event {
+        case .textDelta(let content, let isNewResponse):
+            transcriptValue = TranscriptDeltaReducer.apply(
+                current: transcriptValue,
+                content: content,
+                isNewResponse: isNewResponse
+            )
+            onPartialTranscript?(transcriptValue)
+        case .status(.idle):
+            finishedValue = true
+        case .error(let message):
+            receivedErrorValue = message
+            finishedValue = true
+        case .disconnected:
+            receivedErrorValue = "WebSocket disconnected"
+            finishedValue = true
+        case .status:
+            break
+        }
+    }
+
+    nonisolated var transcript: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return transcriptValue
+    }
+
+    nonisolated var isFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finishedValue
+    }
+
+    nonisolated var receivedError: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedErrorValue
     }
 }
 
 final class MockRealtimeTranscriptionClient: RealtimeTranscribing, @unchecked Sendable {
-    var liveResult: Result<String, Error>
-    var bulkResult: Result<String, Error>
-    private(set) var appendedChunkCount = 0
-    private(set) var didFinalize = false
-    private(set) var didCancel = false
+    nonisolated(unsafe) var liveResult: Result<String, Error>
+    nonisolated(unsafe) var bulkResult: Result<String, Error>
+    private let lock = NSLock()
+    nonisolated(unsafe) private var appendedChunkCountValue = 0
+    nonisolated(unsafe) private var didFinalizeValue = false
+    nonisolated(unsafe) private var didCancelValue = false
 
     init(
         liveResult: Result<String, Error> = .success("mock stream transcript"),
@@ -486,20 +575,44 @@ final class MockRealtimeTranscriptionClient: RealtimeTranscribing, @unchecked Se
         return text
     }
 
-    fileprivate func recordAppendedChunk() {
-        appendedChunkCount += 1
+    nonisolated func recordAppendedChunk() {
+        lock.lock()
+        appendedChunkCountValue += 1
+        lock.unlock()
     }
 
-    fileprivate func markCancelled() {
-        didCancel = true
+    nonisolated func markCancelled() {
+        lock.lock()
+        didCancelValue = true
+        lock.unlock()
     }
 
-    fileprivate func simulateFinalize(onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) async throws -> String {
-        didFinalize = true
+    nonisolated func simulateFinalize(onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) throws -> String {
+        lock.lock()
+        didFinalizeValue = true
+        lock.unlock()
         let text = try liveResult.get()
         onEvent(.textDelta(content: text, isNewResponse: true))
         onEvent(.status(.idle))
         return text
+    }
+
+    nonisolated var appendedChunkCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return appendedChunkCountValue
+    }
+
+    nonisolated var didFinalize: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didFinalizeValue
+    }
+
+    nonisolated var didCancel: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didCancelValue
     }
 }
 
@@ -525,7 +638,7 @@ private actor MockLiveSession: RealtimeLiveTranscriptionSession {
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws {
         phase = .generating
-        let text = try await client.simulateFinalize(onEvent: onEvent)
+        let text = try client.simulateFinalize(onEvent: onEvent)
         onPartialTranscript?(text)
         phase = .disconnected
     }

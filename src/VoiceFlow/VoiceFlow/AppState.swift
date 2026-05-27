@@ -318,8 +318,9 @@ final class AppState: ObservableObject {
                 token: token,
                 model: RealtimeTranscriptionConfig.defaultModel,
                 onEvent: { [weak self] event in
+                    guard let self else { return }
                     Task { @MainActor in
-                        self?.handleStreamEvent(event)
+                        self.handleStreamEvent(event)
                     }
                 }
             )
@@ -524,8 +525,9 @@ final class AppState: ObservableObject {
         recordingTimerStartDate = Date()
         recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                self?.updateRecordingTimerText()
+                self.updateRecordingTimerText()
             }
         }
     }
@@ -598,8 +600,9 @@ final class AppState: ObservableObject {
                 token: token,
                 model: RealtimeTranscriptionConfig.defaultModel
             ) { [weak self] partial in
+                guard let self else { return }
                 Task { @MainActor in
-                    self?.transcript = partial
+                    self.transcript = partial
                 }
             }
             recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)"])
@@ -673,9 +676,10 @@ final class AppState: ObservableObject {
         do {
             recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "stream"])
             try await session.finalize { [weak self] partial in
+                guard let self else { return }
                 Task { @MainActor in
-                    self?.transcript = partial
-                    self?.throttledStreamClipboardWrite(partial)
+                    self.transcript = partial
+                    self.throttledStreamClipboardWrite(partial)
                 }
             }
             await session.cancel()
@@ -719,12 +723,12 @@ final class AppState: ObservableObject {
         streamHeartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(RealtimeTranscriptionConfig.heartbeatIntervalSeconds))
-                guard !Task.isCancelled else { return }
-                await self?.liveTranscriptionSession?.heartbeat()
-                if let session = self?.liveTranscriptionSession {
+                guard !Task.isCancelled, let self else { return }
+                await self.liveTranscriptionSession?.heartbeat()
+                if let session = self.liveTranscriptionSession {
                     let phase = await session.connectionPhase
                     await MainActor.run {
-                        self?.streamConnectionPhase = phase
+                        self.streamConnectionPhase = phase
                     }
                 }
             }
@@ -769,7 +773,7 @@ final class AppState: ObservableObject {
         }
         if let streamError = error as? RealtimeTranscriptionError {
             switch streamError {
-            case .invalidBaseURL, .missingToken, .connectionLost, .sessionUnavailable:
+            case .invalidBaseURL, .missingToken, .connectionLost, .sessionUnavailable, .httpError:
                 return "transcription_upload_failed"
             case .invalidMessage, .websocketError, .emptyTranscript, .audioConversionFailed:
                 return "transcription_response_failed"

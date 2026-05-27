@@ -2,6 +2,19 @@
 
 ## Changelog
 
+### 2026-05-26 (Swift 6 + ticket WebSocket fix)
+
+- 实时转写改 ticket 流程：POST `/v1/audio/realtime/sessions` → `wss://.../ws?ticket=`（修复 Bearer 直连 WS 的 -1011）
+- 协议：`start` / PCM16 24kHz / `commit` / `stop`；事件 `session_ready`、`transcript_delta`、`transcript_completed`、`session_stopped`
+- `RealtimeTranscriptionConfig` sample rate 48k → 24k；单元测试更新 URL / parser 用例
+
+### 2026-05-26 (live WebSocket integration tests)
+
+- 新增 opt-in live 集成测试 `LiveWebSocketIntegrationTests`（真实 ticket WebSocket，对齐 Swift 6 / -1011 fix）
+- `scripts/test_live_integration.sh`：`TEST_RUNNER_*` + `.voiceflow/live-ws-opt-in`；默认 unit 脚本 skip 该 suite
+- live 验证（2026-05-26）：session create 200，`session_ready` + heartbeat ~0.9s；静音 PCM + commit/stop ~0.7s
+- `.env.example` 补充 token 变量说明与安全提示；`.env` 仍 gitignore
+
 ### 2026-05-26 (layout)
 
 - Record 页去掉 GeometryReader 百分比高度（原先四段合计 100%，再加 spacing/padding 导致 Copy / OpenCode 按钮溢出 tab bar）；改为 flex 布局，transcript 区占剩余空间并 `.clipped()`

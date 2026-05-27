@@ -30,20 +30,38 @@ struct RealtimeTranscriptionTests {
         #expect(encoder.pending.isEmpty)
     }
 
-    @Test func messageParserHandlesStatusTextAndError() throws {
-        let status = try RealtimeMessageParser.parse(data: Data("{\"type\":\"status\",\"status\":\"generating\"}".utf8))
-        #expect(status == .status(.generating))
+    @Test func messageParserHandlesSessionReadyTranscriptAndError() throws {
+        let ready = try RealtimeMessageParser.parseSocketEvent(
+            RealtimeSocketEvent(data: Data("{\"type\":\"session_ready\",\"session_id\":\"s1\"}".utf8))
+        )
+        #expect(ready == .status(.connected))
 
-        let text = try RealtimeMessageParser.parse(data: Data("{\"type\":\"text\",\"content\":\"hi\",\"isNewResponse\":true}".utf8))
-        #expect(text == .textDelta(content: "hi", isNewResponse: true))
+        let delta = try RealtimeMessageParser.parseSocketEvent(
+            RealtimeSocketEvent(data: Data("{\"type\":\"transcript_delta\",\"text\":\"hi\"}".utf8))
+        )
+        #expect(delta == .textDelta(content: "hi", isNewResponse: false))
 
-        let error = try RealtimeMessageParser.parse(data: Data("{\"type\":\"error\",\"content\":\"bad token\"}".utf8))
+        let completed = try RealtimeMessageParser.parseSocketEvent(
+            RealtimeSocketEvent(data: Data("{\"type\":\"transcript_completed\",\"text\":\"done\"}".utf8))
+        )
+        #expect(completed == .textDelta(content: "done", isNewResponse: true))
+
+        let error = try RealtimeMessageParser.parseSocketEvent(
+            RealtimeSocketEvent(data: Data("{\"type\":\"error\",\"message\":\"bad token\"}".utf8))
+        )
         #expect(error == .error(message: "bad token"))
     }
 
-    @Test func websocketURLBuilderUsesHostAndFixedPath() throws {
-        let url = try RealtimeWebSocketURLBuilder.websocketURL(from: "https://space.ai-builders.com/backend")
-        #expect(url.absoluteString == "wss://space.ai-builders.com/api/v1/ws")
+    @Test func realtimeWebSocketURLPreservesBackendMountPath() throws {
+        let base = try RealtimeAPIURLBuilder.normalizedBaseURL(from: "https://space.ai-builders.com/backend")
+        let url = try RealtimeAPIURLBuilder.realtimeWebSocketURL(
+            baseURL: base,
+            relativePath: "/backend/v1/audio/realtime/ws?ticket=test"
+        )
+        #expect(url.scheme == "wss")
+        #expect(url.host == "space.ai-builders.com")
+        #expect(url.path == "/backend/v1/audio/realtime/ws")
+        #expect(url.query == "ticket=test")
     }
 
     @Test func pcmWAVWriterRoundTripsPCMData() throws {
@@ -73,5 +91,123 @@ struct RealtimeTranscriptionTests {
         #expect(events.contains(.status(.connected)))
         #expect(events.contains(.textDelta(content: "streamed words", isNewResponse: true)))
         #expect(events.contains(.status(.idle)))
+    }
+}
+
+/// Opt-in live WebSocket tests against AI Builder Space.
+///
+/// Disabled by default. Run via `./scripts/test_live_integration.sh` (sets `VOICEFLOW_LIVE_WS=1`
+/// and loads `.env`). Default `./scripts/test_unit.sh` skips this suite entirely.
+///
+/// Observed wire protocol (2026-05-26, ticket-based realtime API):
+/// - POST `https://space.ai-builders.com/backend/v1/audio/realtime/sessions` with Bearer token
+/// - WebSocket `wss://space.ai-builders.com/backend/v1/audio/realtime/ws?ticket=...` (ticket auth, no Bearer on WS)
+/// - Server → client: `session_ready`, `transcript_delta`, `transcript_completed`, `session_stopped`
+/// - Client → server: `start`, binary PCM16 mono 24 kHz, `commit`, `stop`
+@Suite(.serialized)
+@MainActor
+struct LiveWebSocketIntegrationTests {
+    @Test func liveWebSocketHandshakeAndStartRecording() async throws {
+        guard let credentials = try LiveIntegrationTestSupport.resolveCredentials() else {
+            return
+        }
+
+        let events = EventCollector()
+        let client = RealtimeTranscriptionClient()
+        let session = try await client.beginLiveSession(
+            baseURL: credentials.endpoint,
+            token: credentials.token,
+            model: RealtimeTranscriptionConfig.defaultModel,
+            onEvent: { event in
+                events.append(event)
+            }
+        )
+
+        do {
+            let phase = try await LiveIntegrationTestSupport.waitUntilConnected(session: session)
+            #expect(phase == .connected)
+
+            let statusEvent = try await LiveIntegrationTestSupport.waitForEvent(
+                { if case .status(.connected) = $0 { return true }; return false },
+                in: events.snapshot()
+            )
+            #expect(statusEvent == .status(.connected))
+
+            await session.heartbeat()
+        } catch {
+            await session.cancel()
+            throw error
+        }
+
+        await session.cancel()
+    }
+
+    @Test func liveWebSocketAcceptsPCMChunkAndStopRecording() async throws {
+        guard let credentials = try LiveIntegrationTestSupport.resolveCredentials() else {
+            return
+        }
+
+        let events = EventCollector()
+        let client = RealtimeTranscriptionClient()
+        let session = try await client.beginLiveSession(
+            baseURL: credentials.endpoint,
+            token: credentials.token,
+            model: RealtimeTranscriptionConfig.defaultModel,
+            onEvent: { event in
+                events.append(event)
+            }
+        )
+
+        do {
+            _ = try await LiveIntegrationTestSupport.waitUntilConnected(session: session)
+
+            let silenceChunk = Data(repeating: 0, count: RealtimeTranscriptionConfig.chunkByteSize)
+            await session.appendAudioChunk(silenceChunk)
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await session.finalize(onPartialTranscript: nil)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(25))
+                    throw LiveIntegrationTestError.connectionFailed("Timed out waiting for commit/stop finalize")
+                }
+                try await group.next()
+                group.cancelAll()
+            }
+
+            let snapshot = events.snapshot()
+            let sawGenerating = snapshot.contains { event in
+                if case .status(.generating) = event { return true }
+                return false
+            }
+            let sawIdle = snapshot.contains { event in
+                if case .status(.idle) = event { return true }
+                return false
+            }
+            #expect(sawGenerating || sawIdle)
+        } catch {
+            await session.cancel()
+            throw error
+        }
+
+        await session.cancel()
+    }
+}
+
+private final class EventCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [RealtimeTranscriptEvent] = []
+
+    func append(_ event: RealtimeTranscriptEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+        events.append(event)
+    }
+
+    func snapshot() -> [RealtimeTranscriptEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
     }
 }
