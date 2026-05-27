@@ -1,20 +1,45 @@
 # 测试与验收策略
 
-## 日常验证
+## Agent / 日常验证
 
-源码入口：`src/VoiceFlow/VoiceFlow.xcodeproj`
-
-日常开发优先 unit tests（mock，不依赖真实 token/网络/麦克风）：
+**默认只跑 unit test。** 除非用户明确要求 UI test，否则只执行：
 
 ```bash
 ./scripts/test_unit.sh
 ```
 
-改 UI 或发版前再跑完整 suite：
+只有用户主动要求跑 UI test、或明确说跑完整测试 suite 时，才执行：
 
 ```bash
 ./scripts/test_all.sh
 ```
+
+### Simulator 自适应 pinning
+
+`test_unit.sh` 和 `test_all.sh` 会自动：
+
+1. 在本机 `.voiceflow/simulator-udid` 记录一台匹配的 iPhone 17 Pro（iOS 26.3.1）UDID
+2. 第一次运行时发现并 boot 这台 Simulator（较慢，正常）
+3. 后续运行复用同一 UDID 和已 boot 的 Simulator，优先 `test-without-building`；若无可用测试产物则自动 `build-for-testing` 后再测
+
+手动预热（可选）：
+
+```bash
+./scripts/pin_simulator.sh
+```
+
+覆盖默认设备或 destination：
+
+```bash
+export VOICEFLOW_SIMULATOR_NAME="iPhone 17 Pro"
+export VOICEFLOW_SIMULATOR_OS="26.3.1"
+export VOICEFLOW_TEST_DESTINATION="platform=iOS Simulator,id=<UDID>"  # 完全跳过 pinning
+export VOICEFLOW_TEST_REBUILD=1  # 强制先 build-for-testing 再测
+```
+
+`.voiceflow/` 是本地状态目录，已 gitignore，不会进仓库。
+
+### 其他验收命令
 
 visionOS build（无 UI test）：
 
@@ -53,7 +78,7 @@ Swift Testing + mock。当前覆盖包括但不限于：
 
 XCUITest，launch argument `-uiTestMode` 启用内存 Keychain 与 mock 服务。覆盖英文/中文 shell、token 保存、mock 录音流、OpenCode 配置、语言切换、Settings UX、deep link 启动录音等。
 
-部分 UI test 在快速迭代中可能未每次跑通；发版前应执行 `./scripts/test_all.sh` 并修复失败项。
+仅在用户明确要求或发版前执行 `./scripts/test_all.sh`。
 
 ## 手工验证清单
 
