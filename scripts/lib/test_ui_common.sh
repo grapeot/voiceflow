@@ -46,3 +46,37 @@ voiceflow_test_ui_only_testing_args() {
   done
   printf '%s\n' "${args[@]}"
 }
+
+voiceflow_run_ui_suite() {
+  local suite="$1"
+  local root="$2"
+  local project="$root/src/VoiceFlow/VoiceFlow.xcodeproj"
+
+  # shellcheck source=lib/simulator.sh
+  source "$root/scripts/lib/simulator.sh"
+  # shellcheck source=lib/xcodebuild_test.sh
+  source "$root/scripts/lib/xcodebuild_test.sh"
+
+  cd "$root"
+  voiceflow_simulator_prepare_destination "$root"
+
+  UI_ONLY_TESTING=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && UI_ONLY_TESTING+=("$line")
+  done <<EOF
+$(voiceflow_test_ui_only_testing_args "$suite")
+EOF
+
+  voiceflow_xcodebuild_common_args \
+    "$project" \
+    VoiceFlow \
+    "$VOICEFLOW_TEST_DESTINATION" \
+    "${UI_ONLY_TESTING[@]}"
+
+  if [[ "${VOICEFLOW_TEST_REBUILD:-}" == "1" ]]; then
+    voiceflow_xcodebuild_run build-for-testing
+    voiceflow_xcodebuild_run test-without-building
+  else
+    voiceflow_xcodebuild_test_with_rebuild_fallback test-without-building
+  fi
+}
