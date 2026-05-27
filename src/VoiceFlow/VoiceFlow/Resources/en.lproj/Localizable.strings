@@ -7,6 +7,10 @@
 "record.stop" = "Stop";
 "record.copy" = "Copy";
 "record.history" = "History";
+"record.saveRecording" = "Save Recording";
+"record.resendRecording" = "Resend Recording";
+"record.save.succeeded" = "Recording saved to Documents.";
+"record.save.failed" = "Could not save the recording.";
 "record.sendToOpenCode" = "Send to OpenCode";
 "record.openCode.optional" = "OpenCode is optional. Sending transmits the current transcript to your configured server.";
 "record.openCode.info.accessibility" = "About OpenCode";

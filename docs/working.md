@@ -48,6 +48,9 @@
 - OpenCode 发送默认禁用；Settings 保存配置并通过连接测试后，Record 页发送按钮才可用。
 - Settings 增加 OpenCode 连接测试；URL/username/password 变更后连接状态回到未测试。
 - OpenCode HTTP 校验对齐 Tailscale：除 localhost/loopback 外，`*.ts.net` 主机也允许 HTTP。
+- Record 控制区对齐参考实现：左右 chevron 分别浏览更旧/更新历史；三点菜单只保留「保存录音」和「重发录音」，去掉与底部重复的复制/OpenCode 发送。
+- 转写历史改为 index 导航（index 0 为最新）；录音完成后持久化 last-recording.wav 供保存到 Documents 和重发转写。
+- 新增 unit/UI tests 覆盖双向历史导航、保存/重发录音，以及 Record 控制区新按钮。
 
 ## Lessons Learned
 
@@ -129,3 +132,10 @@
 - `./scripts/test_all.sh`（VoiceFlowTests + VoiceFlowUITests）：通过。
 - 单元测试覆盖：转写后仍自动复制、OpenCode 连接测试 gating、Tailscale HTTP 允许、remote HTTP 仍拒绝。
 - UI tests 覆盖：转写后显示复制成功状态、OpenCode info 按钮、配置后需测试连接才能发送。
+- Record 控制区 UI tests 覆盖左右历史按钮、保存/重发菜单项。
+
+### 2026-05-26 Record controls history save resend
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
+- UI tests 本轮未跑；`testRecordingControlsExposeHistoryNavigationAndSaveResendMenu` 已加入但待后续单独验证。
+- 单元测试覆盖：双向历史导航、保存录音到 Documents、重发录音重新转写、OpenCode gating mock 连接。

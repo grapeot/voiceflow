@@ -100,13 +100,13 @@ struct RecordView: View {
 
     private var recordingControls: some View {
         HStack(spacing: 20) {
-            Button(action: appState.restorePreviousTranscript) {
+            Button(action: appState.navigatePreviousTranscript) {
                 Image(systemName: "chevron.left")
                     .font(.title2)
-                    .foregroundStyle(appState.canRestorePreviousTranscript ? .blue : .gray)
+                    .foregroundStyle(appState.canNavigatePreviousTranscript ? .blue : .gray)
             }
-            .disabled(!appState.canRestorePreviousTranscript)
-            .accessibilityIdentifier("record.historyButton")
+            .disabled(!appState.canNavigatePreviousTranscript)
+            .accessibilityIdentifier("record.historyPreviousButton")
 
             Button(action: toggleRecording) {
                 HStack {
@@ -124,29 +124,39 @@ struct RecordView: View {
             .accessibilityIdentifier(appState.canStopRecording ? "record.stopButton" : "record.startButton")
 
             Menu {
-                Button(action: appState.copyTranscript) {
+                Button(action: appState.saveCurrentRecording) {
                     Label {
-                        Text(localized("record.copy"))
+                        Text(localized("record.saveRecording"))
                     } icon: {
-                        Image(systemName: "doc.on.doc")
+                        Image(systemName: "square.and.arrow.down")
                     }
                 }
-                .disabled(!appState.canCopyTranscript)
+                .disabled(!appState.canSaveRecording)
+                .accessibilityIdentifier("record.saveRecordingButton")
 
-                Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
+                Button(action: { Task { await appState.resendLastRecording() } }) {
                     Label {
-                        Text(localized("record.sendToOpenCode"))
+                        Text(localized("record.resendRecording"))
                     } icon: {
-                        Image(systemName: "paperplane.fill")
+                        Image(systemName: "arrow.clockwise")
                     }
                 }
-                .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
+                .disabled(!appState.canResendRecording || appState.recordingStatus == .transcribing)
+                .accessibilityIdentifier("record.resendRecordingButton")
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title2)
                     .foregroundStyle(.blue)
             }
             .accessibilityIdentifier("record.moreButton")
+
+            Button(action: appState.navigateNextTranscript) {
+                Image(systemName: "chevron.right")
+                    .font(.title2)
+                    .foregroundStyle(appState.canNavigateNextTranscript ? .blue : .gray)
+            }
+            .disabled(!appState.canNavigateNextTranscript)
+            .accessibilityIdentifier("record.historyNextButton")
         }
         .padding()
     }

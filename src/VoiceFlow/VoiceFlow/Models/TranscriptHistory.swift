@@ -14,15 +14,21 @@ struct TranscriptEntry: Codable, Equatable, Identifiable {
 
 struct TranscriptHistory: Equatable {
     private(set) var entries: [TranscriptEntry]
+    private(set) var currentIndex: Int = 0
     private let limit: Int
 
     init(entries: [TranscriptEntry] = [], limit: Int = 5) {
         self.entries = Array(entries.prefix(limit))
         self.limit = limit
+        self.currentIndex = 0
     }
 
-    var canRestorePrevious: Bool {
-        !entries.isEmpty
+    var hasNext: Bool {
+        currentIndex > 0
+    }
+
+    var hasPrevious: Bool {
+        !entries.isEmpty && currentIndex < entries.count - 1
     }
 
     mutating func add(_ text: String) {
@@ -34,17 +40,18 @@ struct TranscriptHistory: Equatable {
         if entries.count > limit {
             entries = Array(entries.prefix(limit))
         }
+        currentIndex = 0
     }
 
-    mutating func restorePrevious(currentText: String) -> String? {
-        guard !entries.isEmpty else { return nil }
-        let currentIndex = entries.firstIndex { $0.text == currentText }
-        let targetIndex: Int
-        if let currentIndex, currentIndex + 1 < entries.count {
-            targetIndex = currentIndex + 1
-        } else {
-            targetIndex = 0
-        }
-        return entries[targetIndex].text
+    mutating func navigatePrevious() -> String? {
+        guard hasPrevious else { return nil }
+        currentIndex += 1
+        return entries[currentIndex].text
+    }
+
+    mutating func navigateNext() -> String? {
+        guard hasNext else { return nil }
+        currentIndex -= 1
+        return entries[currentIndex].text
     }
 }
