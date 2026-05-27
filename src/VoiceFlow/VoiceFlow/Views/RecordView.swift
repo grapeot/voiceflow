@@ -6,24 +6,40 @@ struct RecordView: View {
     @State private var showOpenCodeInfo = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            statusHeader
+        ZStack {
+            DesignTokens.Palette.bgPrimary.ignoresSafeArea()
 
-            RecordingTimerView(timeString: appState.recordingTimerText)
+            VStack(spacing: 0) {
+                Spacer().frame(height: DesignTokens.Spacing.xxl)
 
-            recordingControls
+                timerHeader
 
-            transcriptPanel
-                .frame(maxHeight: .infinity)
+                Spacer().frame(height: DesignTokens.Spacing.l)
+
+                WaveformView(mode: waveformMode, color: waveformColor)
+                    .padding(.horizontal, DesignTokens.Spacing.xl)
+                    .accessibilityIdentifier("record.waveform")
+
+                Spacer().frame(height: DesignTokens.Spacing.xxl)
+
+                transcriptArea
+
+                Spacer(minLength: DesignTokens.Spacing.l)
+
+                primaryAction
+
+                Spacer().frame(height: DesignTokens.Spacing.m)
+
+                secondaryControls
+
+                Spacer().frame(height: DesignTokens.Spacing.l)
+            }
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .contentShape(Rectangle())
+        .toolbar(.hidden, for: .navigationBar)
         #if os(visionOS)
         .frame(minWidth: 400, idealWidth: 600, maxWidth: 800,
                minHeight: 400, idealHeight: 1000, maxHeight: 1500)
         #endif
-        .toolbar(.hidden, for: .navigationBar)
         .alert(
             Text(localized("record.error.alert.title")),
             isPresented: recordErrorAlertPresented
@@ -66,6 +82,206 @@ struct RecordView: View {
         }
     }
 
+    // MARK: - Sections
+
+    private var timerHeader: some View {
+        VStack(spacing: DesignTokens.Spacing.s) {
+            Text(appState.recordingTimerText)
+                .font(DesignTokens.Typography.timer)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .monospacedDigit()
+                .accessibilityIdentifier("record.recordingTimer")
+
+            StatusText(key: statusTextKey, role: statusTextRole)
+                .padding(.horizontal, DesignTokens.Spacing.xl)
+        }
+    }
+
+    private var transcriptArea: some View {
+        ZStack {
+            TextEditor(text: $appState.transcript)
+                .font(DesignTokens.Typography.body)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .padding(.horizontal, DesignTokens.Spacing.xl - 5)
+                .accessibilityIdentifier("record.transcript")
+                .accessibilityValue(appState.transcript)
+
+            if appState.transcript.isEmpty {
+                // The hint is symmetric to the timer and waveform above it —
+                // every element on the screen is centered. A lone left-aligned
+                // placeholder reads as orphaned, especially in dark mode.
+                Text(localized("record.transcript.placeholder"))
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(DesignTokens.Palette.textTertiary)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private var primaryAction: some View {
+        CapsuleButton(
+            title: LocalizedStringKey(appState.canStopRecording ? "record.stop" : "record.start"),
+            role: appState.canStopRecording ? .secondary : .primary,
+            action: toggleRecording,
+            icon: appState.canStopRecording ? "stop.fill" : "mic.fill",
+            isEnabled: appState.canStartRecording || appState.canStopRecording
+        )
+        .accessibilityIdentifier(appState.canStopRecording ? "record.stopButton" : "record.startButton")
+    }
+
+    private var secondaryControls: some View {
+        HStack(spacing: DesignTokens.Spacing.xl) {
+            GhostIconButton(
+                systemName: "chevron.left",
+                action: appState.navigatePreviousTranscript,
+                isEnabled: appState.canNavigatePreviousTranscript,
+                accessibilityLabel: "record.history"
+            )
+            .accessibilityIdentifier("record.historyPreviousButton")
+
+            Menu {
+                Button(action: appState.copyTranscript) {
+                    Label {
+                        Text(localized("record.copy"))
+                    } icon: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                }
+                .disabled(!appState.canCopyTranscript)
+                .accessibilityIdentifier("record.copyButton")
+
+                Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
+                    Label {
+                        Text(openCodeMenuLabel)
+                    } icon: {
+                        Image(systemName: openCodeMenuIcon)
+                    }
+                }
+                .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
+                .accessibilityIdentifier("record.sendOpenCodeButton")
+
+                Button(action: appState.saveCurrentRecording) {
+                    Label {
+                        Text(localized("record.saveRecording"))
+                    } icon: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                }
+                .disabled(!appState.canSaveRecording)
+                .accessibilityIdentifier("record.saveRecordingButton")
+
+                Button(action: { Task { await appState.resendLastRecording() } }) {
+                    Label {
+                        Text(localized("record.resendRecording"))
+                    } icon: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .disabled(!appState.canResendRecording || appState.recordingStatus == .transcribing)
+                .accessibilityIdentifier("record.resendRecordingButton")
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: DesignTokens.Sizing.ghostIcon, weight: .regular))
+                    .frame(width: DesignTokens.Sizing.ghostButton,
+                           height: DesignTokens.Sizing.ghostButton)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
+            }
+            .accessibilityIdentifier("record.moreButton")
+
+            GhostIconButton(
+                systemName: "chevron.right",
+                action: appState.navigateNextTranscript,
+                isEnabled: appState.canNavigateNextTranscript,
+                accessibilityLabel: "record.history"
+            )
+            .accessibilityIdentifier("record.historyNextButton")
+        }
+    }
+
+    // MARK: - State derivations
+
+    private var waveformMode: WaveformView.Mode {
+        switch appState.recordingStatus {
+        case .recording:    return .active
+        case .transcribing: return .generating
+        default:            return .idle
+        }
+    }
+
+    private var waveformColor: Color {
+        switch appState.recordingStatus {
+        case .recording:
+            switch appState.streamConnectionPhase {
+            case .connected, .generating: return DesignTokens.Palette.accent
+            case .connecting, .recovering: return DesignTokens.Palette.textSecondary
+            case .disconnected: return DesignTokens.Palette.textTertiary
+            }
+        case .transcribing:
+            return DesignTokens.Palette.accent
+        case .requestingPermission:
+            return DesignTokens.Palette.textSecondary
+        case .idle, .ready:
+            return DesignTokens.Palette.textTertiary
+        }
+    }
+
+    private var statusTextKey: LocalizedStringKey {
+        if appState.openCodeSendStatus != .idle {
+            return LocalizedStringKey(appState.openCodeSendStatus.localizedKey)
+        }
+        if let savedRecording = appState.lastSavedRecording {
+            return LocalizedStringKey(String(
+                format: localized("record.save.statusLine"),
+                savedRecording.fileName
+            ))
+        }
+        if let streamKey = appState.streamStatusCaptionKey {
+            return LocalizedStringKey(streamKey)
+        }
+        if let clipboardKey = appState.lastClipboardStatusKey {
+            return LocalizedStringKey(clipboardKey)
+        }
+        return LocalizedStringKey(appState.recordingStatus.localizedKey)
+    }
+
+    private var statusTextRole: StatusText.Role {
+        switch appState.recordingStatus {
+        case .recording:
+            switch appState.streamConnectionPhase {
+            case .connected, .generating: return .accent
+            case .connecting, .recovering: return .neutral
+            case .disconnected: return .muted
+            }
+        case .transcribing:
+            return .accent
+        case .idle, .ready, .requestingPermission:
+            return .neutral
+        }
+    }
+
+    private var openCodeMenuLabel: String {
+        switch appState.openCodeSendStatus {
+        case .sending: return localized("record.openCode.sending")
+        case .success: return localized("record.openCode.sent")
+        case .failed:  return localized("record.openCode.error.sendFailed")
+        case .idle:    return localized("record.sendToOpenCode")
+        }
+    }
+
+    private var openCodeMenuIcon: String {
+        switch appState.openCodeSendStatus {
+        case .sending: return "paperplane"
+        case .success: return "checkmark.circle"
+        case .failed:  return "exclamationmark.triangle"
+        case .idle:    return "paperplane"
+        }
+    }
+
+    // MARK: - Bindings
+
     private var savedRecordingAlertPresented: Binding<Bool> {
         Binding(
             get: { appState.shouldPresentSavedRecordingAlert },
@@ -88,223 +304,6 @@ struct RecordView: View {
         )
     }
 
-    private var statusHeader: some View {
-        VStack(spacing: 4) {
-            RecordingStatusHeaderView(
-                recordingStatus: appState.recordingStatus,
-                streamConnectionPhase: appState.streamConnectionPhase
-            )
-
-            statusLine
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    @ViewBuilder
-    private var statusLine: some View {
-        if appState.openCodeSendStatus != .idle {
-            Text(localized(appState.openCodeSendStatus.localizedKey))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        } else if let savedRecording = appState.lastSavedRecording {
-            Text(
-                String(
-                    format: localized("record.save.statusLine"),
-                    savedRecording.fileName
-                )
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(3)
-            .multilineTextAlignment(.center)
-            .accessibilityIdentifier("record.save.statusLine")
-        } else if let streamStatusCaptionKey = appState.streamStatusCaptionKey {
-            Text(localized(streamStatusCaptionKey))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .accessibilityIdentifier("record.streamStatusCaption")
-        } else if let lastClipboardStatusKey = appState.lastClipboardStatusKey {
-            Text(localized(lastClipboardStatusKey))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-    }
-
-    private var recordingControls: some View {
-        HStack(spacing: 20) {
-            Button(action: appState.navigatePreviousTranscript) {
-                Image(systemName: "chevron.left")
-                    .font(.title2)
-                    .foregroundStyle(appState.canNavigatePreviousTranscript ? .blue : .gray)
-            }
-            .disabled(!appState.canNavigatePreviousTranscript)
-            .accessibilityIdentifier("record.historyPreviousButton")
-
-            Button(action: toggleRecording) {
-                HStack {
-                    Image(systemName: appState.canStopRecording ? "stop.fill" : "play.fill")
-                    Text(localized(appState.canStopRecording ? "record.stop" : "record.start"))
-                }
-                .font(.title2)
-            }
-            .buttonStyle(ColoredButtonStyle(
-                backgroundColor: appState.canStopRecording ? .red : .blue,
-                fixedHeight: 60,
-                fixedWidth: 120
-            ))
-            .disabled(!appState.canStartRecording && !appState.canStopRecording)
-            .accessibilityIdentifier(appState.canStopRecording ? "record.stopButton" : "record.startButton")
-
-            Menu {
-                Button(action: appState.saveCurrentRecording) {
-                    Label {
-                        Text(localized("record.saveRecording"))
-                    } icon: {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                }
-                .disabled(!appState.canSaveRecording)
-                .accessibilityIdentifier("record.saveRecordingButton")
-
-                Button(action: { Task { await appState.resendLastRecording() } }) {
-                    Label {
-                        Text(localized("record.resendRecording"))
-                    } icon: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .disabled(!appState.canResendRecording || appState.recordingStatus == .transcribing)
-                .accessibilityIdentifier("record.resendRecordingButton")
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-            }
-            .accessibilityIdentifier("record.moreButton")
-
-            Button(action: appState.navigateNextTranscript) {
-                Image(systemName: "chevron.right")
-                    .font(.title2)
-                    .foregroundStyle(appState.canNavigateNextTranscript ? .blue : .gray)
-            }
-            .disabled(!appState.canNavigateNextTranscript)
-            .accessibilityIdentifier("record.historyNextButton")
-        }
-        .padding(.horizontal)
-    }
-
-    private var transcriptPanel: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $appState.transcript)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
-                    .padding(.bottom, 8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-                    .accessibilityIdentifier("record.transcript")
-                    .accessibilityValue(appState.transcript)
-
-                if appState.transcript.isEmpty {
-                    Text(localized("record.transcript.placeholder"))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 28)
-                        .allowsHitTesting(false)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                Text(transcriptCharacterCountLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-                    .accessibilityIdentifier("record.transcriptCharacterCount")
-                    .allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            HStack(spacing: 12) {
-                Button(action: appState.copyTranscript) {
-                    HStack {
-                        Image(systemName: "doc.on.doc")
-                        Text(localized("record.copy"))
-                    }
-                }
-                .buttonStyle(ColoredButtonStyle(backgroundColor: .blue, fixedHeight: 60, fixedWidth: 150))
-                .frame(maxWidth: .infinity)
-                .disabled(!appState.canCopyTranscript)
-                .accessibilityIdentifier("record.copyButton")
-
-                HStack(spacing: 8) {
-                    Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
-                        HStack {
-                            switch appState.openCodeSendStatus {
-                            case .sending:
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                Text(localized("record.openCode.sending"))
-                            case .success:
-                                Image(systemName: "checkmark.circle.fill")
-                                Text(localized("record.openCode.sent"))
-                            case .failed:
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                Text(localized("record.openCode.error.sendFailed"))
-                            case .idle:
-                                Text("🧠")
-                                Text(localized("record.sendToOpenCode"))
-                            }
-                        }
-                    }
-                    .buttonStyle(ColoredButtonStyle(
-                        backgroundColor: appState.openCodeSendStatus == .success ? .green : appState.openCodeSendStatus.isFailed ? .red : .purple,
-                        fixedHeight: 60,
-                        fixedWidth: 170
-                    ))
-                    .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
-                    .accessibilityIdentifier("record.sendOpenCodeButton")
-                    .accessibilityLabel(Text(localized("record.sendToOpenCode")))
-
-                    Button {
-                        showOpenCodeInfo = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("record.openCode.infoButton")
-                    .accessibilityLabel(Text(localized("record.openCode.info.accessibility")))
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.top, 12)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
-        }
-        .clipped()
-    }
-
-    private var transcriptCharacterCountLabel: String {
-        String(
-            format: localized("record.transcript.characterCount"),
-            appState.transcript.count
-        )
-    }
-
     private func toggleRecording() {
         if appState.canStopRecording {
             Task { await appState.stopRecording() }
@@ -315,13 +314,6 @@ struct RecordView: View {
 
     private func localized(_ key: String) -> String {
         String(localized: String.LocalizationValue(key), bundle: localizationBundle)
-    }
-}
-
-private extension OpenCodeSendStatus {
-    var isFailed: Bool {
-        if case .failed = self { return true }
-        return false
     }
 }
 

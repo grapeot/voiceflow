@@ -20,6 +20,58 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-27 (UX 重做：暖琥珀 / 深墨与纸白双模式)
+
+设计方向锁定在 GPT image 生成的候选 B（夜间深墨 + 暖琥珀）与候选 D（日间纸白 + 同色琥珀点缀）。Spec 在 `docs/design.md`。
+
+**新增**
+
+- `DesignTokens.swift`：色板（夜/日双值，`Color(light:dark:)` 自动跟随 colorScheme）、字号、间距、尺寸常量集中。整个 app 不再出现 `Color.blue / .red / .gray.opacity(0.3)` 之类的 ad-hoc 写法。
+- `WaveformView`：屏幕唯一视觉锚点。`.idle / .active / .generating` 三种模式，Canvas + TimelineView 驱动，36 根条形 bars。本版用合成动画（不接真实 audio level，AppState 还没暴露），但状态绑定到 `recordingStatus` + `streamConnectionPhase`，颜色按状态切换。
+- `CapsuleButton`：替换 `ColoredButtonStyle`。胶囊形 + intrinsic 宽度，三种 role（primary / secondary / ghost），高 56pt，文字 + icon 都自适应——彻底修了之前英文 "Start Recordi…" 被截断的问题。
+- `GhostIconButton`：替换历史 chevron / info button。圆形 36pt tap target，18pt SF Symbol，`text.tertiary` 色，disabled 态自然弱化。
+- `StatusText`：替换 `RecordingStatusHeaderView`。一行 14pt 状态文字，无色点。状态全靠文字 + 波形颜色承载。
+
+**删除**
+
+- `Views/Components/ColoredButtonStyle.swift`
+- `Views/Components/RecordingStatusHeaderView.swift`
+- `Views/Components/RecordingTimerView.swift`
+
+**重写**
+
+- `RecordView`：标题 "VoiceFlow" 删除；六块横向 stack 压缩成"计时器 / 状态 / 波形 / 转写 / 主按钮 / ghost 控件行"的纵向单列；Copy 和 Send-to-OpenCode 从底部主按钮区域降级到 more menu；🧠 emoji 删除（OpenCode 改用 `paperplane` SF Symbol）。
+- `SettingsView`：保留 Form 结构（V2 再做完整 list 重做），换 token 色板、清除 `RoundedBorderTextFieldStyle` 改成 plain，文案克制化（"Test Connection" → "Test"，"Save Token" → "Save"）。Save / Clear 与 Test 拆成两行避免 SwiftUI Form 同行多 button 的 hit-test 坑（这是第一轮 UI test 失败的直接原因）。
+- `MainTabView`：`tint(.accent)`、tab bar 用 `.ultraThinMaterial` 半透明、图标改 outline 版本（`mic` / `gearshape`），选中态由系统填色。
+
+**本地化**
+
+en/zh 两套 `Localizable.strings` 同步更新：`record.start` "Start Recording" → "Record"；`record.status.recording` "Recording..." → "Listening" / "聆听中"；`record.transcript.placeholder` "Your transcription will appear here." → "Speak." / "开始说话。"；`settings.testConnection` → "Test"；`settings.apiToken.save` → "Save"。所有 key 不变。
+
+**UI test 更新**
+
+- 删除 `app.staticTexts["VoiceFlow"]` / `app.buttons["Start Recording"]` 等基于显示文案的断言；改用 `record.startButton` / `record.stopButton` 等 stable accessibilityIdentifier。
+- `record.statusIndicator` 不再存在（色点已删），`waitForRecordingState(.ready)` 的对应 fallback 已撤。
+- `testEnglishAppShell` 删除对独立 Copy / Send-to-OpenCode button 的断言（它们现在在 more menu 里），改为断言 `record.moreButton` 存在。
+- `testMockRecordingFlowShowsTranscriptAndClipboardStatus` 在 Stop 之后先 tap `record.moreButton` 再 tap `record.sendOpenCodeButton`。
+- `testChineseAppShell` 删除对顶部 "复制" 按钮的断言，改为通过 identifier 验证 Settings 的 Test 按钮存在。
+
+**测试结果**
+
+- 59 / 59 unit tests passed
+- 11 / 11 UI tests passed（full suite，~200s 墙钟）
+
+**截图**
+
+模拟器 iPhone 17 Pro / iOS 26.3.1 抓的中英文 × 日夜共 4 张，存在 `docs/screenshots/redesign_*.png` 并嵌入 `docs/design.md` 的"实施结果"一节。
+
+**Spec 未做项（留给 V2）**
+
+- 真实 audio level → WaveformView：需要在 `AudioRecorder` 加 metering，再把 level 经 AppState 暴露给 view。本 PR 用合成动画做"在场感"。
+- Settings 重做成自定义 list（而非 Form）：风险高、改动大，本 PR 只动色板、字体、文案。
+- 自定义 tab bar 或"无 tab + 右上 gear"：本 PR 保留系统 TabView，只做视觉融入（`.tint` + material）。
+- 转写区改 `New York` 衬线字体：先用 SF Pro Text，观察后再升级。
+
 ### 2026-05-27 (代码审查与脚本去重)
 
 - 审查记录：`docs/code_review_2026-05-27.md`

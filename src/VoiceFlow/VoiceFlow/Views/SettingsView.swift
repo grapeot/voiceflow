@@ -8,75 +8,78 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                aiBuilderSection
-                openCodeSection
-                languageSection
-                uiTestSection
+            ZStack {
+                DesignTokens.Palette.bgPrimary.ignoresSafeArea()
+
+                Form {
+                    aiBuilderSection
+                    openCodeSection
+                    languageSection
+                    uiTestSection
+                }
+                .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .tint(DesignTokens.Palette.accent)
             }
-            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(Text(localized("tab.settings")))
             .dismissKeyboardOnTapOutsideTextInputs()
+            .toolbarColorScheme(nil, for: .navigationBar)
         }
     }
 
     private var aiBuilderSection: some View {
-        Section(header: Text(localized("settings.aiBuilder.title"))) {
-            VStack(alignment: .leading, spacing: 8) {
+        Section {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(localized("settings.apiToken.placeholder"))
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(DesignTokens.Typography.bodyBold)
+                    .foregroundStyle(DesignTokens.Palette.textPrimary)
 
                 if appState.hasSavedAIBuilderToken {
                     Text(appState.tokenDisplayValue)
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                        )
+                        .foregroundStyle(DesignTokens.Palette.textSecondary)
+                        .padding(.vertical, DesignTokens.Spacing.xs)
                         .accessibilityIdentifier("settings.apiTokenMaskedValue")
                 } else {
                     SecureField(localized("settings.apiToken.placeholder"), text: $tokenInput)
                         .textContentType(.password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textFieldStyle(.plain)
+                        .font(DesignTokens.Typography.body)
+                        .foregroundStyle(DesignTokens.Palette.textPrimary)
                         .accessibilityIdentifier("settings.apiTokenField")
                 }
             }
-            .padding(.vertical, 4)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
                 Text(localized("settings.endpoint.title"))
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                     .accessibilityIdentifier("settings.endpointTitle")
 
                 Text(appState.aiBuilderEndpoint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Palette.textTertiary)
                     .accessibilityIdentifier("settings.endpointValue")
             }
-            .padding(.vertical, 4)
 
             HStack {
                 Text(localized("settings.apiToken.status"))
-                    .font(.subheadline)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                 Spacer()
                 Text(localized(appState.hasSavedAIBuilderToken ? "settings.apiToken.saved" : "settings.apiToken.notSaved"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                     .accessibilityIdentifier("settings.apiTokenStatus")
             }
 
-            HStack {
+            HStack(spacing: DesignTokens.Spacing.m) {
                 Button(localized("settings.apiToken.save")) {
                     appState.saveAIBuilderToken(tokenInput)
                     tokenInput = ""
                 }
-                .buttonStyle(BorderedButtonStyle())
+                .buttonStyle(.borderless)
+                .foregroundStyle(DesignTokens.Palette.accent)
                 .disabled(appState.hasSavedAIBuilderToken || tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("settings.saveTokenButton")
 
@@ -86,16 +89,17 @@ struct SettingsView: View {
                     appState.clearAIBuilderToken()
                     tokenInput = ""
                 }
-                .buttonStyle(BorderedButtonStyle())
+                .buttonStyle(.borderless)
+                .foregroundStyle(DesignTokens.Palette.textSecondary)
                 .disabled(!appState.hasSavedAIBuilderToken)
                 .accessibilityIdentifier("settings.clearTokenButton")
             }
-            .padding(.vertical, 4)
 
             Button(localized("settings.testConnection")) {
                 Task { await appState.testAIBuilderConnection() }
             }
-            .buttonStyle(BorderedProminentButtonStyle())
+            .buttonStyle(.borderless)
+            .foregroundStyle(DesignTokens.Palette.accent)
             .disabled(!appState.hasSavedAIBuilderToken || appState.connectionStatus == .testing)
             .accessibilityIdentifier("settings.testConnectionButton")
 
@@ -106,80 +110,88 @@ struct SettingsView: View {
             )
 
             Text(localized("settings.apiToken.securityHint"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(DesignTokens.Palette.textTertiary)
+        } header: {
+            Text(localized("settings.aiBuilder.title"))
+                .font(DesignTokens.Typography.bodyBold)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .textCase(nil)
         }
+        .listRowBackground(DesignTokens.Palette.bgSecondary)
     }
 
     private var openCodeSection: some View {
-        Section(header: Text(localized("settings.openCode.title"))) {
-            VStack(alignment: .leading, spacing: 8) {
+        Section {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(localized("settings.openCode.serverURL"))
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                 TextField(localized("settings.openCode.serverURL"), text: $appState.openCodeServerURL)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textFieldStyle(.plain)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(DesignTokens.Palette.textPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("settings.openCodeServerURLField")
             }
-            .padding(.vertical, 4)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(localized("settings.openCode.username"))
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                 TextField(localized("settings.openCode.username"), text: $appState.openCodeUsername)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textFieldStyle(.plain)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(DesignTokens.Palette.textPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("settings.openCodeUsernameField")
             }
-            .padding(.vertical, 4)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(localized("settings.openCode.password"))
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
 
                 if appState.hasSavedOpenCodePassword {
                     Text(appState.openCodePasswordDisplayValue)
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                        )
+                        .foregroundStyle(DesignTokens.Palette.textSecondary)
+                        .padding(.vertical, DesignTokens.Spacing.xs)
                         .accessibilityIdentifier("settings.openCodePasswordMaskedValue")
                 } else {
                     SecureField(localized("settings.openCode.password"), text: $openCodePasswordInput)
                         .textContentType(.password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textFieldStyle(.plain)
+                        .font(DesignTokens.Typography.body)
+                        .foregroundStyle(DesignTokens.Palette.textPrimary)
                         .accessibilityIdentifier("settings.openCodePasswordField")
                 }
             }
-            .padding(.vertical, 4)
 
             HStack {
                 Text(localized("settings.openCode.status"))
-                    .font(.subheadline)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                 Spacer()
                 Text(localized(appState.isOpenCodeConfigured ? "settings.openCode.configured" : "settings.openCode.notConfigured"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                     .accessibilityIdentifier("settings.openCodeStatus")
             }
 
-            HStack {
+            HStack(spacing: DesignTokens.Spacing.m) {
                 Button(localized("settings.openCode.save")) {
                     appState.saveOpenCodePassword(openCodePasswordInput)
                     openCodePasswordInput = ""
                 }
-                .buttonStyle(BorderedButtonStyle())
-                .disabled(appState.hasSavedOpenCodePassword || openCodePasswordInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.borderless)
+                .foregroundStyle(DesignTokens.Palette.accent)
+                .disabled(appState.hasSavedOpenCodePassword
+                          || openCodePasswordInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || appState.openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || appState.openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("settings.saveOpenCodeButton")
 
                 Spacer()
@@ -188,16 +200,17 @@ struct SettingsView: View {
                     appState.clearOpenCodePassword()
                     openCodePasswordInput = ""
                 }
-                .buttonStyle(BorderedButtonStyle())
+                .buttonStyle(.borderless)
+                .foregroundStyle(DesignTokens.Palette.textSecondary)
                 .disabled(!appState.hasSavedOpenCodePassword)
                 .accessibilityIdentifier("settings.clearOpenCodeButton")
             }
-            .padding(.vertical, 4)
 
             Button(localized("settings.openCode.testConnection")) {
                 Task { await appState.testOpenCodeConnection() }
             }
-            .buttonStyle(BorderedProminentButtonStyle())
+            .buttonStyle(.borderless)
+            .foregroundStyle(DesignTokens.Palette.accent)
             .disabled(!appState.isOpenCodeConfigured || appState.openCodeConnectionStatus == .testing)
             .accessibilityIdentifier("settings.testOpenCodeConnectionButton")
 
@@ -209,9 +222,15 @@ struct SettingsView: View {
             )
 
             Text(localized("settings.openCode.optionalHint"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(DesignTokens.Palette.textTertiary)
+        } header: {
+            Text(localized("settings.openCode.title"))
+                .font(DesignTokens.Typography.bodyBold)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .textCase(nil)
         }
+        .listRowBackground(DesignTokens.Palette.bgSecondary)
     }
 
     @ViewBuilder
@@ -223,17 +242,19 @@ struct SettingsView: View {
                         await appState.resetForUITest()
                     }
                 }
+                .foregroundStyle(DesignTokens.Palette.accent)
                 .accessibilityIdentifier("uitest.resetState")
             }
+            .listRowBackground(DesignTokens.Palette.bgSecondary)
         }
     }
 
     private var languageSection: some View {
-        Section(header: Text(localized("settings.language.title"))) {
-            VStack(alignment: .leading, spacing: 8) {
+        Section {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(localized("settings.language.description"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textTertiary)
 
                 Picker(localized("settings.language.title"), selection: $appState.appLanguage) {
                     ForEach(AppLanguage.allCases) { language in
@@ -244,8 +265,13 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("settings.languagePicker")
             }
-            .padding(.vertical, 4)
+        } header: {
+            Text(localized("settings.language.title"))
+                .font(DesignTokens.Typography.bodyBold)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .textCase(nil)
         }
+        .listRowBackground(DesignTokens.Palette.bgSecondary)
     }
 
     @ViewBuilder
@@ -255,16 +281,20 @@ struct SettingsView: View {
         identifier: String,
         detailIdentifier: String
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             Text(localized(localizedKey(status)))
-                .font(.caption)
-                .foregroundStyle(status.detail == nil ? Color.secondary : Color.red)
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(
+                    status.detail == nil
+                    ? DesignTokens.Palette.textSecondary
+                    : DesignTokens.Palette.accent
+                )
                 .accessibilityIdentifier(identifier)
 
             if let detail = status.detail {
                 Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.accent)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(detailIdentifier)
             }

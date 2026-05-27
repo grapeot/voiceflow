@@ -35,10 +35,7 @@ extension XCTestCase {
     ) -> Bool {
         switch status {
         case .recording:
-            if app.buttons["record.stopButton"].waitForExistence(timeout: timeout) {
-                return true
-            }
-            return app.buttons["Stop"].waitForExistence(timeout: 1)
+            return app.buttons["record.stopButton"].waitForExistence(timeout: timeout)
         case .ready:
             let deadline = Date().addingTimeInterval(timeout)
             while Date() < deadline {
@@ -48,14 +45,6 @@ extension XCTestCase {
                     }
                 }
                 if app.buttons["record.startButton"].exists, !app.buttons["record.stopButton"].exists {
-                    return true
-                }
-                for label in ["Start Recording", "开始录音"] {
-                    if app.buttons[label].exists, !app.buttons["Stop"].exists {
-                        return true
-                    }
-                }
-                if waitForValue(of: app.otherElements["record.statusIndicator"], containing: "ready", timeout: 0.5) {
                     return true
                 }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.2))
