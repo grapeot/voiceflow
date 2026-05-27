@@ -1,6 +1,38 @@
 # Working Notes
 
+## OpenCode vs VoiceFlow — streaming/finalize comparison
+
+Side-by-side of the two implementations (OpenCode reference: `opencode_ios_client` `AIBuildersAudioClient.commitAndStop`; VoiceFlow: `RealtimeTranscriptionClient` + `AppState`).
+
+| Step | OpenCode | VoiceFlow (before this fix) | Gap |
+|------|----------|----------------------------|-----|
+| Start recording | Mic + disk cache first; WS attach in deferred `Task` | Same pattern via `beginLiveSession` + `handleCapturedPCMChunk` | Aligned |
+| WS connect timing | After mic/cache; ticket POST then `wss?ticket=` | Same ticket flow | Aligned |
+| During recording | Streams audio; **no live transcript UI** | Suppresses `textDelta` until finalize (`shouldNotifyUI`) | Extra state machine |
+| Receive loop | **Synchronous** `while` inside `commitAndStop` on session actor | Split: background `receiveLoop` + `finalize` continuation + `TaskGroup` | Harder to reason about; race on `waitForFinalizeResult` (fixed in #23) |
+| Stop / commit | `commit` → receive deltas → `transcript_completed` → `stop` → return on `session_stopped` | Same wire sequence; `sendCommit` defers `stop` until completed | Aligned after VAD-off + min-bytes guard |
+| Partial transcript merge | `partialAccumulator += delta` (append only) | `TranscriptDeltaReducer` / `FinalizeTranscriptMergerState` **replaced** on `isNewResponse` | **Truncation root cause** — second epoch wiped first half |
+| UI thread on partial | `Task { @MainActor in inputText = ... }` in ChatTabView | Finalize callback set `self.transcript` **directly** from WS actor | **Main-thread violations** on TextEditor / `@Published` |
+| Return value | `finalTranscript ?? ""` from receive loop | `finalize()` returns `String` from accumulator (now `max(partial, completed)`) | VoiceFlow slightly safer when completed snapshot is shorter |
+| Error handling | Single `catch` → one alert | Stream error + bulk fallback could each alert; teardown could race | Partially unified in #23; finalize path now single success/failure exit |
+
+**Why porting felt harder than OpenCode:** VoiceFlow added live-transcript suppression, event indirection (`deliverLiveSessionEvent` → `Task` → `onEvent`), and split commit/wait across actors without consistently hopping to `@MainActor` for UI mutations. OpenCode keeps commit + receive + return in one synchronous loop with an explicit MainActor partial callback.
+
 ## Changelog
+
+### 2026-05-27 (structured compare + MainActor + append merge)
+
+- **Comparison doc** (table above): truncation = replace-on-`isNewResponse` vs OpenCode append; main-thread bugs = finalize partial callback off MainActor.
+- **Fix**: `FinalizeTranscriptAccumulator` — append deltas, prefer longer partial vs `transcript_completed` snapshot (OpenCode-style).
+- **Fix**: `makeFinalizePartialHandler()` — all finalize `@Published` updates via `Task { @MainActor }`; bulk partial callback already MainActor.
+- **Fix**: `completeStopTranscriptionSuccess/Failure` synchronous on `@MainActor` AppState (no spurious `async`).
+
+### 2026-05-27 (finalize race + double alert)
+
+- **Double alert root cause**: stream finalize failure called `presentRecordError`, then bulk fallback also failed → second alert; socket teardown errors during `.transcribing` also triggered alerts before transcript landed.
+- **Transcript-after-alert race**: finalize partial callback used async `Task { @MainActor }` while success check read `self.transcript` immediately → false `tooShort` + bulk fallback while stream text still in flight.
+- **Fix**: unified stop state machine (`transcription_finalize_*` logs), `finalize` returns `String`, suppress stream errors during teardown/transcribing, single `presentRecordError` only after stream+bulk exhausted, `TranscriptEpochMerger` in finalize for recover retries.
+- New diagnostics: `transcription_finalize_started/stream_done/stream_failed`, `transcription_stream_error_ignored`, `transcription_stop_failed`.
 
 ### 2026-05-26 (disconnect stop + finalize regression)
 

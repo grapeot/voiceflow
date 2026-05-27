@@ -121,6 +121,26 @@ struct RealtimeTranscriptionTests {
         #expect(RealtimeTranscriptionConfig.minCommitAudioBytes == 4_800)
     }
 
+    @Test func resolveFinalizeTranscriptPrefersLongerPartialOverShorterCompleted() {
+        let partial = "The first sentence. The second sentence."
+        let completed = "The second sentence."
+        #expect(
+            RealtimeTranscriptionSupport.resolveFinalizeTranscript(partial: partial, completed: completed)
+            == partial
+        )
+    }
+
+    @Test func resolveFinalizeTranscriptAppendSemanticsPreserveFullText() {
+        var partial = ""
+        partial += "Hello "
+        partial += "world"
+        let resolved = RealtimeTranscriptionSupport.resolveFinalizeTranscript(
+            partial: partial,
+            completed: "world"
+        )
+        #expect(resolved == "Hello world")
+    }
+
     @Test func liveSessionSuppressesTranscriptUntilFinalize() async throws {
         let client = MockRealtimeTranscriptionClient(liveResult: .success("final words"))
         var uiEvents: [RealtimeTranscriptEvent] = []
@@ -136,9 +156,10 @@ struct RealtimeTranscriptionTests {
         await client.emitLiveEvent(.recoveryStarted)
         #expect(uiEvents.contains { if case .textDelta = $0 { return true }; return false } == false)
 
-        try await session.finalize(onPartialTranscript: nil)
+        let finalized = try await session.finalize(onPartialTranscript: nil)
         await session.cancel()
 
+        #expect(finalized == "final words")
         #expect(uiEvents.contains(.textDelta(content: "final words", isNewResponse: true)))
     }
 
@@ -153,9 +174,10 @@ struct RealtimeTranscriptionTests {
         )
 
         await session.appendAudioChunk(Data(repeating: 0, count: 100))
-        try await session.finalize(onPartialTranscript: nil)
+        let finalized = try await session.finalize(onPartialTranscript: nil)
         await session.cancel()
 
+        #expect(finalized == "streamed words")
         #expect(events.contains(.status(.connected)))
         #expect(events.contains(.textDelta(content: "streamed words", isNewResponse: true)))
         #expect(events.contains(.status(.idle)))
@@ -236,7 +258,7 @@ struct LiveWebSocketIntegrationTests {
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    try await session.finalize(onPartialTranscript: nil)
+                    _ = try await session.finalize(onPartialTranscript: nil)
                 }
                 group.addTask {
                     try await Task.sleep(for: .seconds(25))

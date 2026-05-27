@@ -107,6 +107,7 @@ final class AppState: ObservableObject {
     private var lastStreamClipboardHash: Int?
     private var lastStreamClipboardUpdate: Date?
     private var userEditedTranscriptDuringStream = false
+    private var isTranscriptionTeardown = false
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -465,7 +466,12 @@ final class AppState: ObservableObject {
         openCodeSendStatus = .idle
         lastClipboardStatusKey = nil
         recordDiagnostic("recording_resend_requested")
-        await finishTranscriptionFromLastRecording()
+        if let bulkText = await finishTranscriptionFromLastRecording(presentErrorOnFailure: true) {
+            transcript = bulkText
+            transcriptHistory.add(bulkText)
+            copyTranscript()
+            recordingStatus = .ready
+        }
     }
 
     func saveOpenCodePassword(_ password: String) {
@@ -581,16 +587,20 @@ final class AppState: ObservableObject {
         return destinationURL
     }
 
-    private func finishTranscriptionFromLastRecording() async {
+    private func finishTranscriptionFromLastRecording(presentErrorOnFailure: Bool = true) async -> String? {
         guard let audioURL = lastRecordingURL else {
-            presentRecordError("record.error.transcriptionFailed")
-            return
+            if presentErrorOnFailure {
+                presentRecordError("record.error.transcriptionFailed")
+            }
+            return nil
         }
 
         guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            presentRecordError("record.error.missingToken")
-            return
+            if presentErrorOnFailure {
+                presentRecordError("record.error.missingToken")
+            }
+            return nil
         }
 
         do {
@@ -607,15 +617,14 @@ final class AppState: ObservableObject {
                     self.transcript = partial
                 }
             }
-            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)"])
-            transcript = transcribedText
-            openCodeSendStatus = .idle
-            transcriptHistory.add(transcribedText)
-            copyTranscript()
-            recordingStatus = .ready
+            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)", "mode": "bulk"])
+            return transcribedText
         } catch {
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
-            presentRecordError("record.error.transcriptionFailed")
+            if presentErrorOnFailure {
+                presentRecordError("record.error.transcriptionFailed")
+            }
+            return nil
         }
     }
 
@@ -647,7 +656,17 @@ final class AppState: ObservableObject {
             }
         case .error(let message):
             if RealtimeTranscriptionSupport.isRecoverableBufferTooSmallError(message),
-               recordingStatus == .recording {
+               recordingStatus == .recording || isTranscriptionTeardown {
+                return
+            }
+            if isTranscriptionTeardown || recordingStatus == .transcribing {
+                recordDiagnostic(
+                    "transcription_stream_error_ignored",
+                    metadata: ["reason": message, "phase": isTranscriptionTeardown ? "teardown" : "transcribing"]
+                )
+                if recordingStatus == .transcribing, !isTranscriptionTeardown {
+                    streamStatusCaptionKey = "record.error.streamDisconnected"
+                }
                 return
             }
             recordDiagnostic("transcription_stream_error", metadata: ["reason": message])
@@ -660,6 +679,9 @@ final class AppState: ObservableObject {
                 presentRecordError("record.error.transcriptionFailed")
             }
         case .disconnected:
+            if isTranscriptionTeardown {
+                return
+            }
             streamConnectionPhase = .disconnected
             if recordingStatus == .recording {
                 streamStatusCaptionKey = "record.status.reconnecting"
@@ -700,58 +722,89 @@ final class AppState: ObservableObject {
         await liveTranscriptionSession?.appendAudioChunk(remainder)
     }
 
+    private func updateTranscriptDuringFinalize(_ partial: String) {
+        transcript = partial
+        throttledStreamClipboardWrite(partial)
+    }
+
+    private func makeFinalizePartialHandler() -> @Sendable (String) -> Void {
+        { [weak self] partial in
+            Task { @MainActor in
+                self?.updateTranscriptDuringFinalize(partial)
+            }
+        }
+    }
+
     private func finishLiveTranscriptionSession() async {
         stopStreamHeartbeat()
+        isTranscriptionTeardown = true
+        defer { isTranscriptionTeardown = false }
+
         guard let session = liveTranscriptionSession else {
-            presentRecordError("record.error.transcriptionFailed")
+            recordDiagnostic("transcription_finalize_failed", metadata: ["reason": "noSession"])
+            completeStopTranscriptionFailure(reason: "noSession")
             return
         }
 
+        recordDiagnostic("transcription_finalize_started", metadata: ["hasToken": "true", "mode": "stream"])
+        var streamText = ""
         do {
-            recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "stream"])
-            try await session.finalize { [weak self] partial in
-                guard let self else { return }
-                Task { @MainActor in
-                    self.transcript = partial
-                    self.throttledStreamClipboardWrite(partial)
-                }
-            }
-            await session.cancel()
-            liveTranscriptionSession = nil
-            streamConnectionPhase = .disconnected
-            streamStatusCaptionKey = nil
+            streamText = try await session.finalize(onPartialTranscript: makeFinalizePartialHandler())
+            recordDiagnostic(
+                "transcription_finalize_stream_done",
+                metadata: ["characterCount": "\(streamText.count)"]
+            )
+        } catch {
+            recordDiagnostic(
+                "transcription_finalize_stream_failed",
+                metadata: diagnosticMetadata(for: error).merging(["reason": String(describing: error)]) { _, new in new }
+            )
+        }
 
-            let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.count > 3 else {
-                recordDiagnostic("transcription_response_failed", metadata: ["reason": "tooShort"])
-                if lastRecordingURL != nil {
-                    recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": "tooShort"])
-                    await finishTranscriptionFromLastRecording()
-                    return
-                }
-                presentRecordError("record.error.transcriptionFailed")
-                return
-            }
+        await cancelLiveTranscriptionSession()
 
-            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcript.count)"])
+        if isUsableTranscript(streamText) {
+            completeStopTranscriptionSuccess(text: streamText, mode: "stream")
+            return
+        }
+
+        let fallbackReason = streamText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "emptyStream" : "tooShort"
+        recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": fallbackReason])
+        if let bulkText = await finishTranscriptionFromLastRecording(presentErrorOnFailure: false),
+           isUsableTranscript(bulkText) {
+            completeStopTranscriptionSuccess(text: bulkText, mode: "bulk")
+            return
+        }
+
+        completeStopTranscriptionFailure(reason: "allPathsFailed")
+    }
+
+    private func isUsableTranscript(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).count > 3
+    }
+
+    private func completeStopTranscriptionSuccess(text: String, mode: String) {
+        recordErrorAlertKey = nil
+        transcript = text
+        openCodeSendStatus = .idle
+        streamConnectionPhase = .disconnected
+        streamStatusCaptionKey = nil
+        recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(text.count)", "mode": mode])
+        transcriptHistory.add(text)
+        copyTranscript()
+        recordingStatus = .ready
+    }
+
+    private func completeStopTranscriptionFailure(reason: String) {
+        recordDiagnostic("transcription_stop_failed", metadata: ["reason": reason])
+        if isUsableTranscript(transcript) {
             transcriptHistory.add(transcript)
             copyTranscript()
             recordingStatus = .ready
-        } catch {
-            await cancelLiveTranscriptionSession()
-            recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
-            if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                transcriptHistory.add(transcript)
-                copyTranscript()
-                recordingStatus = .ready
-                streamStatusCaptionKey = "record.error.streamDisconnected"
-            } else if lastRecordingURL != nil {
-                recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": "streamFinalizeFailed"])
-                await finishTranscriptionFromLastRecording()
-            } else {
-                presentRecordError("record.error.transcriptionFailed")
-            }
+            streamStatusCaptionKey = "record.error.streamDisconnected"
+            return
         }
+        presentRecordError("record.error.transcriptionFailed")
     }
 
     private func cancelLiveTranscriptionSession() async {
