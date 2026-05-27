@@ -21,6 +21,11 @@
 - Record tab 接入 Start / Stop / Copy / History 按钮，UI test 模式走 mock recorder、mock transcriber 和 mock clipboard，不需要真实麦克风或真实网络。
 - Xcode 生成的 Info.plist 已加入麦克风权限说明。
 - 麦克风权限请求在 iOS 17 / visionOS 1 及以上使用 `AVAudioApplication.requestRecordPermission`，旧系统才回退到 `AVAudioSession.requestRecordPermission`。
+- 增加可选 OpenCode 发送路径：Settings 保存自托管 server URL、username 和 Keychain password，Record tab 可把当前转写发送到 OpenCode。
+- OpenCode client 使用 Basic Auth，先 `POST /session` 创建会话，再 `POST /session/{id}/prompt_async` 异步发送 transcript prompt。
+- UI test 模式覆盖 OpenCode 配置保存、遮罩显示和清除，不需要真实 OpenCode server。
+- OpenCode server URL 增加安全校验：远程 server 必须使用 HTTPS，HTTP 只允许 localhost / loopback，避免 Basic Auth 和 transcript 通过远程明文连接发送。
+- 新录音开始和新转写完成时会重置 OpenCode 发送状态，避免旧 transcript 的发送结果残留在 Record 页。
 
 ## Lessons Learned
 
@@ -32,6 +37,8 @@
 - visionOS simulator 的 generic destination 不可用，当前使用 `platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2`。
 - multipart 上传测试使用 `URLProtocol` 拦截请求，验证 Bearer header、`/v1/audio/transcriptions` path 和 `audio_file` 表单字段，不依赖真实 AI Builder token。
 - 旧 iOS 工程未命中 `requestRecordPermission` 调用；当前不需要同步改旧 repo。
+- `URLProtocol` 拦截到的 request body 可能在 `httpBodyStream` 而不是 `httpBody`，测试需要同时读取两种形态。
+- Swift Testing 默认并行运行；共享 `MockURLProtocol.requestHandler` 的测试需要 `@Suite(.serialized)`，否则不同 HTTP mock 会相互覆盖。
 
 ## Verification
 
@@ -51,4 +58,16 @@
 
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。
+- `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .`：零匹配。
+
+### 2026-05-26 Optional OpenCode send milestone
+
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。Xcode/actool 对 RealityDevice14,1 trait set 有 warning，但 build 退出 0。
+- `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .`：零匹配。
+
+### 2026-05-26 OpenCode review fixes
+
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。Xcode/actool 对 RealityDevice14,1 trait set 有 warning，但 build 退出 0。
 - `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .`：零匹配。
