@@ -56,7 +56,7 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
         app.buttons["Stop"].tap()
         XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Copied to clipboard."].exists)
 
         app.buttons["Send to OpenCode"].tap()
         XCTAssertTrue(app.staticTexts["Sent to OpenCode."].waitForExistence(timeout: 5))
@@ -75,6 +75,8 @@ final class VoiceFlowUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Configured"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["settings.openCodePasswordMaskedValue"].exists)
+        app.buttons["settings.testOpenCodeConnectionButton"].tap()
+        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: 5))
 
         app.buttons["settings.clearOpenCodeButton"].tap()
         XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: 5))

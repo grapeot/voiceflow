@@ -57,7 +57,10 @@ struct VoiceFlowTests {
             keychainStore: keychain,
             aiBuilderClient: MockAIBuilderConnectionClient(result: .failure(URLError(.badServerResponse))),
             clipboardWriter: MockClipboardWriter(writeError: ClipboardTestError.writeFailed),
-            openCodeClient: MockOpenCodeClient(result: .failure(OpenCodeClientError.promptSendFailed))
+            openCodeClient: MockOpenCodeClient(
+                result: .failure(OpenCodeClientError.promptSendFailed),
+                testConnectionResult: .success(())
+            )
         )
 
         await state.startRecording()
@@ -73,6 +76,9 @@ struct VoiceFlowTests {
         #expect(state.lastClipboardStatusKey == "record.clipboard.failed")
 
         state.saveOpenCodePassword("fake-opencode-password")
+        #expect(state.canSendToOpenCode == false)
+        await state.testOpenCodeConnection()
+        #expect(state.openCodeConnectionStatus == .success)
         await state.sendTranscriptToOpenCode()
         #expect(state.openCodeSendStatus == .failed("record.openCode.error.sendFailed"))
     }
@@ -87,6 +93,9 @@ struct VoiceFlowTests {
         #expect(state.canSendToOpenCode == false)
 
         state.saveOpenCodePassword("fake-password")
+        #expect(state.canSendToOpenCode == false)
+
+        await state.testOpenCodeConnection()
         #expect(state.canSendToOpenCode == true)
     }
 
@@ -157,6 +166,49 @@ struct VoiceFlowTests {
         }
     }
 
+    @Test func openCodeClientAllowsTailscaleHTTP() async throws {
+        MockURLProtocol.requestHandler = { request in
+            #expect(request.url?.host?.hasSuffix(".ts.net") == true)
+            if request.url?.path == "/session", request.httpMethod == "POST" {
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data("{\"id\":\"session-1\"}".utf8))
+            }
+            #expect(request.url?.path == "/session/session-1/prompt_async")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = OpenCodeClient(session: URLSession(configuration: configuration))
+
+        try await client.sendTranscript(
+            "hello tailscale",
+            serverURL: "http://devbox.tailabc123.ts.net:4096",
+            username: "user",
+            password: "pass"
+        )
+    }
+
+    @Test func openCodeClientTestConnectionUsesSessionEndpoint() async throws {
+        MockURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/session")
+            #expect(request.httpMethod == "GET")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("[]".utf8))
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = OpenCodeClient(session: URLSession(configuration: configuration))
+
+        try await client.testConnection(
+            serverURL: "http://localhost:4096",
+            username: "user",
+            password: "pass"
+        )
+    }
+
     @Test func openCodeClientRejectsURLUserInfo() async throws {
         let client = OpenCodeClient(session: URLSession(configuration: .ephemeral))
 
@@ -200,6 +252,7 @@ struct VoiceFlowTests {
         state.openCodeServerURL = "http://localhost:4096"
         state.openCodeUsername = "opencode"
         state.saveOpenCodePassword("fake-password")
+        await state.testOpenCodeConnection()
         await state.sendTranscriptToOpenCode()
 
         #expect(state.openCodeSendStatus == .success)
@@ -208,10 +261,14 @@ struct VoiceFlowTests {
     @Test func openCodeSendFlowFailsGracefully() async throws {
         resetOpenCodeDefaults()
         let keychain = InMemoryKeychainStore()
-        let state = AppState(keychainStore: keychain, openCodeClient: MockOpenCodeClient(result: .failure(OpenCodeClientError.promptSendFailed)))
+        let state = AppState(keychainStore: keychain, openCodeClient: MockOpenCodeClient(
+            result: .failure(OpenCodeClientError.promptSendFailed),
+            testConnectionResult: .success(())
+        ))
 
         state.transcript = "send this"
         state.saveOpenCodePassword("fake-password")
+        await state.testOpenCodeConnection()
         await state.sendTranscriptToOpenCode()
 
         if case .failed(let key) = state.openCodeSendStatus {
@@ -220,6 +277,24 @@ struct VoiceFlowTests {
             #expect(Bool(false))
         }
         #expect(state.canCopyTranscript == true)
+    }
+
+    @Test func openCodeSendRequiresVerifiedConnection() async throws {
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(
+            keychainStore: keychain,
+            openCodeClient: MockOpenCodeClient(result: .success(()))
+        )
+
+        state.transcript = "send this"
+        state.saveOpenCodePassword("fake-password")
+        #expect(state.canSendToOpenCode == false)
+
+        await state.testOpenCodeConnection()
+        #expect(state.canSendToOpenCode == true)
+        await state.sendTranscriptToOpenCode()
+        #expect(state.openCodeSendStatus == .success)
     }
 
     @Test func tokenSaveClearAndMaskingUseKeychain() async throws {
@@ -305,7 +380,7 @@ struct VoiceFlowTests {
         #expect(text == "hello world")
     }
 
-    @Test func recordingFlowUsesMocksAndCopiesTranscript() async throws {
+    @Test func recordingFlowUsesMocksWithoutAutoCopy() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
         let clipboard = MockClipboardWriter()
@@ -327,7 +402,7 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .ready)
         #expect(state.transcript == "voice text")
         #expect(state.transcriptHistory.entries.map(\.text) == ["voice text"])
-        #expect(clipboard.writtenText == "voice text")
+        #expect(clipboard.writtenText == nil)
     }
 
     @Test func recordingDiagnosticsCaptureSafeSuccessPath() async throws {
@@ -354,7 +429,8 @@ struct VoiceFlowTests {
         #expect(eventNames.contains("recording_stop_succeeded"))
         #expect(eventNames.contains("transcription_started"))
         #expect(eventNames.contains("transcription_succeeded"))
-        #expect(eventNames.contains("clipboard_copy_succeeded"))
+        #expect(eventNames.contains("clipboard_copy_skipped") == false)
+        #expect(eventNames.contains("clipboard_copy_succeeded") == false)
         #expect(diagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "5")
         #expect(diagnostics.events.containsSensitiveText(["fake-sensitive-token", "private dictated words"]) == false)
     }
@@ -520,6 +596,7 @@ struct VoiceFlowTests {
         )
         openCodeSuccessState.transcript = "private dictated words"
         openCodeSuccessState.saveOpenCodePassword("fake-opencode-password")
+        await openCodeSuccessState.testOpenCodeConnection()
         await openCodeSuccessState.sendTranscriptToOpenCode()
 
         let successEventNames = openCodeSuccessDiagnostics.events.map(\.name)
@@ -530,11 +607,15 @@ struct VoiceFlowTests {
         let openCodeFailureDiagnostics = InMemoryRecordingDiagnostics()
         let openCodeFailureState = AppState(
             keychainStore: InMemoryKeychainStore(),
-            openCodeClient: MockOpenCodeClient(result: .failure(OpenCodeClientError.promptSendFailed)),
+            openCodeClient: MockOpenCodeClient(
+                result: .failure(OpenCodeClientError.promptSendFailed),
+                testConnectionResult: .success(())
+            ),
             diagnostics: openCodeFailureDiagnostics
         )
         openCodeFailureState.transcript = "private dictated words"
         openCodeFailureState.saveOpenCodePassword("fake-opencode-password")
+        await openCodeFailureState.testOpenCodeConnection()
         await openCodeFailureState.sendTranscriptToOpenCode()
 
         #expect(openCodeFailureDiagnostics.events.map(\.name).contains("opencode_send_failed"))

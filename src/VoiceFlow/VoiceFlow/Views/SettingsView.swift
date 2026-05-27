@@ -189,6 +189,18 @@ struct SettingsView: View {
             }
             .padding(.vertical, 4)
 
+            Button(localized("settings.openCode.testConnection")) {
+                Task { await appState.testOpenCodeConnection() }
+            }
+            .buttonStyle(BorderedProminentButtonStyle())
+            .disabled(!appState.isOpenCodeConfigured || appState.openCodeConnectionStatus == .testing)
+            .accessibilityIdentifier("settings.testOpenCodeConnectionButton")
+
+            openCodeConnectionStatusText
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("settings.openCodeConnectionStatus")
+
             Text(localized("settings.openCode.optionalHint"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -217,6 +229,10 @@ struct SettingsView: View {
 
     private var connectionStatusText: Text {
         Text(localized(appState.connectionStatus.localizedKey))
+    }
+
+    private var openCodeConnectionStatusText: Text {
+        Text(localized(appState.openCodeConnectionStatus.openCodeLocalizedKey))
     }
 
     private func localized(_ key: String) -> String {
