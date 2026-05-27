@@ -7,6 +7,10 @@
 "record.stop" = "停止";
 "record.copy" = "复制";
 "record.history" = "历史";
+"record.saveRecording" = "保存录音";
+"record.resendRecording" = "重发录音";
+"record.save.succeeded" = "录音已保存到 Documents。";
+"record.save.failed" = "无法保存录音。";
 "record.sendToOpenCode" = "发送到 OpenCode";
 "record.openCode.optional" = "OpenCode 是可选配置；发送时会把当前转写文本传到你配置的服务器。";
 "record.openCode.info.accessibility" = "关于 OpenCode";

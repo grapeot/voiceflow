@@ -86,7 +86,10 @@ struct VoiceFlowTests {
     @Test func openCodeRequiresConfigurationAndTranscript() async throws {
         resetOpenCodeDefaults()
         let keychain = InMemoryKeychainStore()
-        let state = AppState(keychainStore: keychain)
+        let state = AppState(
+            keychainStore: keychain,
+            openCodeClient: MockOpenCodeClient(result: .success(()))
+        )
 
         state.transcript = "hello"
         #expect(state.canCopyTranscript == true)
@@ -324,7 +327,7 @@ struct VoiceFlowTests {
         #expect(state.connectionStatus == .success)
     }
 
-    @Test func transcriptHistoryKeepsFiveEntriesAndRestoresPrevious() async throws {
+    @Test func transcriptHistoryKeepsFiveEntriesAndNavigatesBothDirections() async throws {
         var history = TranscriptHistory()
 
         for index in 1...6 {
@@ -332,8 +335,72 @@ struct VoiceFlowTests {
         }
 
         #expect(history.entries.map(\.text) == ["entry 6", "entry 5", "entry 4", "entry 3", "entry 2"])
-        #expect(history.restorePrevious(currentText: "entry 6") == "entry 5")
-        #expect(history.restorePrevious(currentText: "unknown") == "entry 6")
+        #expect(history.currentIndex == 0)
+        #expect(history.hasPrevious == true)
+        #expect(history.hasNext == false)
+
+        #expect(history.navigatePrevious() == "entry 5")
+        #expect(history.currentIndex == 1)
+        #expect(history.hasNext == true)
+
+        #expect(history.navigateNext() == "entry 6")
+        #expect(history.currentIndex == 0)
+        #expect(history.hasNext == false)
+    }
+
+    @Test func appStateNavigatesTranscriptHistory() async throws {
+        let state = AppState(keychainStore: InMemoryKeychainStore())
+        state.transcriptHistory.add("newest")
+        state.transcriptHistory.add("older")
+        state.transcript = "older"
+
+        state.navigatePreviousTranscript()
+        #expect(state.transcript == "newest")
+
+        state.navigateNextTranscript()
+        #expect(state.transcript == "older")
+    }
+
+    @Test func saveAndResendRecordingUsePersistedAudio() async throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-save-resend-test.wav")
+        try Data("audio-bytes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        var transcriptionClient = MockAIBuilderTranscriptionClient(result: .success("first transcript"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            transcriptionClient: transcriptionClient,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        await state.stopRecording()
+
+        #expect(state.canSaveRecording == true)
+        #expect(state.canResendRecording == true)
+
+        state.saveCurrentRecording()
+        #expect(state.lastClipboardStatusKey == "record.save.succeeded")
+
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let savedFiles = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("recording_") && $0.pathExtension == "wav" }
+        defer {
+            for file in savedFiles {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        #expect(savedFiles.isEmpty == false)
+
+        transcriptionClient.result = .success("resent transcript")
+        await state.resendLastRecording()
+
+        #expect(state.transcript == "resent transcript")
+        #expect(state.transcriptHistory.entries.first?.text == "resent transcript")
     }
 
     @Test func multipartBodyUsesAudioFileFieldAndClosingBoundary() async throws {

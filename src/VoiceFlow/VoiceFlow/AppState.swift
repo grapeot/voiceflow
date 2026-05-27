@@ -69,6 +69,7 @@ final class AppState: ObservableObject {
     private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
     private static let openCodeUsernameDefaultsKey = "openCodeUsername"
     private static let appLanguageDefaultsKey = "appLanguage"
+    private var lastRecordingURL: URL?
 
     init(
         keychainStore: KeychainStoring? = nil,
@@ -141,8 +142,29 @@ final class AppState: ObservableObject {
         recordingStatus == .recording
     }
 
-    var canRestorePreviousTranscript: Bool {
-        transcriptHistory.canRestorePrevious
+    var canNavigateTranscriptHistory: Bool {
+        recordingStatus == .idle || recordingStatus == .ready
+    }
+
+    var canNavigatePreviousTranscript: Bool {
+        canNavigateTranscriptHistory && transcriptHistory.hasPrevious
+    }
+
+    var canNavigateNextTranscript: Bool {
+        canNavigateTranscriptHistory && transcriptHistory.hasNext
+    }
+
+    var canSaveRecording: Bool {
+        canNavigateTranscriptHistory && lastRecordingFileExists
+    }
+
+    var canResendRecording: Bool {
+        canNavigateTranscriptHistory && lastRecordingFileExists && hasSavedAIBuilderToken
+    }
+
+    private var lastRecordingFileExists: Bool {
+        guard let lastRecordingURL else { return false }
+        return FileManager.default.fileExists(atPath: lastRecordingURL.path)
     }
 
     var tokenDisplayValue: String {
@@ -234,34 +256,26 @@ final class AppState: ObservableObject {
             return
         }
 
-        defer { try? FileManager.default.removeItem(at: audioURL) }
         let audioMetadata = audioFileMetadata(for: audioURL)
         recordDiagnostic("recording_stop_succeeded", metadata: audioMetadata)
         if audioMetadata["byteCount"] == "0" {
+            try? FileManager.default.removeItem(at: audioURL)
             recordDiagnostic("recording_audio_file_empty")
             presentRecordError("record.error.transcriptionFailed")
             return
         }
 
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            presentRecordError("record.error.missingToken")
+        do {
+            lastRecordingURL = try persistLastRecording(from: audioURL)
+        } catch {
+            try? FileManager.default.removeItem(at: audioURL)
+            recordDiagnostic("recording_persist_failed", metadata: diagnosticMetadata(for: error))
+            presentRecordError("record.error.transcriptionFailed")
             return
         }
+        try? FileManager.default.removeItem(at: audioURL)
 
-        do {
-            recordDiagnostic("transcription_started", metadata: ["hasToken": "true"])
-            let transcribedText = try await transcriptionClient.transcribe(audioFileURL: audioURL, baseURL: aiBuilderEndpoint, token: token)
-            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)"])
-            transcript = transcribedText
-            openCodeSendStatus = .idle
-            transcriptHistory.add(transcribedText)
-            copyTranscript()
-            recordingStatus = .ready
-        } catch {
-            recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
-            presentRecordError("record.error.transcriptionFailed")
-        }
+        await finishTranscriptionFromLastRecording()
     }
 
     func copyTranscript() {
@@ -279,9 +293,49 @@ final class AppState: ObservableObject {
         }
     }
 
-    func restorePreviousTranscript() {
-        guard let previousText = transcriptHistory.restorePrevious(currentText: transcript) else { return }
+    func navigatePreviousTranscript() {
+        guard let previousText = transcriptHistory.navigatePrevious() else { return }
         transcript = previousText
+        openCodeSendStatus = .idle
+        lastClipboardStatusKey = nil
+    }
+
+    func navigateNextTranscript() {
+        guard let nextText = transcriptHistory.navigateNext() else { return }
+        transcript = nextText
+        openCodeSendStatus = .idle
+        lastClipboardStatusKey = nil
+    }
+
+    func saveCurrentRecording() {
+        guard canSaveRecording, let sourceURL = lastRecordingURL else { return }
+
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let fileName = "recording_\(dateFormatter.string(from: Date())).wav"
+        let destinationURL = documentsPath.appendingPathComponent(fileName)
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            recordDiagnostic("recording_saved", metadata: ["fileName": fileName])
+            lastClipboardStatusKey = "record.save.succeeded"
+        } catch {
+            recordDiagnostic("recording_save_failed", metadata: diagnosticMetadata(for: error))
+            lastClipboardStatusKey = "record.save.failed"
+        }
+    }
+
+    func resendLastRecording() async {
+        guard canResendRecording else { return }
+        recordingStatus = .transcribing
+        openCodeSendStatus = .idle
+        lastClipboardStatusKey = nil
+        recordDiagnostic("recording_resend_requested")
+        await finishTranscriptionFromLastRecording()
     }
 
     func saveOpenCodePassword(_ password: String) {
@@ -346,6 +400,49 @@ final class AppState: ObservableObject {
     private func audioFileMetadata(for url: URL) -> [String: String] {
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
         return ["byteCount": byteCount.map(String.init) ?? "unknown"]
+    }
+
+    private func persistLastRecording(from temporaryURL: URL) throws -> URL {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VoiceFlow", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destinationURL = directory.appendingPathComponent("last-recording.wav")
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: temporaryURL, to: destinationURL)
+        return destinationURL
+    }
+
+    private func finishTranscriptionFromLastRecording() async {
+        guard let audioURL = lastRecordingURL else {
+            presentRecordError("record.error.transcriptionFailed")
+            return
+        }
+
+        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
+            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
+            presentRecordError("record.error.missingToken")
+            return
+        }
+
+        do {
+            recordDiagnostic("transcription_started", metadata: ["hasToken": "true"])
+            let transcribedText = try await transcriptionClient.transcribe(
+                audioFileURL: audioURL,
+                baseURL: aiBuilderEndpoint,
+                token: token
+            )
+            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)"])
+            transcript = transcribedText
+            openCodeSendStatus = .idle
+            transcriptHistory.add(transcribedText)
+            copyTranscript()
+            recordingStatus = .ready
+        } catch {
+            recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
+            presentRecordError("record.error.transcriptionFailed")
+        }
     }
 
     private func transcriptionFailureEventName(for error: Error) -> String {

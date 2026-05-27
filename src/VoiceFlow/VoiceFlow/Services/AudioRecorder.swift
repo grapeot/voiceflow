@@ -171,6 +171,9 @@ final class MockAudioRecorder: AudioRecording {
             throw stopError
         }
         didStop = true
+        if !FileManager.default.fileExists(atPath: outputURL.path) {
+            try Data("mock-audio".utf8).write(to: outputURL)
+        }
         return outputURL
     }
 

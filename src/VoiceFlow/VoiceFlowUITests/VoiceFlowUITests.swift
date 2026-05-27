@@ -102,7 +102,7 @@ final class VoiceFlowUITests: XCTestCase {
         let missingTokenAlert = app.alerts.firstMatch
         XCTAssertTrue(missingTokenAlert.waitForExistence(timeout: 5))
         XCTAssertTrue(missingTokenAlert.staticTexts["Save an AI Builder token before recording."].exists)
-        missingTokenAlert.buttons["OK"].tap()
+        missingTokenAlert.buttons.matching(identifier: "record.error.alert.okButton").element(boundBy: 0).tap()
         openSettings(in: app, label: "Settings")
         let languagePicker = app.segmentedControls["settings.languagePicker"]
         XCTAssertTrue(reveal(languagePicker, in: app))
@@ -114,7 +114,7 @@ final class VoiceFlowUITests: XCTestCase {
         let chineseMissingTokenAlert = app.alerts.firstMatch
         XCTAssertTrue(chineseMissingTokenAlert.waitForExistence(timeout: 5))
         XCTAssertTrue(chineseMissingTokenAlert.staticTexts["录音前请先保存 AI Builder token。"].exists)
-        chineseMissingTokenAlert.buttons["好"].tap()
+        chineseMissingTokenAlert.buttons.matching(identifier: "record.error.alert.okButton").element(boundBy: 0).tap()
 
         app.terminate()
         app = launchApp(language: "zh-Hans", locale: "zh_Hans_US", extraArguments: ["-uiTestMode"])
@@ -125,6 +125,53 @@ final class VoiceFlowUITests: XCTestCase {
         tapSegment(chineseSystemLanguagePicker, position: 0.50)
 
         XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testRecordingControlsExposeHistoryNavigationAndSaveResendMenu() throws {
+        let app = launchApp(
+            language: "en",
+            locale: "en_US",
+            extraArguments: ["-uiTestMode", "-uiTestSavedToken"]
+        )
+
+        let previousButton = app.buttons["record.historyPreviousButton"]
+        let nextButton = app.buttons["record.historyNextButton"]
+        let moreButton = app.buttons["record.moreButton"]
+        XCTAssertTrue(previousButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(nextButton.exists)
+        XCTAssertTrue(moreButton.exists)
+        XCTAssertFalse(previousButton.isEnabled)
+        XCTAssertFalse(nextButton.isEnabled)
+
+        app.buttons["Start Recording"].tap()
+        XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
+        app.buttons["Stop"].tap()
+        XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
+
+        moreButton.tap()
+        let saveButton = app.buttons.matching(identifier: "record.saveRecordingButton").firstMatch
+        let resendButton = app.buttons.matching(identifier: "record.resendRecordingButton").firstMatch
+        if !saveButton.waitForExistence(timeout: 2) {
+            XCTAssertTrue(app.buttons["Save Recording"].waitForExistence(timeout: 2))
+            XCTAssertTrue(app.buttons["Resend Recording"].exists)
+            app.buttons["Save Recording"].tap()
+        } else {
+            XCTAssertTrue(resendButton.exists)
+            XCTAssertTrue(saveButton.isEnabled)
+            XCTAssertTrue(resendButton.isEnabled)
+            saveButton.tap()
+        }
+        XCTAssertTrue(app.staticTexts["Recording saved to Documents."].waitForExistence(timeout: 5))
+
+        moreButton.tap()
+        if resendButton.exists {
+            resendButton.tap()
+        } else {
+            app.buttons["Resend Recording"].tap()
+        }
+        XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
     }
 
     @MainActor

@@ -82,8 +82,12 @@ struct AIBuilderTranscriptionClient: AIBuilderTranscribing {
     }
 }
 
-struct MockAIBuilderTranscriptionClient: AIBuilderTranscribing {
-    let result: Result<String, Error>
+final class MockAIBuilderTranscriptionClient: AIBuilderTranscribing {
+    var result: Result<String, Error>
+
+    init(result: Result<String, Error>) {
+        self.result = result
+    }
 
     func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String {
         try result.get()
