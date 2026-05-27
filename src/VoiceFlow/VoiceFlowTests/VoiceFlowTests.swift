@@ -380,7 +380,7 @@ struct VoiceFlowTests {
         #expect(text == "hello world")
     }
 
-    @Test func recordingFlowUsesMocksWithoutAutoCopy() async throws {
+    @Test func recordingFlowUsesMocksAndCopiesTranscript() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
         let clipboard = MockClipboardWriter()
@@ -402,7 +402,7 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .ready)
         #expect(state.transcript == "voice text")
         #expect(state.transcriptHistory.entries.map(\.text) == ["voice text"])
-        #expect(clipboard.writtenText == nil)
+        #expect(clipboard.writtenText == "voice text")
     }
 
     @Test func recordingDiagnosticsCaptureSafeSuccessPath() async throws {
@@ -429,8 +429,7 @@ struct VoiceFlowTests {
         #expect(eventNames.contains("recording_stop_succeeded"))
         #expect(eventNames.contains("transcription_started"))
         #expect(eventNames.contains("transcription_succeeded"))
-        #expect(eventNames.contains("clipboard_copy_skipped") == false)
-        #expect(eventNames.contains("clipboard_copy_succeeded") == false)
+        #expect(eventNames.contains("clipboard_copy_succeeded"))
         #expect(diagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "5")
         #expect(diagnostics.events.containsSensitiveText(["fake-sensitive-token", "private dictated words"]) == false)
     }

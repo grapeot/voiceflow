@@ -43,7 +43,7 @@
 - 修复录音启动失败：`setPreferredInputNumberOfChannels(1)` 在部分设备上返回 `NSOSStatusErrorDomain -50`（paramErr），现改为 best-effort preference，不再阻断录音；输出 WAV 仍固定 mono 48 kHz。
 - 新增 `scripts/test_unit.sh`（只跑 VoiceFlowTests）和 `scripts/test_all.sh`（unit + UI）；关闭 launch UI test 的 `runsForEachTargetApplicationUIConfiguration`，避免重复启动 app。
 - 完成 privacy review：工作区与 commit history 隐私扫描零命中；`.gitignore` 补充 `.venv/`；对外文档去掉内部实现来源表述；发布到 GitHub public repo `grapeot/voiceflow`。
-- 去掉转写完成后的自动复制；复制改为用户手动点击 Copy。
+- Record 页去掉「转写完成后会自动复制」常驻提示；转写成功后仍自动写入剪贴板，状态区只在复制成功/失败时显示结果。
 - Record 页 OpenCode 说明移到「发送到 OpenCode」旁的 info 按钮，点击后弹窗展示。
 - OpenCode 发送默认禁用；Settings 保存配置并通过连接测试后，Record 页发送按钮才可用。
 - Settings 增加 OpenCode 连接测试；URL/username/password 变更后连接状态回到未测试。
@@ -124,8 +124,8 @@
 - `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]+)' .`：零匹配。
 - `rg --files -g '*.m4a' -g '*.wav' -g '*.caf'`：零匹配。
 
-### 2026-05-26 OpenCode gating and clipboard UX update
+### 2026-05-26 OpenCode gating and Record UI update
 
 - `./scripts/test_all.sh`（VoiceFlowTests + VoiceFlowUITests）：通过。
-- 单元测试覆盖：转写后不再自动复制、OpenCode 连接测试 gating、Tailscale HTTP 允许、`*.ts.net` 以外 remote HTTP 仍拒绝。
-- UI tests 覆盖：转写完成不显示自动复制提示、OpenCode 配置后需测试连接。
+- 单元测试覆盖：转写后仍自动复制、OpenCode 连接测试 gating、Tailscale HTTP 允许、remote HTTP 仍拒绝。
+- UI tests 覆盖：转写后显示复制成功状态、OpenCode info 按钮、配置后需测试连接才能发送。

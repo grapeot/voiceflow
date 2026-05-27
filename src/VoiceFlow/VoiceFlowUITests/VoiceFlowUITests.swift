@@ -56,7 +56,7 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
         app.buttons["Stop"].tap()
         XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["Copied to clipboard."].exists)
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
 
         app.buttons["Send to OpenCode"].tap()
         XCTAssertTrue(app.staticTexts["Sent to OpenCode."].waitForExistence(timeout: 5))

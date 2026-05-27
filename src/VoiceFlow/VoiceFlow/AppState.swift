@@ -256,6 +256,7 @@ final class AppState: ObservableObject {
             transcript = transcribedText
             openCodeSendStatus = .idle
             transcriptHistory.add(transcribedText)
+            copyTranscript()
             recordingStatus = .ready
         } catch {
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
