@@ -29,7 +29,7 @@
 - UI test 模式覆盖 OpenCode 配置保存、遮罩显示和清除，不需要真实 OpenCode server。
 - OpenCode server URL 增加安全校验：远程 server 必须使用 HTTPS，HTTP 只允许 localhost / loopback，避免 Basic Auth 和 transcript 通过远程明文连接发送。
 - 新录音开始和新转写完成时会重置 OpenCode 发送状态，避免旧 transcript 的发送结果残留在 Record 页。
-- 完成 Record / Settings GUI 对齐阶段：Record 改为参考实现式状态区、录音控制区、大文本区和底部固定操作按钮；Settings 改为 label + rounded field 的表单节奏。
+- 完成 Record / Settings GUI 对齐阶段：Record 改为固定状态区、录音控制区、大文本区和底部操作按钮；Settings 改为 label + rounded field 的表单节奏。
 - UI tests 改为覆盖新 GUI 下的英文/中文 shell、token 保存、mock 录音流和 OpenCode 配置流；Record 转写框增加 accessibility value，OpenCode 按钮增加稳定 accessibility label。
 - 增加录音诊断日志阶段：录音、权限、停止、空音频文件、转写上传、响应解析、剪贴板和 OpenCode 发送路径会记录 OSLog 安全摘要事件，只记录阶段、错误类型、字符数和音频字节数，不记录 token、转写文本、音频内容、文件路径、Authorization header 或原始响应正文。
 - 新增内存 diagnostics seam 和单元测试，覆盖成功路径、缺少 token、权限拒绝、录音启动失败、停止失败、空音频、上传失败、响应失败、剪贴板跳过/失败、OpenCode 发送成功/失败，以及诊断事件不包含 fake token、OpenCode password 或转写文本。
@@ -42,6 +42,7 @@
 - 录音失败 diagnostics 增加 `phase`、`errorDomain`、`errorCode`、`errorFourCC` 字段，便于定位 AVAudioSession 具体失败步骤。
 - 修复录音启动失败：`setPreferredInputNumberOfChannels(1)` 在部分设备上返回 `NSOSStatusErrorDomain -50`（paramErr），现改为 best-effort preference，不再阻断录音；输出 WAV 仍固定 mono 48 kHz。
 - 新增 `scripts/test_unit.sh`（只跑 VoiceFlowTests）和 `scripts/test_all.sh`（unit + UI）；关闭 launch UI test 的 `runsForEachTargetApplicationUIConfiguration`，避免重复启动 app。
+- 完成 privacy review：工作区与 commit history 隐私扫描零命中；`.gitignore` 补充 `.venv/`；对外文档去掉内部实现来源表述；发布到 GitHub public repo `grapeot/voiceflow`。
 
 ## Lessons Learned
 
@@ -52,7 +53,6 @@
 - 独立 SourceKit 对 file-system synchronized groups 也可能看不到同 target 的新增 Swift 类型，当前以 `xcodebuild` 作为最终编译依据。
 - visionOS simulator 的 generic destination 不可用，当前使用 `platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2`。
 - multipart 上传测试使用 `URLProtocol` 拦截请求，验证 Bearer header、`/v1/audio/transcriptions` path 和 `audio_file` 表单字段，不依赖真实 AI Builder token。
-- 旧 iOS 工程未命中 `requestRecordPermission` 调用；当前不需要同步改旧 repo。
 - `URLProtocol` 拦截到的 request body 可能在 `httpBodyStream` 而不是 `httpBody`，测试需要同时读取两种形态。
 - Swift Testing 默认并行运行；共享 `MockURLProtocol.requestHandler` 的测试需要 `@Suite(.serialized)`，否则不同 HTTP mock 会相互覆盖。
 - SwiftUI 的 `\.locale` 会影响部分格式化和 SwiftUI 环境，但不会可靠地让 `Localizable.strings` 在运行时改查另一个语言 bundle；运行时语言偏好需要显式选择 `.lproj` bundle 并把所有用户可见文案走同一条 bundle lookup。

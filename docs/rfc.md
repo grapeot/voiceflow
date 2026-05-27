@@ -71,11 +71,11 @@ API path 按 backend contract 拼接，例如 `/v1/audio/transcriptions`。Voice
 
 ## GUI 对齐
 
-Record 页沿用参考实现的 V0 可用部分：顶部状态区，中间录音控制区，底部大文本区和固定操作按钮。V0 不复制参考实现中的自动修正、模型选择、SecondMind、Watch 或复杂菜单。
+Record 页采用 V0 固定布局：顶部状态区，中间录音控制区，底部大文本区和固定操作按钮。V0 不包含自动修正、模型选择、SecondMind、Watch 或复杂菜单。
 
-Settings 页沿用参考实现的表单节奏：每个字段由 label、输入控件或只读值、状态说明组成。AI Builder endpoint 只读展示；OpenCode 保持可选配置。语言和外观偏好放在 Settings 底部，使用紧凑的三段选择控件：System / English / 简体中文，System / Light / Dark。
+Settings 页采用表单式布局：每个字段由 label、输入控件或只读值、状态说明组成。AI Builder endpoint 只读展示；OpenCode 保持可选配置。语言和外观偏好放在 Settings 底部，使用紧凑的三段选择控件：System / English / 简体中文，System / Light / Dark。
 
-GUI 对齐的验收标准是：Record/Settings 的主路径布局、按钮位置和表单组织与参考实现接近；现有 UI tests 可通过 accessibility identifiers 或稳定本地化文案找到控件；iOS test 和 visionOS build 串行通过。
+GUI 验收标准是：Record/Settings 的主路径布局、按钮位置和表单组织稳定可测；现有 UI tests 可通过 accessibility identifiers 或稳定本地化文案找到控件；iOS test 和 visionOS build 串行通过。
 
 ## 转写方案
 
