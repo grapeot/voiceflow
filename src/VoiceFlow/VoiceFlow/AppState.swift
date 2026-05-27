@@ -76,6 +76,7 @@ final class AppState: ObservableObject {
     @Published private(set) var lastSavedRecording: SavedRecordingInfo?
     @Published var shouldPresentSavedRecordingAlert = false
     @Published var connectionStatus: ConnectionStatus = .untested
+    @Published private(set) var recordingTimerText = "00:00"
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }
@@ -94,6 +95,8 @@ final class AppState: ObservableObject {
     private static let openCodeUsernameDefaultsKey = "openCodeUsername"
     private static let appLanguageDefaultsKey = "appLanguage"
     private var lastRecordingURL: URL?
+    private var recordingTimerStartDate: Date?
+    private var recordingTimer: Timer?
 
     init(
         keychainStore: KeychainStoring? = nil,
@@ -287,9 +290,12 @@ final class AppState: ObservableObject {
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true"])
             try await audioRecorder.startRecording()
             recordDiagnostic("recording_start_succeeded")
+            resetRecordingTimer()
+            startRecordingTimer()
             recordingStatus = .recording
         } catch {
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
+            resetRecordingTimer()
             presentRecordError("record.error.recordingFailed")
         }
     }
@@ -300,6 +306,7 @@ final class AppState: ObservableObject {
 
     func stopRecording() async {
         guard recordingStatus == .recording else { return }
+        stopRecordingTimer()
         recordingStatus = .transcribing
         recordDiagnostic("recording_stop_requested")
 
@@ -446,6 +453,34 @@ final class AppState: ObservableObject {
     private func presentRecordError(_ key: String) {
         recordErrorAlertKey = key
         recordingStatus = .idle
+        stopRecordingTimer()
+    }
+
+    private func resetRecordingTimer() {
+        stopRecordingTimer()
+        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
+    }
+
+    private func startRecordingTimer() {
+        recordingTimerStartDate = Date()
+        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateRecordingTimerText()
+            }
+        }
+    }
+
+    private func stopRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        recordingTimerStartDate = nil
+    }
+
+    private func updateRecordingTimerText() {
+        guard let recordingTimerStartDate else { return }
+        let elapsed = Int(Date().timeIntervalSince(recordingTimerStartDate))
+        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: elapsed)
     }
 
     private func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
