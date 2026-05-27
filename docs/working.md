@@ -61,6 +61,8 @@
 - Record 页顶部恢复参考版 UX：固定显示「VoiceFlow」标题 + 状态指示灯，不再用大标题展示「正在录音…」等状态文案；剪贴板/OpenCode 结果仍显示在标题下方 caption 区。
 - 新增 `RecordingStatusHeaderView`，指示灯颜色映射：录音中 green、请求权限/转写中 orange、空闲/完成 blue。
 - UI tests 改为通过 `record.statusIndicator` accessibility value 断言录音状态，并验证「VoiceFlow」标题常驻。
+- 保存录音补齐 Files 可见性与确认 UX：启用 `UIFileSharingEnabled`；保存后弹窗显示文件名与 Files 路径，「在文件中打开」走系统分享面板；标题 caption 可再次打开。
+- 抽取 `RecordingFileSaver` 与 `SavedRecordingInfo`；更新 PRD/RFC 与相关单元/UI tests。
 
 ## Lessons Learned
 
@@ -81,6 +83,7 @@
 - `xcodebuild test` 默认会跑 UI tests 并多次冷启动 Simulator app；日常迭代用 `-only-testing:VoiceFlowTests` 或 `./scripts/test_unit.sh`。
 - OpenCode 发送应独立于转写主路径 gating：配置保存不等于可发送，连接测试通过后再启用发送按钮，避免误发到未验证 server。
 - Tailscale MagicDNS（`*.ts.net`）可按私有网络处理，HTTP 不应与公网 remote HTTP 使用同一拒绝规则。
+- iOS 要在 Files app 中浏览 app Documents，必须在 Info.plist 启用 `UIFileSharingEnabled`；仅有 `copyItem` 到 Documents 不够。
 
 ## Verification
 
@@ -160,6 +163,12 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
+
+### 2026-05-26 Save recording Files UX
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
+- 单元测试覆盖：`RecordingFileSaver` 复制/缺失源文件、保存确认状态、无持久化音频时不保存。
+- UI tests 已更新保存确认弹窗；本轮未跑。
 
 ### 2026-05-26 Record status indicator light
 

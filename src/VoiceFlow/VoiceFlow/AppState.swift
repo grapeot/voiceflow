@@ -73,6 +73,8 @@ final class AppState: ObservableObject {
     @Published var openCodeSendStatus: OpenCodeSendStatus = .idle
     @Published var openCodeConnectionStatus: ConnectionStatus = .untested
     @Published var lastClipboardStatusKey: String?
+    @Published private(set) var lastSavedRecording: SavedRecordingInfo?
+    @Published var shouldPresentSavedRecordingAlert = false
     @Published var connectionStatus: ConnectionStatus = .untested
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
@@ -279,6 +281,8 @@ final class AppState: ObservableObject {
         do {
             transcript = ""
             lastClipboardStatusKey = nil
+            lastSavedRecording = nil
+            shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true"])
             try await audioRecorder.startRecording()
@@ -363,22 +367,27 @@ final class AppState: ObservableObject {
         guard canSaveRecording, let sourceURL = lastRecordingURL else { return }
 
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let fileName = "recording_\(dateFormatter.string(from: Date())).wav"
-        let destinationURL = documentsPath.appendingPathComponent(fileName)
+        let destinationURL = RecordingFileSaver.makeDestinationURL(in: documentsPath)
 
         do {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-            recordDiagnostic("recording_saved", metadata: ["fileName": fileName])
-            lastClipboardStatusKey = "record.save.succeeded"
+            try RecordingFileSaver.saveRecording(from: sourceURL, to: destinationURL)
+            let savedRecording = SavedRecordingInfo(
+                fileName: destinationURL.lastPathComponent,
+                fileURL: destinationURL
+            )
+            lastSavedRecording = savedRecording
+            shouldPresentSavedRecordingAlert = true
+            recordDiagnostic("recording_saved", metadata: ["fileName": savedRecording.fileName])
         } catch {
             recordDiagnostic("recording_save_failed", metadata: diagnosticMetadata(for: error))
+            lastSavedRecording = nil
+            shouldPresentSavedRecordingAlert = false
             lastClipboardStatusKey = "record.save.failed"
         }
+    }
+
+    func acknowledgeSavedRecordingAlert() {
+        shouldPresentSavedRecordingAlert = false
     }
 
     func resendLastRecording() async {

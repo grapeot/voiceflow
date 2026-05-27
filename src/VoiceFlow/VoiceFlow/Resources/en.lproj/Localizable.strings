@@ -9,7 +9,10 @@
 "record.history" = "History";
 "record.saveRecording" = "Save Recording";
 "record.resendRecording" = "Resend Recording";
-"record.save.succeeded" = "Recording saved to Documents.";
+"record.save.confirmation.title" = "Recording Saved";
+"record.save.confirmation.message" = "Saved as %@.\n\nOpen Files → On My iPhone → VoiceFlow to browse saved recordings.\n\nTap Open in Files to share or save the file.";
+"record.save.openInFiles" = "Open in Files";
+"record.save.statusLine" = "Saved %@. Tap to open in Files.";
 "record.save.failed" = "Could not save the recording.";
 "record.sendToOpenCode" = "Send to OpenCode";
 "record.openCode.optional" = "OpenCode is optional. Sending transmits the current transcript to your configured server.";

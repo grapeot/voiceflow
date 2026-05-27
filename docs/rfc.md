@@ -22,13 +22,16 @@ VoiceFlow/
     SettingsView.swift
     Components/
       ColoredButtonStyle.swift
+      DocumentShareSheet.swift
       KeyboardDismissOnTap.swift
+      RecordingStatusHeaderView.swift
   Models/
     AppLanguage.swift
     ConnectionStatus.swift
     DeepLink.swift
     OpenCodeSendStatus.swift
     TranscriptHistory.swift
+    SavedRecordingInfo.swift
   Services/
     AudioRecorder.swift
     AIBuilderClient.swift
@@ -37,10 +40,11 @@ VoiceFlow/
     KeychainStore.swift
     OpenCodeClient.swift
     RecordingDiagnostics.swift
+    RecordingFileSaver.swift
   Resources/
     en.lproj/ / zh-Hans.lproj/
     Assets.xcassets
-URLScheme.plist               # CFBundleURLTypes（voiceflow scheme）
+URLScheme.plist               # CFBundleURLTypes、UIFileSharingEnabled
 scripts/test_unit.sh
 scripts/test_all.sh
 ```
@@ -86,7 +90,9 @@ ready -> (start again) -> requestingPermission -> ...
 
 录音错误通过 alert 展示（`recordErrorAlertKey`），`recordingStatus` 回到 `idle`。OpenCode 发送状态独立为 `OpenCodeSendStatus`，不并入录音状态机。
 
-历史：`TranscriptHistory` index 0 为最新；`navigatePrevious` 更旧，`navigateNext` 更新。录音完成后持久化 `last-recording.wav` 供保存到 Documents 与重发转写。
+历史：`TranscriptHistory` index 0 为最新；`navigatePrevious` 更旧，`navigateNext` 更新。录音完成后持久化 `last-recording.wav`（Application Support）供保存到 Documents 与重发转写。
+
+保存录音：`RecordingFileSaver` 把 `last-recording.wav` 复制到 Documents，文件名 `recording_yyyy-MM-dd_HH-mm-ss.wav`。`URLScheme.plist` 启用 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，使 Files → On My iPhone → VoiceFlow 可见。保存成功设置 `lastSavedRecording` 并弹窗确认；「Open in Files」走 `UIActivityViewController` 分享面板。标题下方 caption 保留可点击的最近保存文件名。
 
 ## 录音诊断
 

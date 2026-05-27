@@ -42,7 +42,7 @@ Deep link：`voiceflow://record` 已注册。打开 app 后切到 Record tab 并
 
 V0 不包含文档编辑器、自动修正按钮、自定义 prompt 按钮、转写模型选择、Apple Watch app、网页登录、账号系统、云端历史同步、录音库长期管理和复杂工作流编排。
 
-菜单中的「保存录音」是把最近一次录音导出到 Documents，不是内置录音库。Deep link 只服务于直接开始录音，不扩展成通用自动化接口。
+菜单中的「保存录音」是把最近一次录音导出到 app Documents（`recording_yyyy-MM-dd_HH-mm-ss.wav`），并在 Files → 我的 iPhone → VoiceFlow 中可见；不是内置录音库。保存成功后弹窗确认文件名与路径，并提供「在文件中打开」入口（系统分享面板，可选保存到 Files）。Deep link 只服务于直接开始录音，不扩展成通用自动化接口。
 
 ## 用户流程
 
@@ -52,7 +52,7 @@ V0 不包含文档编辑器、自动修正按钮、自定义 prompt 按钮、转
 
 用户可以手动复制文本；配置 OpenCode 并通过连接测试后，可发送到 OpenCode。发送成功或失败都有明确状态，文本和剪贴板内容保留。
 
-用户可用左右 chevron 在最近 5 条转写间切换；三点菜单可保存 WAV 到 Documents 或重发最近一次录音做转写。
+用户可用左右 chevron 在最近 5 条转写间切换；三点菜单可保存 WAV 到 Documents 或重发最近一次录音做转写。保存后 app 弹窗告知文件名与 Files 路径，并可通过「在文件中打开」进入系统分享面板。
 
 快捷启动：在 Shortcuts 中创建「打开 URL」动作，地址填 `voiceflow://record`，绑定到 Action Button 或主屏幕。token 缺失或麦克风不可用时显示本地化错误，不静默失败。
 

@@ -208,7 +208,9 @@ final class VoiceFlowUITests: XCTestCase {
             XCTAssertTrue(resendButton.isEnabled)
             saveButton.tap()
         }
-        XCTAssertTrue(app.staticTexts["Recording saved to Documents."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Recording Saved"].waitForExistence(timeout: 5))
+        app.buttons.matching(identifier: "record.save.confirmation.okButton").element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'recording_'")).firstMatch.waitForExistence(timeout: 5))
 
         moreButton.tap()
         if resendButton.exists {
