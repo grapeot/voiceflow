@@ -61,6 +61,21 @@ final class VoiceFlowUITests: XCTestCase {
     }
 
     @MainActor
+    func testMockRecordingFlowShowsTranscriptAndClipboardStatus() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestMode", "-uiTestSavedToken", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        app.buttons["Start Recording"].tap()
+        XCTAssertTrue(app.staticTexts["Recording..."].waitForExistence(timeout: 5))
+
+        app.buttons["Stop"].tap()
+        XCTAssertTrue(app.staticTexts["Mock transcription"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testChineseAppShell() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_Hans_US"]
