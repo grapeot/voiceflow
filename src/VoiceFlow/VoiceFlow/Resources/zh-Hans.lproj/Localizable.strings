@@ -10,9 +10,9 @@
 "record.saveRecording" = "保存录音";
 "record.resendRecording" = "重发录音";
 "record.save.confirmation.title" = "录音已保存";
-"record.save.confirmation.message" = "已保存为 %@。\n\n在「文件」→「我的 iPhone」→「VoiceFlow」中浏览已保存的录音。\n\n点「在文件中打开」可分享或保存该文件。";
+"record.save.confirmation.message" = "已保存为 %@。\n\n在「文件」→「我的 iPhone」→「VoiceFlow」中浏览已保存的录音。\n\n点「在文件中打开」可预览录音；在预览界面用分享按钮复制或移动。";
 "record.save.openInFiles" = "在文件中打开";
-"record.save.statusLine" = "已保存 %@。点此在「文件」中打开。";
+"record.save.statusLine" = "已保存 %@。点此预览。";
 "record.save.failed" = "无法保存录音。";
 "record.sendToOpenCode" = "发送到 OpenCode";
 "record.openCode.optional" = "OpenCode 是可选配置；发送时会把当前转写文本传到你配置的服务器。";
