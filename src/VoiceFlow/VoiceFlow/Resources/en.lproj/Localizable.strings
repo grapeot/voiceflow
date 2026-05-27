@@ -51,7 +51,7 @@
 "settings.connection.saveFailed" = "Could not save the token.";
 "settings.connection.clearFailed" = "Could not clear the token.";
 "settings.openCode.title" = "OpenCode";
-"settings.openCode.optionalHint" = "Optional. VoiceFlow works without OpenCode. Use HTTPS for remote servers; HTTP is allowed for localhost and Tailscale (*.ts.net) hosts.";
+"settings.openCode.optionalHint" = "Optional. VoiceFlow works without OpenCode. Only the password is stored in Keychain; server URL and username stay on this device. Clear removes the password only.";
 "settings.openCode.testConnection" = "Test OpenCode Connection";
 "settings.openCode.connection.untested" = "Not tested";
 "settings.openCode.connection.testing" = "Testing...";
@@ -65,7 +65,7 @@
 "settings.openCode.configured" = "Configured";
 "settings.openCode.notConfigured" = "Not configured";
 "settings.openCode.save" = "Save OpenCode Config";
-"settings.openCode.clear" = "Clear OpenCode Config";
+"settings.openCode.clear" = "Clear Password";
 "settings.openCode.saveFailed" = "Could not save OpenCode configuration.";
 "settings.openCode.clearFailed" = "Could not clear OpenCode configuration.";
 "settings.language.title" = "Language";

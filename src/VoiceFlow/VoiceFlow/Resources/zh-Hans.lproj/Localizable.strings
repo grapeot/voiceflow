@@ -51,7 +51,7 @@
 "settings.connection.saveFailed" = "无法保存 token。";
 "settings.connection.clearFailed" = "无法清除 token。";
 "settings.openCode.title" = "OpenCode";
-"settings.openCode.optionalHint" = "可选。不配置时仍可使用语音输入。远程服务器请使用 HTTPS；localhost 和 Tailscale（*.ts.net）主机允许 HTTP。";
+"settings.openCode.optionalHint" = "可选。不配置时仍可使用语音输入。只有密码保存在 Keychain；服务器地址和用户名会保留在本机。清除只会删除密码。";
 "settings.openCode.testConnection" = "测试 OpenCode 连接";
 "settings.openCode.connection.untested" = "未测试";
 "settings.openCode.connection.testing" = "测试中...";
@@ -65,7 +65,7 @@
 "settings.openCode.configured" = "已配置";
 "settings.openCode.notConfigured" = "未配置";
 "settings.openCode.save" = "保存 OpenCode 配置";
-"settings.openCode.clear" = "清除 OpenCode 配置";
+"settings.openCode.clear" = "清除密码";
 "settings.openCode.saveFailed" = "无法保存 OpenCode 配置。";
 "settings.openCode.clearFailed" = "无法清除 OpenCode 配置。";
 "settings.language.title" = "语言";
