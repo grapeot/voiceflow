@@ -729,8 +729,9 @@ final class AppState: ObservableObject {
 
     private func makeFinalizePartialHandler() -> @Sendable (String) -> Void {
         { [weak self] partial in
-            Task { @MainActor in
-                self?.updateTranscriptDuringFinalize(partial)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                updateTranscriptDuringFinalize(partial)
             }
         }
     }
