@@ -26,7 +26,19 @@ Shortcuts 中「打开 URL」→ 绑定 Action Button 或主屏幕。详见 READ
 
 V0 核心功能已在 `master` 交付：录完上传转写、诊断日志、OpenCode gating、privacy review、deep link 等。剩余主要项：Settings 外观偏好；UI test suite 发版前需完整跑通。
 
-源码：`src/VoiceFlow/VoiceFlow.xcodeproj`
+## 仓库结构
+
+```text
+docs/                         # PRD、RFC、测试说明、变更记录
+scripts/                      # test_unit.sh、test_all.sh、pin_simulator.sh
+src/VoiceFlow/
+  VoiceFlow.xcodeproj
+  VoiceFlow/                  # App 源码
+  VoiceFlowTests/             # 单元测试（Swift Testing）
+  VoiceFlowUITests/           # UI 测试（XCUITest）
+```
+
+测试在 Xcode target 里，不在仓库根目录。日常与发版前：
 
 ```bash
 ./scripts/test_unit.sh    # 日常
