@@ -10,9 +10,8 @@
 "record.saveRecording" = "Save Recording";
 "record.resendRecording" = "Resend Recording";
 "record.save.confirmation.title" = "Recording Saved";
-"record.save.confirmation.message" = "Saved as %@.\n\nOpen Files → On My iPhone → VoiceFlow to browse saved recordings.\n\nTap Open in Files to preview the recording; use the share button there to copy or move it.";
-"record.save.openInFiles" = "Open in Files";
-"record.save.statusLine" = "Saved %@. Tap to preview.";
+"record.save.confirmation.message" = "Saved as %@.\n\nOpen the Files app and go to On My iPhone → VoiceFlow to find your saved recordings.";
+"record.save.statusLine" = "Saved %@. Files → On My iPhone → VoiceFlow.";
 "record.save.failed" = "Could not save the recording.";
 "record.sendToOpenCode" = "Send to OpenCode";
 "record.openCode.optional" = "OpenCode is optional. Sending transmits the current transcript to your configured server.";
