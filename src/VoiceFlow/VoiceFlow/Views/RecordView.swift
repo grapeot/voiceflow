@@ -23,7 +23,7 @@ struct RecordView: View {
         .frame(minWidth: 400, idealWidth: 600, maxWidth: 800,
                minHeight: 400, idealHeight: 1000, maxHeight: 1500)
         #endif
-        .navigationTitle(Text(localized("tab.record")))
+        .toolbar(.hidden, for: .navigationBar)
         .alert(
             Text(localized("record.error.alert.title")),
             isPresented: recordErrorAlertPresented
