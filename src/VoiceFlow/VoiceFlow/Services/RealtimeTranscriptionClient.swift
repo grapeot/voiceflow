@@ -1,6 +1,6 @@
 import Foundation
 
-private final class FinalizeTranscriptAccumulator {
+private nonisolated struct FinalizeTranscriptAccumulator: Sendable {
     private(set) var partialText = ""
     private(set) var completedText: String?
 
@@ -8,7 +8,7 @@ private final class FinalizeTranscriptAccumulator {
         RealtimeTranscriptionSupport.resolveFinalizeTranscript(partial: partialText, completed: completedText)
     }
 
-    func reset() {
+    mutating func reset() {
         partialText = ""
         completedText = nil
     }
@@ -17,18 +17,22 @@ private final class FinalizeTranscriptAccumulator {
         resolvedText
     }
 
-    func restoreAfterRetry(_ text: String) {
+    mutating func restoreAfterRetry(_ text: String) {
         partialText = text
         completedText = nil
     }
 
-    func appendDelta(_ content: String) {
+    mutating func appendDelta(_ content: String) {
         partialText += content
     }
 
-    func setCompleted(_ content: String) {
+    mutating func setCompleted(_ content: String) {
         completedText = content
     }
+}
+
+private final class LiveSessionHandleBox: @unchecked Sendable {
+    var handle: RealtimeLiveSessionHandle?
 }
 
 protocol RealtimeTranscribing: Sendable {
@@ -176,7 +180,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private var phase: RealtimeConnectionPhase = .connecting
     private var isFinalizing = false
     private var finalizeContinuation: CheckedContinuation<Void, Error>?
-    private let finalizeText = FinalizeTranscriptAccumulator()
+    private var finalizeText = FinalizeTranscriptAccumulator()
     private var finalizePartialCallback: (@Sendable (String) -> Void)?
 
     init(
@@ -465,18 +469,20 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         }
 
         let cache = try AudioChunkCache()
-        var handle: RealtimeLiveSessionHandle!
-        handle = RealtimeLiveSessionHandle(cache: cache, onEvent: onEvent) {
+        let handleBox = LiveSessionHandleBox()
+        let handle = RealtimeLiveSessionHandle(cache: cache, onEvent: onEvent) {
             try await Self.makeSession(
                 baseURL: baseURL,
                 token: trimmedToken,
                 model: model,
                 vad: false,
                 onEvent: { event in
-                    Self.deliverLiveSessionEvent(event, handle: handle, onEvent: onEvent)
+                    guard let boundHandle = handleBox.handle else { return }
+                    Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
                 }
             )
         }
+        handleBox.handle = handle
 
         Task {
             do {
@@ -486,7 +492,8 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
                     model: model,
                     vad: false,
                     onEvent: { event in
-                        Self.deliverLiveSessionEvent(event, handle: handle, onEvent: onEvent)
+                        guard let boundHandle = handleBox.handle else { return }
+                        Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
                     }
                 )
                 try await handle.attachInitialSession(initialSession)
@@ -548,7 +555,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         return trimmed
     }
 
-    private static func deliverLiveSessionEvent(
+    nonisolated private static func deliverLiveSessionEvent(
         _ event: RealtimeTranscriptEvent,
         handle: RealtimeLiveSessionHandle,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
@@ -782,7 +789,7 @@ private actor MockLiveSession: RealtimeLiveTranscriptionSession {
     private var phase: RealtimeConnectionPhase = .connected
     private var isFinalizing = false
 
-    nonisolated init(client: MockRealtimeTranscriptionClient, onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) {
+    init(client: MockRealtimeTranscriptionClient, onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) {
         self.client = client
         self.onEvent = onEvent
     }
