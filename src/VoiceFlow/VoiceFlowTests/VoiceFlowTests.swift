@@ -34,4 +34,31 @@ struct VoiceFlowTests {
         #expect(state.canSendToOpenCode == true)
     }
 
+    @Test func tokenSaveClearAndMaskingUseKeychain() async throws {
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain, aiBuilderClient: MockAIBuilderConnectionClient(result: .success(())))
+
+        state.saveAIBuilderToken("  fake-token  ")
+
+        #expect(state.hasSavedAIBuilderToken == true)
+        #expect(state.tokenDisplayValue == "••••••••")
+        #expect(try keychain.readString(for: "aiBuilderToken") == "fake-token")
+
+        state.clearAIBuilderToken()
+
+        #expect(state.hasSavedAIBuilderToken == false)
+        #expect(state.tokenDisplayValue == "")
+        #expect(try keychain.readString(for: "aiBuilderToken") == nil)
+    }
+
+    @Test func connectionTestUsesSavedToken() async throws {
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain, aiBuilderClient: MockAIBuilderConnectionClient(result: .success(())))
+
+        state.saveAIBuilderToken("fake-token")
+        await state.testAIBuilderConnection()
+
+        #expect(state.connectionStatus == .success)
+    }
+
 }
