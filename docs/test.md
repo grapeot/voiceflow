@@ -1,5 +1,7 @@
 # 测试与验收策略
 
+测试代码在 Xcode target 内：`src/VoiceFlow/VoiceFlowTests/`（单元）、`src/VoiceFlow/VoiceFlowUITests/`（UI）。仓库根目录没有 `tests/` 文件夹。
+
 ## Agent / 日常验证
 
 **默认只跑 unit test。** 除非用户明确要求 UI test，否则只执行：

@@ -28,7 +28,8 @@
 - 转写框右下角显示字符数
 - V1 实时流式转写设计写入 PRD / RFC（WebSocket、Stop finalize、增量 text）
 - 新增 `test_unit.sh` / `test_all.sh` 与 Simulator pinning
-- 单元测试 37 项；UI tests 在 `src/VoiceFlow/VoiceFlowUITests/`（根目录 `tests/` 仅占位）
+- 单元测试 37 项；UI tests 在 `src/VoiceFlow/VoiceFlowUITests/`
+- 删除脚手架占位：根目录 `tests/`、各目录 `.gitkeep`；文档标明测试在 Xcode target
 
 ## Lessons Learned
 

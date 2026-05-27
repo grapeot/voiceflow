@@ -46,9 +46,13 @@ VoiceFlow/
     en.lproj/ / zh-Hans.lproj/
     Assets.xcassets
 URLScheme.plist               # CFBundleURLTypes、UIFileSharingEnabled、ATS ts.net 例外
+VoiceFlowTests/               # 单元测试（Swift Testing）
+VoiceFlowUITests/             # UI 测试（XCUITest，-uiTestMode）
 scripts/test_unit.sh
 scripts/test_all.sh
 ```
+
+以上 `VoiceFlow/` 与 test target 均在 `src/VoiceFlow/` 下；仓库根目录无 `tests/`。
 
 `AppState` 保存跨页面状态：录音状态、transcript、历史索引、tab 选择、token/OpenCode 配置与连接状态、剪贴板/OpenCode 发送状态、语言偏好、deep link 待处理标志。录音、API、剪贴板、Keychain 在 service 层；UI 不直接碰系统接口。
 
