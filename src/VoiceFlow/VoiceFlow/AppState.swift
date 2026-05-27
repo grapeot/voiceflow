@@ -627,7 +627,7 @@ final class AppState: ObservableObject {
                 if recordingStatus == .recording {
                     streamConnectionPhase = .connected
                     if streamStatusCaptionKey == "record.status.reconnecting" {
-                        streamStatusCaptionKey = nil
+                        streamStatusCaptionKey = "record.status.reconnected"
                     }
                 }
             case .generating:
@@ -646,10 +646,14 @@ final class AppState: ObservableObject {
                 throttledStreamClipboardWrite(transcript)
             }
         case .error(let message):
+            if RealtimeTranscriptionSupport.isRecoverableBufferTooSmallError(message),
+               recordingStatus == .recording {
+                return
+            }
             recordDiagnostic("transcription_stream_error", metadata: ["reason": message])
             streamConnectionPhase = .disconnected
             if recordingStatus == .recording {
-                streamStatusCaptionKey = "record.error.streamDisconnected"
+                streamStatusCaptionKey = "record.status.reconnecting"
             } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 streamStatusCaptionKey = "record.error.streamDisconnected"
             } else {
@@ -658,7 +662,7 @@ final class AppState: ObservableObject {
         case .disconnected:
             streamConnectionPhase = .disconnected
             if recordingStatus == .recording {
-                streamStatusCaptionKey = "record.error.streamDisconnected"
+                streamStatusCaptionKey = "record.status.reconnecting"
             }
         case .recoveryStarted:
             streamConnectionPhase = .recovering
@@ -685,7 +689,7 @@ final class AppState: ObservableObject {
             let phase = await session.connectionPhase
             streamConnectionPhase = phase
             if phase == .connected, streamStatusCaptionKey == "record.status.reconnecting" {
-                streamStatusCaptionKey = nil
+                streamStatusCaptionKey = "record.status.reconnected"
             }
         }
     }
@@ -720,6 +724,11 @@ final class AppState: ObservableObject {
             let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 3 else {
                 recordDiagnostic("transcription_response_failed", metadata: ["reason": "tooShort"])
+                if lastRecordingURL != nil {
+                    recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": "tooShort"])
+                    await finishTranscriptionFromLastRecording()
+                    return
+                }
                 presentRecordError("record.error.transcriptionFailed")
                 return
             }
@@ -736,6 +745,9 @@ final class AppState: ObservableObject {
                 copyTranscript()
                 recordingStatus = .ready
                 streamStatusCaptionKey = "record.error.streamDisconnected"
+            } else if lastRecordingURL != nil {
+                recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": "streamFinalizeFailed"])
+                await finishTranscriptionFromLastRecording()
             } else {
                 presentRecordError("record.error.transcriptionFailed")
             }

@@ -441,7 +441,28 @@ struct VoiceFlowTests {
 
         await realtimeClient.emitLiveEvent(.error(message: "websocket error"))
         #expect(state.recordErrorAlertKey == nil)
-        #expect(state.streamStatusCaptionKey == "record.error.streamDisconnected")
+        #expect(state.streamStatusCaptionKey == "record.status.reconnecting")
+    }
+
+    @Test func streamRecoveryIgnoresBufferTooSmallDuringRecording() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+
+        await realtimeClient.emitLiveEvent(.error(message: "Error committing input audio buffer: buffer too small"))
+        #expect(state.recordErrorAlertKey == nil)
+        #expect(state.streamStatusCaptionKey == nil)
+
+        await realtimeClient.emitLiveEvent(.status(.connected))
+        #expect(state.streamStatusCaptionKey == nil)
     }
 
     @Test func streamRecoveryDuringRecordingDoesNotUpdateTranscript() async throws {
@@ -509,7 +530,7 @@ struct VoiceFlowTests {
         #expect(savedFiles.isEmpty == false)
         #expect(savedFiles.contains(where: { $0.lastPathComponent == state.lastSavedRecording?.fileName }) == true)
 
-        realtimeClient.bulkResult = .success("resent transcript")
+        await realtimeClient.setBulkResult(.success("resent transcript"))
         await state.resendLastRecording()
 
         #expect(state.transcript == "resent transcript")

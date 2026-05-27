@@ -87,6 +87,23 @@ enum LiveIntegrationTestSupport {
         throw LiveIntegrationTestError.connectionFailed("Timed out waiting for expected server event")
     }
 
+    static func waitForEvent(
+        _ predicate: @escaping (RealtimeTranscriptEvent) -> Bool,
+        from collector: EventCollector,
+        pollIntervalMs: UInt64 = 100,
+        timeoutSeconds: TimeInterval = 15
+    ) async throws -> RealtimeTranscriptEvent {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            let snapshot = await collector.snapshot()
+            if let match = snapshot.first(where: predicate) {
+                return match
+            }
+            try await Task.sleep(for: .milliseconds(pollIntervalMs))
+        }
+        throw LiveIntegrationTestError.connectionFailed("Timed out waiting for expected server event")
+    }
+
     private static func credentialsFromProcessEnvironment() -> Credentials? {
         let environment = ProcessInfo.processInfo.environment
         guard let token = firstNonPlaceholderToken(
@@ -155,5 +172,17 @@ enum LiveIntegrationTestError: Error, CustomStringConvertible {
         case .connectionFailed(let message):
             return message
         }
+    }
+}
+
+actor EventCollector {
+    private var events: [RealtimeTranscriptEvent] = []
+
+    func append(_ event: RealtimeTranscriptEvent) {
+        events.append(event)
+    }
+
+    func snapshot() -> [RealtimeTranscriptEvent] {
+        events
     }
 }

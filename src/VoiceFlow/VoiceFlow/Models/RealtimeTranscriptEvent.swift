@@ -66,6 +66,17 @@ enum RealtimeTranscriptionConfig: Sendable {
     nonisolated static var chunkByteSize: Int {
         Int(sampleRate * chunkDurationSeconds) * 2
     }
+
+    /// Minimum PCM16 mono audio required before sending `commit` (100 ms at 24 kHz).
+    nonisolated static var minCommitAudioBytes: Int {
+        Int(sampleRate * 0.1) * 2
+    }
+}
+
+enum RealtimeTranscriptionSupport: Sendable {
+    nonisolated static func isRecoverableBufferTooSmallError(_ message: String) -> Bool {
+        message.localizedCaseInsensitiveContains("buffer too small")
+    }
 }
 
 struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {

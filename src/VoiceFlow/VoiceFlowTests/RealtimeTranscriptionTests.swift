@@ -108,6 +108,19 @@ struct RealtimeTranscriptionTests {
         #expect(decoded == pcm)
     }
 
+    @Test func recoverableBufferTooSmallErrorDetection() {
+        #expect(
+            RealtimeTranscriptionSupport.isRecoverableBufferTooSmallError(
+                "Error committing input audio buffer: buffer too small. Expected at least 100ms"
+            )
+        )
+        #expect(!RealtimeTranscriptionSupport.isRecoverableBufferTooSmallError("bad token"))
+    }
+
+    @Test func minCommitAudioBytesMatches100msAt24kHz() {
+        #expect(RealtimeTranscriptionConfig.minCommitAudioBytes == 4_800)
+    }
+
     @Test func liveSessionSuppressesTranscriptUntilFinalize() async throws {
         let client = MockRealtimeTranscriptionClient(liveResult: .success("final words"))
         var uiEvents: [RealtimeTranscriptEvent] = []
@@ -174,7 +187,7 @@ struct LiveWebSocketIntegrationTests {
             token: credentials.token,
             model: RealtimeTranscriptionConfig.defaultModel,
             onEvent: { event in
-                events.append(event)
+                Task { await events.append(event) }
             }
         )
 
@@ -184,7 +197,7 @@ struct LiveWebSocketIntegrationTests {
 
             let statusEvent = try await LiveIntegrationTestSupport.waitForEvent(
                 { if case .status(.connected) = $0 { return true }; return false },
-                in: events.snapshot()
+                from: events
             )
             #expect(statusEvent == .status(.connected))
 
@@ -209,15 +222,17 @@ struct LiveWebSocketIntegrationTests {
             token: credentials.token,
             model: RealtimeTranscriptionConfig.defaultModel,
             onEvent: { event in
-                events.append(event)
+                Task { await events.append(event) }
             }
         )
 
         do {
             _ = try await LiveIntegrationTestSupport.waitUntilConnected(session: session)
 
-            let silenceChunk = Data(repeating: 0, count: RealtimeTranscriptionConfig.chunkByteSize)
-            await session.appendAudioChunk(silenceChunk)
+            let pcmChunk = Data(repeating: 1, count: RealtimeTranscriptionConfig.chunkByteSize)
+            for _ in 0..<3 {
+                await session.appendAudioChunk(pcmChunk)
+            }
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -231,7 +246,7 @@ struct LiveWebSocketIntegrationTests {
                 group.cancelAll()
             }
 
-            let snapshot = events.snapshot()
+            let snapshot = await events.snapshot()
             let sawGenerating = snapshot.contains { event in
                 if case .status(.generating) = event { return true }
                 return false
@@ -247,22 +262,5 @@ struct LiveWebSocketIntegrationTests {
         }
 
         await session.cancel()
-    }
-}
-
-private final class EventCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var events: [RealtimeTranscriptEvent] = []
-
-    func append(_ event: RealtimeTranscriptEvent) {
-        lock.lock()
-        defer { lock.unlock() }
-        events.append(event)
-    }
-
-    func snapshot() -> [RealtimeTranscriptEvent] {
-        lock.lock()
-        defer { lock.unlock() }
-        return events
     }
 }

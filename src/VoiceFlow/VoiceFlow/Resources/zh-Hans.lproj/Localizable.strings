@@ -22,12 +22,13 @@
 "record.status.recording" = "正在录音...";
 "record.status.transcribing" = "正在转写...";
 "record.status.ready" = "转写完成";
-"record.status.reconnecting" = "正在重连流...";
+"record.status.reconnecting" = "流连接中断，正在自动重连，可继续录音。";
+"record.status.reconnected" = "流已重连，可继续录音。";
 "record.error.missingToken" = "录音前请先保存 AI Builder token。";
 "record.error.microphoneDenied" = "麦克风权限未开启。请到系统设置中打开后再录音。";
 "record.error.recordingFailed" = "录音失败，请重试。";
 "record.error.transcriptionFailed" = "转写失败。你的 token 和录音内容不会写入日志。";
-"record.error.streamDisconnected" = "流连接已断开。已保留部分转写；可点停止结束，或开始新录音。";
+"record.error.streamDisconnected" = "流连接中断，自动恢复失败，可继续录音或点停止结束。";
 "record.error.alert.title" = "录音出错";
 "record.error.alert.ok" = "好";
 "record.clipboard.copied" = "已复制到剪贴板。";
