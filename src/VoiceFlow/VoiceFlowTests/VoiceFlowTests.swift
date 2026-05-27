@@ -433,7 +433,7 @@ struct VoiceFlowTests {
         #expect(state.recordErrorAlertKey == nil)
 
         await realtimeClient.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
-        #expect(state.transcript == "after reconnect")
+        #expect(state.transcript.isEmpty)
 
         await realtimeClient.emitLiveEvent(.recoveryFailed(message: "network down"))
         #expect(state.streamStatusCaptionKey == "record.error.streamDisconnected")
@@ -444,7 +444,7 @@ struct VoiceFlowTests {
         #expect(state.streamStatusCaptionKey == "record.error.streamDisconnected")
     }
 
-    @Test func streamRecoveryPreservesTranscriptAcrossIsNewResponse() async throws {
+    @Test func streamRecoveryDuringRecordingDoesNotUpdateTranscript() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
         let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
@@ -461,8 +461,11 @@ struct VoiceFlowTests {
         await realtimeClient.emitLiveEvent(.recoveryStarted)
         await realtimeClient.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
 
-        #expect(state.transcript == "before disconnectafter reconnect")
+        #expect(state.transcript.isEmpty)
         #expect(state.recordErrorAlertKey == nil)
+
+        await state.stopRecording()
+        #expect(state.transcript == "voice text")
     }
 
     @Test func saveAndResendRecordingUsePersistedAudio() async throws {

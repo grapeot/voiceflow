@@ -107,7 +107,6 @@ final class AppState: ObservableObject {
     private var lastStreamClipboardHash: Int?
     private var lastStreamClipboardUpdate: Date?
     private var userEditedTranscriptDuringStream = false
-    private var transcriptMerger = TranscriptEpochMerger()
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -306,7 +305,6 @@ final class AppState: ObservableObject {
 
         do {
             transcript = ""
-            transcriptMerger.reset()
             userEditedTranscriptDuringStream = false
             lastClipboardStatusKey = nil
             streamStatusCaptionKey = nil
@@ -638,8 +636,13 @@ final class AppState: ObservableObject {
                 streamConnectionPhase = .disconnected
             }
         case .textDelta(let content, let isNewResponse):
+            guard recordingStatus != .recording else { return }
             if !userEditedTranscriptDuringStream || isNewResponse {
-                transcript = transcriptMerger.apply(content: content, isNewResponse: isNewResponse)
+                transcript = TranscriptDeltaReducer.apply(
+                    current: transcript,
+                    content: content,
+                    isNewResponse: isNewResponse
+                )
                 throttledStreamClipboardWrite(transcript)
             }
         case .error(let message):
@@ -658,7 +661,6 @@ final class AppState: ObservableObject {
                 streamStatusCaptionKey = "record.error.streamDisconnected"
             }
         case .recoveryStarted:
-            transcriptMerger.beginRecovery()
             streamConnectionPhase = .recovering
             if recordingStatus == .recording {
                 streamStatusCaptionKey = "record.status.reconnecting"

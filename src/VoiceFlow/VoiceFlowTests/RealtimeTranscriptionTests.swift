@@ -108,6 +108,27 @@ struct RealtimeTranscriptionTests {
         #expect(decoded == pcm)
     }
 
+    @Test func liveSessionSuppressesTranscriptUntilFinalize() async throws {
+        let client = MockRealtimeTranscriptionClient(liveResult: .success("final words"))
+        var uiEvents: [RealtimeTranscriptEvent] = []
+        let session = try await client.beginLiveSession(
+            baseURL: "https://space.ai-builders.com/backend",
+            token: "token",
+            model: "gpt-realtime",
+            onEvent: { uiEvents.append($0) }
+        )
+
+        await session.appendAudioChunk(Data(repeating: 0, count: 100))
+        await client.emitLiveEvent(.textDelta(content: "ignored during recording", isNewResponse: true))
+        await client.emitLiveEvent(.recoveryStarted)
+        #expect(uiEvents.contains { if case .textDelta = $0 { return true }; return false } == false)
+
+        try await session.finalize(onPartialTranscript: nil)
+        await session.cancel()
+
+        #expect(uiEvents.contains(.textDelta(content: "final words", isNewResponse: true)))
+    }
+
     @Test func mockLiveSessionStreamsTranscriptAndFinalize() async throws {
         let client = MockRealtimeTranscriptionClient(liveResult: .success("streamed words"))
         var events: [RealtimeTranscriptEvent] = []
