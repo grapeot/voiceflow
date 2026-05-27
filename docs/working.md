@@ -20,6 +20,7 @@
 - 增加录音到转写的可测试主路径：48 kHz PCM16 WAV 录音配置、multipart `audio_file` 上传 client、mock 转写、自动复制和最近 5 条历史。
 - Record tab 接入 Start / Stop / Copy / History 按钮，UI test 模式走 mock recorder、mock transcriber 和 mock clipboard，不需要真实麦克风或真实网络。
 - Xcode 生成的 Info.plist 已加入麦克风权限说明。
+- 麦克风权限请求在 iOS 17 / visionOS 1 及以上使用 `AVAudioApplication.requestRecordPermission`，旧系统才回退到 `AVAudioSession.requestRecordPermission`。
 
 ## Lessons Learned
 
@@ -30,6 +31,7 @@
 - 独立 SourceKit 对 file-system synchronized groups 也可能看不到同 target 的新增 Swift 类型，当前以 `xcodebuild` 作为最终编译依据。
 - visionOS simulator 的 generic destination 不可用，当前使用 `platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2`。
 - multipart 上传测试使用 `URLProtocol` 拦截请求，验证 Bearer header、`/v1/audio/transcriptions` path 和 `audio_file` 表单字段，不依赖真实 AI Builder token。
+- 旧 iOS 工程未命中 `requestRecordPermission` 调用；当前不需要同步改旧 repo。
 
 ## Verification
 
@@ -40,6 +42,12 @@
 - `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .`：零匹配。
 
 ### 2026-05-26 Recording and transcription milestone
+
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
+- `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。
+- `rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .`：零匹配。
+
+### 2026-05-26 Microphone permission API cleanup
 
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.3.1' CODE_SIGNING_ALLOWED=NO test`：通过。
 - `xcodebuild -project src/VoiceFlow/VoiceFlow.xcodeproj -scheme VoiceFlow -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.2' CODE_SIGNING_ALLOWED=NO build`：通过。
