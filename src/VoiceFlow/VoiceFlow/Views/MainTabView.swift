@@ -13,25 +13,30 @@ struct MainTabView: View {
                     Label {
                         Text(localized("tab.record"))
                     } icon: {
-                        Image(systemName: "mic.fill")
+                        // Outline by default; system fills it for the selected
+                        // state, which is the only visual confirmation needed.
+                        Image(systemName: "mic")
                     }
                         .accessibilityIdentifier("tab.record")
                 }
                 .tag(AppState.AppTab.record)
                 .accessibilityIdentifier("tab.record")
+                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
 
             SettingsView()
                 .tabItem {
                     Label {
                         Text(localized("tab.settings"))
                     } icon: {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: "gearshape")
                     }
                         .accessibilityIdentifier("tab.settings")
                 }
                 .tag(AppState.AppTab.settings)
                 .accessibilityIdentifier("tab.settings")
+                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         }
+        .tint(DesignTokens.Palette.accent)
     }
 
     private func localized(_ key: String) -> String {
