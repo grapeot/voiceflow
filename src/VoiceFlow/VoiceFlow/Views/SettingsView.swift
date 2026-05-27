@@ -12,6 +12,7 @@ struct SettingsView: View {
                 aiBuilderSection
                 openCodeSection
                 languageSection
+                uiTestSection
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(Text(localized("tab.settings")))
@@ -210,6 +211,20 @@ struct SettingsView: View {
             Text(localized("settings.openCode.optionalHint"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var uiTestSection: some View {
+        if ProcessInfo.processInfo.arguments.contains("-uiTestMode") {
+            Section {
+                Button("Reset UI Test State") {
+                    Task { @MainActor in
+                        await appState.resetForUITest()
+                    }
+                }
+                .accessibilityIdentifier("uitest.resetState")
+            }
         }
     }
 

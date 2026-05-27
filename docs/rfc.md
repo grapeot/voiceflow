@@ -53,6 +53,9 @@ URLScheme.plist               # CFBundleURLTypes、UIFileSharingEnabled、ATS ts
 VoiceFlowTests/               # 单元测试（Swift Testing）
 VoiceFlowUITests/             # UI 测试（XCUITest，-uiTestMode）
 scripts/test_unit.sh
+scripts/test_ui_smoke.sh
+scripts/test_ui_full.sh
+scripts/test_ui_perf.sh
 scripts/test_all.sh
 ```
 

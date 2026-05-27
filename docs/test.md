@@ -12,15 +12,32 @@
 
 `test_unit.sh` 会 **跳过** `LiveWebSocketIntegrationTests`（不会连真实 WebSocket，也不读 `.env`）。
 
-只有用户主动要求跑 UI test、或明确说跑完整测试 suite 时，才执行：
+发版前或用户明确要求完整验收时：
 
 ```bash
-./scripts/test_all.sh
+./scripts/test_all.sh   # unit + UI full（不含 perf）
 ```
+
+### UI 测试分层（2026-05-27）
+
+| 脚本 | 范围 | 典型耗时（本机 pinned simulator） |
+|------|------|----------------------------------|
+| `./scripts/test_ui_smoke.sh` | 3 条关键 UX：英文 shell、mock 流式录音+转写、token 掩码 | ~50s |
+| `./scripts/test_ui_full.sh` | 11 条功能 UI（无 perf、无 Launch 截图） | ~200s |
+| `./scripts/test_ui_perf.sh` | `testLaunchPerformance` + LaunchTests 截图 | ~30s |
+| `./scripts/test_ui.sh` | 等同 `test_ui_full.sh` | ~200s |
+
+修改 `VoiceFlowUITests` 后若出现「改了代码但跑的还是旧用例」，先：
+
+```bash
+VOICEFLOW_TEST_REBUILD=1 ./scripts/test_ui_smoke.sh
+```
+
+仍异常时可清理本机 DerivedData 后再 `VOICEFLOW_TEST_REBUILD=1`（见 `docs/working.md` UI 优化记录）。
 
 ### Simulator 自适应 pinning
 
-`test_unit.sh` 和 `test_all.sh` 会自动：
+`test_unit.sh`、`test_all.sh` 与各 `test_ui_*.sh` 会自动：
 
 1. 在本机 `.voiceflow/simulator-udid` 记录一台匹配的 iPhone 17 Pro（iOS 26.3.1）UDID
 2. 第一次运行时发现并 boot 这台 Simulator（较慢，正常）
@@ -152,13 +169,15 @@ Session create 响应示例（Bearer POST）：
 
 ## UI 测试（VoiceFlowUITests）
 
-XCUITest，launch argument `-uiTestMode` 启用内存 Keychain 与 mock 服务。覆盖英文/中文 shell、token 保存、mock 录音流、OpenCode 配置、语言切换、Settings UX、deep link 启动录音等。
+XCUITest，`-uiTestMode` 启用内存 Keychain 与 mock 服务；每次用例冷启动并带 `-uiTestResetPreferences`（locale 变更用例会 `terminate` 后按语言 relaunch）。
 
-**V1 新增 spec（已实现，默认不执行）**
+辅助逻辑在 `VoiceFlowUITestSupport.swift`：按 `record.startButton` / `record.stopButton` 判断录音状态（避免依赖不可见的 status 圆点）；Settings 列表用 `scrollSettingsToTop` + `reveal` 滚动。
 
-- `testMockStreamingRecordingUpdatesTranscript`：mock 流式转写后 transcript 非空、状态回到 ready、剪贴板 caption 出现。
+**默认不跑**：`VoiceFlowUITestsPerformance/testLaunchPerformance`、`VoiceFlowUITestsLaunchTests/testLaunch`（见 `test_ui_perf.sh`）。
 
-仅在用户明确要求或发版前执行 `./scripts/test_all.sh`。
+**与单元测试分工**：连接失败文案、OpenCode URL 校验、deep link 解析等以 `VoiceFlowTests` 为准；UI 覆盖 tab/alert/录音按钮/剪贴板 caption 等可见行为。OpenCode UI 用例只测密码保存/清除（URL/username 默认值由单元测试覆盖）。
+
+**`-uiTestMode` 调试**：Settings 底部有 `uitest.resetState`（`AppState.resetForUITest()`），供后续共享 app 方案使用；当前用例仍采用每测 relaunch 以保证隔离。
 
 ## 手工验证清单
 
