@@ -4,7 +4,6 @@ struct RecordView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
     @State private var showOpenCodeInfo = false
-    @State private var previewRecordingURL: URL?
 
     var body: some View {
         GeometryReader { geometry in
@@ -52,13 +51,6 @@ struct RecordView: View {
             Text(localized("record.save.confirmation.title")),
             isPresented: savedRecordingAlertPresented
         ) {
-            Button(localized("record.save.openInFiles")) {
-                appState.acknowledgeSavedRecordingAlert()
-                if let url = appState.lastSavedRecording?.fileURL {
-                    presentSavedRecordingPreview(for: url)
-                }
-            }
-            .accessibilityIdentifier("record.save.openInFilesButton")
             Button(localized("record.error.alert.ok"), role: .cancel) {
                 appState.acknowledgeSavedRecordingAlert()
             }
@@ -72,17 +64,6 @@ struct RecordView: View {
                     )
                 )
             }
-        }
-        #if os(iOS)
-        .quickLookPreview($previewRecordingURL)
-        #endif
-    }
-
-    private func presentSavedRecordingPreview(for url: URL) {
-        Task { @MainActor in
-            // Wait for any alert dismissal animation so Quick Look does not fight the gesture gate.
-            try? await Task.sleep(for: .milliseconds(400))
-            previewRecordingURL = url
         }
     }
 
@@ -130,22 +111,17 @@ struct RecordView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
         } else if let savedRecording = appState.lastSavedRecording {
-            Button {
-                presentSavedRecordingPreview(for: savedRecording.fileURL)
-            } label: {
-                Text(
-                    String(
-                        format: localized("record.save.statusLine"),
-                        savedRecording.fileName
-                    )
+            Text(
+                String(
+                    format: localized("record.save.statusLine"),
+                    savedRecording.fileName
                 )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("record.save.statusLineButton")
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(3)
+            .multilineTextAlignment(.center)
+            .accessibilityIdentifier("record.save.statusLine")
         } else if let lastClipboardStatusKey = appState.lastClipboardStatusKey {
             Text(localized(lastClipboardStatusKey))
                 .font(.caption)
