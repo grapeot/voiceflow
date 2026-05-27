@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
@@ -76,6 +77,7 @@ final class AppState: ObservableObject {
     @Published private(set) var lastSavedRecording: SavedRecordingInfo?
     @Published var shouldPresentSavedRecordingAlert = false
     @Published var connectionStatus: ConnectionStatus = .untested
+    @Published private(set) var streamConnectionPhase: RealtimeConnectionPhase = .disconnected
     @Published private(set) var recordingTimerText = "00:00"
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
@@ -86,6 +88,7 @@ final class AppState: ObservableObject {
     private let aiBuilderClient: AIBuilderConnectionTesting
     private let audioRecorder: AudioRecording
     private let transcriptionClient: AIBuilderTranscribing
+    private let realtimeTranscriptionClient: RealtimeTranscribing
     private let clipboardWriter: ClipboardWriting
     private let openCodeClient: OpenCodeSending
     private let diagnostics: RecordingDiagnosticsReporting
@@ -97,12 +100,23 @@ final class AppState: ObservableObject {
     private var lastRecordingURL: URL?
     private var recordingTimerStartDate: Date?
     private var recordingTimer: Timer?
+    private var liveTranscriptionSession: (any RealtimeLiveTranscriptionSession)?
+    private var audioChunkEncoder = AudioChunkEncoder()
+    private var streamHeartbeatTask: Task<Void, Never>?
+    private var lastStreamClipboardHash: Int?
+    private var lastStreamClipboardUpdate: Date?
+    private var userEditedTranscriptDuringStream = false
+
+    private static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
 
     init(
         keychainStore: KeychainStoring? = nil,
         aiBuilderClient: AIBuilderConnectionTesting? = nil,
         audioRecorder: AudioRecording? = nil,
         transcriptionClient: AIBuilderTranscribing? = nil,
+        realtimeTranscriptionClient: RealtimeTranscribing? = nil,
         clipboardWriter: ClipboardWriting? = nil,
         openCodeClient: OpenCodeSending? = nil,
         diagnostics: RecordingDiagnosticsReporting? = nil
@@ -127,6 +141,7 @@ final class AppState: ObservableObject {
         }
         self.audioRecorder = audioRecorder ?? (isUITestMode ? MockAudioRecorder() : AudioRecorder())
         self.transcriptionClient = transcriptionClient ?? (isUITestMode ? MockAIBuilderTranscriptionClient(result: .success("Mock transcription")) : AIBuilderTranscriptionClient())
+        self.realtimeTranscriptionClient = realtimeTranscriptionClient ?? ((isUITestMode || Self.isRunningUnitTests) ? MockRealtimeTranscriptionClient(liveResult: .success("Mock transcription")) : RealtimeTranscriptionClient())
         self.clipboardWriter = clipboardWriter ?? (isUITestMode ? MockClipboardWriter() : SystemClipboardWriter())
         if let openCodeClient {
             self.openCodeClient = openCodeClient
@@ -273,6 +288,12 @@ final class AppState: ObservableObject {
             return
         }
 
+        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
+            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
+            presentRecordError("record.error.missingToken")
+            return
+        }
+
         recordingStatus = .requestingPermission
         recordDiagnostic("recording_permission_request_started")
         guard await audioRecorder.requestPermission() else {
@@ -283,17 +304,37 @@ final class AppState: ObservableObject {
 
         do {
             transcript = ""
+            userEditedTranscriptDuringStream = false
             lastClipboardStatusKey = nil
             lastSavedRecording = nil
             shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
-            recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true"])
-            try await audioRecorder.startRecording()
+            audioChunkEncoder = AudioChunkEncoder()
+            streamConnectionPhase = .connecting
+            recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": "stream"])
+
+            liveTranscriptionSession = try await realtimeTranscriptionClient.beginLiveSession(
+                baseURL: aiBuilderEndpoint,
+                token: token,
+                model: RealtimeTranscriptionConfig.defaultModel,
+                onEvent: { [weak self] event in
+                    Task { @MainActor in
+                        self?.handleStreamEvent(event)
+                    }
+                }
+            )
+            startStreamHeartbeat()
+
+            try await audioRecorder.startRecording { [weak self] chunk in
+                Task { await self?.handleCapturedPCMChunk(chunk) }
+            }
             recordDiagnostic("recording_start_succeeded")
             resetRecordingTimer()
             startRecordingTimer()
             recordingStatus = .recording
+            streamConnectionPhase = .connected
         } catch {
+            await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
             resetRecordingTimer()
             presentRecordError("record.error.recordingFailed")
@@ -314,6 +355,7 @@ final class AppState: ObservableObject {
         do {
             audioURL = try await audioRecorder.stopRecording()
         } catch {
+            await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_stop_failed", metadata: diagnosticMetadata(for: error))
             presentRecordError("record.error.transcriptionFailed")
             return
@@ -323,6 +365,7 @@ final class AppState: ObservableObject {
         recordDiagnostic("recording_stop_succeeded", metadata: audioMetadata)
         if audioMetadata["byteCount"] == "0" {
             try? FileManager.default.removeItem(at: audioURL)
+            await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_audio_file_empty")
             presentRecordError("record.error.transcriptionFailed")
             return
@@ -332,13 +375,29 @@ final class AppState: ObservableObject {
             lastRecordingURL = try persistLastRecording(from: audioURL)
         } catch {
             try? FileManager.default.removeItem(at: audioURL)
+            await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_persist_failed", metadata: diagnosticMetadata(for: error))
             presentRecordError("record.error.transcriptionFailed")
             return
         }
         try? FileManager.default.removeItem(at: audioURL)
 
-        await finishTranscriptionFromLastRecording()
+        await flushRemainingAudioChunks()
+        await finishLiveTranscriptionSession()
+    }
+
+    func handleScenePhaseChange(to phase: ScenePhase) async {
+        switch phase {
+        case .active:
+            await liveTranscriptionSession?.heartbeat()
+        case .background:
+            stopStreamHeartbeat()
+            await liveTranscriptionSession?.cancel()
+            liveTranscriptionSession = nil
+            streamConnectionPhase = .disconnected
+        default:
+            break
+        }
     }
 
     func copyTranscript() {
@@ -531,12 +590,18 @@ final class AppState: ObservableObject {
         }
 
         do {
-            recordDiagnostic("transcription_started", metadata: ["hasToken": "true"])
-            let transcribedText = try await transcriptionClient.transcribe(
-                audioFileURL: audioURL,
+            recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "bulk"])
+            let pcmData = try PCM16WAVWriter.readPCM(from: audioURL)
+            let transcribedText = try await realtimeTranscriptionClient.transcribeBulkPCM(
+                pcmData: pcmData,
                 baseURL: aiBuilderEndpoint,
-                token: token
-            )
+                token: token,
+                model: RealtimeTranscriptionConfig.defaultModel
+            ) { [weak self] partial in
+                Task { @MainActor in
+                    self?.transcript = partial
+                }
+            }
             recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)"])
             transcript = transcribedText
             openCodeSendStatus = .idle
@@ -549,12 +614,164 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func handleStreamEvent(_ event: RealtimeTranscriptEvent) {
+        switch event {
+        case .status(let status):
+            switch status {
+            case .connected, .connecting:
+                if recordingStatus == .recording {
+                    streamConnectionPhase = .connected
+                }
+            case .generating:
+                streamConnectionPhase = .generating
+            case .idle:
+                streamConnectionPhase = .disconnected
+            }
+        case .textDelta(let content, let isNewResponse):
+            if !userEditedTranscriptDuringStream || isNewResponse {
+                transcript = TranscriptDeltaReducer.apply(
+                    current: transcript,
+                    content: content,
+                    isNewResponse: isNewResponse
+                )
+                throttledStreamClipboardWrite(transcript)
+            }
+        case .error(let message):
+            recordDiagnostic("transcription_stream_error", metadata: ["reason": message])
+            streamConnectionPhase = .disconnected
+            if recordingStatus == .recording {
+                recordErrorAlertKey = "record.error.streamDisconnected"
+            }
+        case .disconnected:
+            streamConnectionPhase = .disconnected
+        }
+    }
+
+    private func handleCapturedPCMChunk(_ chunk: Data) async {
+        let chunks = audioChunkEncoder.append(chunk)
+        for encodedChunk in chunks {
+            await liveTranscriptionSession?.appendAudioChunk(encodedChunk)
+        }
+        if let session = liveTranscriptionSession {
+            streamConnectionPhase = await session.connectionPhase
+        }
+    }
+
+    private func flushRemainingAudioChunks() async {
+        let remainder = audioChunkEncoder.flushRemainder()
+        guard !remainder.isEmpty else { return }
+        await liveTranscriptionSession?.appendAudioChunk(remainder)
+    }
+
+    private func finishLiveTranscriptionSession() async {
+        stopStreamHeartbeat()
+        guard let session = liveTranscriptionSession else {
+            presentRecordError("record.error.transcriptionFailed")
+            return
+        }
+
+        do {
+            recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "stream"])
+            try await session.finalize { [weak self] partial in
+                Task { @MainActor in
+                    self?.transcript = partial
+                    self?.throttledStreamClipboardWrite(partial)
+                }
+            }
+            await session.cancel()
+            liveTranscriptionSession = nil
+            streamConnectionPhase = .disconnected
+
+            let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count > 3 else {
+                recordDiagnostic("transcription_response_failed", metadata: ["reason": "tooShort"])
+                presentRecordError("record.error.transcriptionFailed")
+                return
+            }
+
+            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcript.count)"])
+            transcriptHistory.add(transcript)
+            copyTranscript()
+            recordingStatus = .ready
+        } catch {
+            await cancelLiveTranscriptionSession()
+            recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
+            if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                recordingStatus = .ready
+                recordErrorAlertKey = "record.error.streamDisconnected"
+            } else {
+                presentRecordError("record.error.transcriptionFailed")
+            }
+        }
+    }
+
+    private func cancelLiveTranscriptionSession() async {
+        stopStreamHeartbeat()
+        if let session = liveTranscriptionSession {
+            await session.cancel()
+        }
+        liveTranscriptionSession = nil
+        streamConnectionPhase = .disconnected
+    }
+
+    private func startStreamHeartbeat() {
+        stopStreamHeartbeat()
+        streamHeartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(RealtimeTranscriptionConfig.heartbeatIntervalSeconds))
+                guard !Task.isCancelled else { return }
+                await self?.liveTranscriptionSession?.heartbeat()
+                if let session = self?.liveTranscriptionSession {
+                    let phase = await session.connectionPhase
+                    await MainActor.run {
+                        self?.streamConnectionPhase = phase
+                    }
+                }
+            }
+        }
+    }
+
+    private func stopStreamHeartbeat() {
+        streamHeartbeatTask?.cancel()
+        streamHeartbeatTask = nil
+    }
+
+    private func throttledStreamClipboardWrite(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 3 else { return }
+
+        let hash = trimmed.hashValue
+        let now = Date()
+        if hash == lastStreamClipboardHash,
+           let lastStreamClipboardUpdate,
+           now.timeIntervalSince(lastStreamClipboardUpdate) < 1 {
+            return
+        }
+
+        lastStreamClipboardHash = hash
+        lastStreamClipboardUpdate = now
+        do {
+            try clipboardWriter.write(trimmed)
+            lastClipboardStatusKey = "record.clipboard.copied"
+        } catch {
+            lastClipboardStatusKey = "record.clipboard.failed"
+        }
+    }
+
     private func transcriptionFailureEventName(for error: Error) -> String {
         if let transcriptionError = error as? AIBuilderTranscriptionError {
             switch transcriptionError {
             case .invalidBaseURL, .requestFailed:
                 return "transcription_upload_failed"
             case .invalidResponse, .emptyTranscript:
+                return "transcription_response_failed"
+            }
+        }
+        if let streamError = error as? RealtimeTranscriptionError {
+            switch streamError {
+            case .invalidBaseURL, .missingToken, .connectionLost, .sessionUnavailable:
+                return "transcription_upload_failed"
+            case .invalidMessage, .websocketError, .emptyTranscript, .audioConversionFailed:
                 return "transcription_response_failed"
             }
         }

@@ -3,7 +3,7 @@ import Foundation
 
 protocol AudioRecording {
     func requestPermission() async -> Bool
-    func startRecording() async throws
+    func startRecording(onPCMChunk: (@Sendable (Data) -> Void)?) async throws
     func stopRecording() async throws -> URL
     func discardRecording()
 }
@@ -18,6 +18,7 @@ enum AudioRecorderError: Error {
         case setCategory
         case setActive
         case createRecorder
+        case startEngine
     }
 
     var diagnosticMetadata: [String: String] {
@@ -39,8 +40,11 @@ enum AudioRecorderError: Error {
 }
 
 final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
-    private var recorder: AVAudioRecorder?
+    private var audioEngine: AVAudioEngine?
     private var recordingURL: URL?
+    private var pcmBuffer = Data()
+    private var onPCMChunk: (@Sendable (Data) -> Void)?
+    private var isRecording = false
 
     func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
@@ -56,7 +60,10 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
         }
     }
 
-    func startRecording() async throws {
+    func startRecording(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
+        self.onPCMChunk = onPCMChunk
+        pcmBuffer.removeAll(keepingCapacity: false)
+
         let session = AVAudioSession.sharedInstance()
         try performSessionSetup(phase: .setCategory) {
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
@@ -69,32 +76,56 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false
-        ]
+        recordingURL = outputURL
 
-        let recorder = try performSessionSetup(phase: .createRecorder) {
-            try AVAudioRecorder(url: outputURL, settings: settings)
-        }
-        recorder.delegate = self
-        recorder.prepareToRecord()
-        guard recorder.record() else {
-            throw AudioRecorderError.recordingDidNotStart
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.inputFormat(forBus: 0)
+        let targetSampleRate = RealtimeTranscriptionConfig.sampleRate
+        guard let recordingFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: targetSampleRate,
+            channels: 1,
+            interleaved: false
+        ), let converter = AVAudioConverter(from: inputFormat, to: recordingFormat) else {
+            throw AudioRecorderError.couldNotCreateRecorder
         }
 
-        self.recorder = recorder
-        self.recordingURL = outputURL
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            let frameCount = AVAudioFrameCount(buffer.frameLength)
+            let ratio = recordingFormat.sampleRate / inputFormat.sampleRate
+            let capacity = AVAudioFrameCount((Double(frameCount) * ratio).rounded(.up))
+            guard capacity > 0,
+                  let convertedBuffer = AVAudioPCMBuffer(pcmFormat: recordingFormat, frameCapacity: capacity) else {
+                return
+            }
+
+            var error: NSError?
+            let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+                outStatus.pointee = .haveData
+                return buffer
+            }
+            converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
+
+            guard let channelData = convertedBuffer.int16ChannelData?[0] else { return }
+            let bufferLength = Int(convertedBuffer.frameLength)
+            let bytesPerFrame = Int(recordingFormat.streamDescription.pointee.mBytesPerFrame)
+            let data = Data(bytes: channelData, count: bufferLength * bytesPerFrame)
+            self.pcmBuffer.append(data)
+            self.onPCMChunk?(data)
+        }
+
+        try performSessionSetup(phase: .startEngine) {
+            try engine.start()
+        }
+
+        audioEngine = engine
+        isRecording = true
     }
 
     private func applySessionPreferences(_ session: AVAudioSession) {
-        // Preferences are best-effort; hardware may reject mono input (-50 paramErr).
-        try? session.setPreferredSampleRate(48_000)
+        try? session.setPreferredSampleRate(RealtimeTranscriptionConfig.sampleRate)
         try? session.setPreferredInputNumberOfChannels(1)
         try? session.setPreferredIOBufferDuration(0.02)
     }
@@ -113,20 +144,35 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
     }
 
     func stopRecording() async throws -> URL {
-        guard let recorder, let recordingURL else {
+        guard isRecording, let recordingURL else {
             throw AudioRecorderError.noActiveRecording
         }
 
-        recorder.stop()
-        self.recorder = nil
-        self.recordingURL = nil
+        if let engine = audioEngine {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        audioEngine = nil
+        isRecording = false
+        onPCMChunk = nil
+
+        try PCM16WAVWriter.write(pcmData: pcmBuffer, to: recordingURL)
+        pcmBuffer.removeAll(keepingCapacity: false)
+
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        self.recordingURL = nil
         return recordingURL
     }
 
     func discardRecording() {
-        recorder?.stop()
-        recorder = nil
+        if let engine = audioEngine {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        audioEngine = nil
+        isRecording = false
+        onPCMChunk = nil
+        pcmBuffer.removeAll(keepingCapacity: false)
         if let recordingURL {
             try? FileManager.default.removeItem(at: recordingURL)
         }
@@ -140,17 +186,21 @@ final class MockAudioRecorder: AudioRecording {
     var outputURL: URL
     var startError: Error?
     var stopError: Error?
+    var outputPCMData: Data
     private(set) var didStart = false
     private(set) var didStop = false
+    private(set) var receivedChunkHandler = false
 
     init(
         permissionGranted: Bool = true,
         outputURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-ui-test.wav"),
+        outputPCMData: Data = Data("mock-audio".utf8),
         startError: Error? = nil,
         stopError: Error? = nil
     ) {
         self.permissionGranted = permissionGranted
         self.outputURL = outputURL
+        self.outputPCMData = outputPCMData
         self.startError = startError
         self.stopError = stopError
     }
@@ -159,10 +209,11 @@ final class MockAudioRecorder: AudioRecording {
         permissionGranted
     }
 
-    func startRecording() async throws {
+    func startRecording(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
         if let startError {
             throw startError
         }
+        receivedChunkHandler = onPCMChunk != nil
         didStart = true
     }
 
@@ -171,8 +222,10 @@ final class MockAudioRecorder: AudioRecording {
             throw stopError
         }
         didStop = true
-        if !FileManager.default.fileExists(atPath: outputURL.path) {
-            try Data("mock-audio".utf8).write(to: outputURL)
+        if outputPCMData.isEmpty {
+            FileManager.default.createFile(atPath: outputURL.path, contents: Data())
+        } else {
+            try PCM16WAVWriter.write(pcmData: outputPCMData, to: outputURL)
         }
         return outputURL
     }

@@ -26,6 +26,7 @@
 "record.error.microphoneDenied" = "Microphone access is disabled. Enable it in Settings to record.";
 "record.error.recordingFailed" = "Recording failed. Try again.";
 "record.error.transcriptionFailed" = "Transcription failed. Your token and recording were not logged.";
+"record.error.streamDisconnected" = "Stream disconnected. Partial transcript is kept; tap Stop to finish or start a new recording.";
 "record.error.alert.title" = "Recording Error";
 "record.error.alert.ok" = "OK";
 "record.clipboard.copied" = "Copied to clipboard.";

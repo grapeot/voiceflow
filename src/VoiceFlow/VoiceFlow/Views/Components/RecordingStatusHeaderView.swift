@@ -2,11 +2,19 @@ import SwiftUI
 
 struct RecordingStatusHeaderView: View {
     let recordingStatus: AppState.RecordingStatus
+    let streamConnectionPhase: RealtimeConnectionPhase
 
     private var indicatorColor: Color {
         switch recordingStatus {
         case .recording:
-            return .green
+            switch streamConnectionPhase {
+            case .connected:
+                return .green
+            case .recovering, .connecting, .generating:
+                return .orange
+            case .disconnected:
+                return .red
+            }
         case .requestingPermission, .transcribing:
             return .orange
         case .idle, .ready:
@@ -25,10 +33,18 @@ struct RecordingStatusHeaderView: View {
                 .fill(indicatorColor)
                 .frame(width: 12, height: 12)
                 .animation(.easeInOut, value: recordingStatus)
+                .animation(.easeInOut, value: streamConnectionPhase)
                 .accessibilityIdentifier("record.statusIndicator")
                 .accessibilityLabel(Text("Recording status"))
-                .accessibilityValue(Text(recordingStatus.indicatorAccessibilityValue))
+                .accessibilityValue(Text(accessibilityStatusValue))
         }
         .accessibilityIdentifier("record.statusHeader")
+    }
+
+    private var accessibilityStatusValue: String {
+        if recordingStatus == .recording {
+            return "recording-\(streamConnectionPhase)"
+        }
+        return recordingStatus.indicatorAccessibilityValue
     }
 }

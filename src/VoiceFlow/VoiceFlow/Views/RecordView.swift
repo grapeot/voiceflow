@@ -90,7 +90,10 @@ struct RecordView: View {
 
     private var statusHeader: some View {
         VStack(spacing: 4) {
-            RecordingStatusHeaderView(recordingStatus: appState.recordingStatus)
+            RecordingStatusHeaderView(
+                recordingStatus: appState.recordingStatus,
+                streamConnectionPhase: appState.streamConnectionPhase
+            )
 
             statusLine
                 .font(.caption)

@@ -421,11 +421,14 @@ struct VoiceFlowTests {
 
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder(outputURL: fileURL)
-        var transcriptionClient = MockAIBuilderTranscriptionClient(result: .success("first transcript"))
+        var realtimeClient = MockRealtimeTranscriptionClient(
+            liveResult: .success("first transcript"),
+            bulkResult: .success("first transcript")
+        )
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            transcriptionClient: transcriptionClient,
+            realtimeTranscriptionClient: realtimeClient,
             clipboardWriter: MockClipboardWriter()
         )
 
@@ -452,7 +455,7 @@ struct VoiceFlowTests {
         #expect(savedFiles.isEmpty == false)
         #expect(savedFiles.contains(where: { $0.lastPathComponent == state.lastSavedRecording?.fileName }) == true)
 
-        transcriptionClient.result = .success("resent transcript")
+        realtimeClient.bulkResult = .success("resent transcript")
         await state.resendLastRecording()
 
         #expect(state.transcript == "resent transcript")
@@ -553,7 +556,7 @@ struct VoiceFlowTests {
             keychainStore: keychain,
             aiBuilderClient: MockAIBuilderConnectionClient(result: .success(())),
             audioRecorder: recorder,
-            transcriptionClient: MockAIBuilderTranscriptionClient(result: .success("voice text")),
+            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(liveResult: .success("voice text")),
             clipboardWriter: clipboard
         )
 
@@ -579,7 +582,7 @@ struct VoiceFlowTests {
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            transcriptionClient: MockAIBuilderTranscriptionClient(result: .success("private dictated words")),
+            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(liveResult: .success("private dictated words")),
             clipboardWriter: MockClipboardWriter(),
             diagnostics: diagnostics
         )
@@ -595,7 +598,7 @@ struct VoiceFlowTests {
         #expect(eventNames.contains("transcription_started"))
         #expect(eventNames.contains("transcription_succeeded"))
         #expect(eventNames.contains("clipboard_copy_succeeded"))
-        #expect(diagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "5")
+        #expect(diagnostics.events.first { $0.name == "recording_stop_succeeded" }?.metadata["byteCount"] == "54")
         #expect(diagnostics.events.containsSensitiveText(["fake-sensitive-token", "private dictated words"]) == false)
     }
 
@@ -619,14 +622,16 @@ struct VoiceFlowTests {
         let failingState = AppState(
             keychainStore: keychain,
             audioRecorder: MockAudioRecorder(outputURL: failureFileURL),
-            transcriptionClient: MockAIBuilderTranscriptionClient(result: .failure(AIBuilderTranscriptionError.requestFailed)),
+            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(
+                liveResult: .failure(RealtimeTranscriptionError.websocketError("stream failed"))
+            ),
             diagnostics: failureDiagnostics
         )
         failingState.saveAIBuilderToken("fake-sensitive-token")
         await failingState.startRecording()
         await failingState.stopRecording()
 
-        #expect(failureDiagnostics.events.map(\.name).contains("transcription_upload_failed"))
+        #expect(failureDiagnostics.events.map(\.name).contains("transcription_response_failed"))
         #expect(failureDiagnostics.events.containsSensitiveText(["fake-sensitive-token"]) == false)
     }
 
@@ -646,7 +651,7 @@ struct VoiceFlowTests {
         let emptyAudioDiagnostics = InMemoryRecordingDiagnostics()
         let emptyAudioState = AppState(
             keychainStore: InMemoryKeychainStore(),
-            audioRecorder: MockAudioRecorder(outputURL: emptyFileURL),
+            audioRecorder: MockAudioRecorder(outputURL: emptyFileURL, outputPCMData: Data()),
             diagnostics: emptyAudioDiagnostics
         )
         emptyAudioState.saveAIBuilderToken("fake-sensitive-token")
@@ -743,7 +748,9 @@ struct VoiceFlowTests {
         let responseState = AppState(
             keychainStore: InMemoryKeychainStore(),
             audioRecorder: MockAudioRecorder(outputURL: responseFileURL),
-            transcriptionClient: MockAIBuilderTranscriptionClient(result: .failure(AIBuilderTranscriptionError.emptyTranscript)),
+            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(
+                liveResult: .failure(RealtimeTranscriptionError.emptyTranscript)
+            ),
             diagnostics: responseDiagnostics
         )
         responseState.saveAIBuilderToken("fake-sensitive-token")
