@@ -67,6 +67,15 @@ final class VoiceFlowUITests: XCTestCase {
         let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
 
         openSettings(in: app, label: "Settings")
+        let serverURLField = app.textFields["settings.openCodeServerURLField"]
+        XCTAssertTrue(reveal(serverURLField, in: app))
+        serverURLField.tap()
+        serverURLField.clearAndEnterText("http://voiceflow.test:4096")
+
+        let usernameField = app.textFields["settings.openCodeUsernameField"]
+        usernameField.tap()
+        usernameField.clearAndEnterText("voiceflow-user")
+
         let passwordField = app.secureTextFields["settings.openCodePasswordField"]
         XCTAssertTrue(reveal(passwordField, in: app))
         passwordField.tap()
@@ -80,6 +89,41 @@ final class VoiceFlowUITests: XCTestCase {
 
         app.buttons["settings.clearOpenCodeButton"].tap()
         XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: 5))
+        XCTAssertEqual(serverURLField.value as? String, "http://voiceflow.test:4096")
+        XCTAssertEqual(usernameField.value as? String, "voiceflow-user")
+    }
+
+    @MainActor
+    func testSettingsConnectionFailureShowsErrorDetail() throws {
+        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode", "-uiTestOpenCodeConnectionFailure"])
+
+        openSettings(in: app, label: "Settings")
+        let passwordField = app.secureTextFields["settings.openCodePasswordField"]
+        XCTAssertTrue(reveal(passwordField, in: app))
+        passwordField.tap()
+        passwordField.typeText("fake-opencode-password")
+        app.buttons["settings.saveOpenCodeButton"].tap()
+        app.buttons["settings.testOpenCodeConnectionButton"].tap()
+
+        XCTAssertTrue(app.staticTexts["Connection failed"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["settings.openCodeConnectionStatusDetail"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testSettingsDismissesKeyboardWhenTappingOutsideFields() throws {
+        let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
+
+        openSettings(in: app, label: "Settings")
+        let tokenField = app.secureTextFields["settings.apiTokenField"]
+        XCTAssertTrue(tokenField.waitForExistence(timeout: 5))
+        tokenField.tap()
+        tokenField.typeText("fake-ui-token")
+
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 2))
+
+        app.staticTexts["settings.endpointTitle"].tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 2))
     }
 
     @MainActor
@@ -250,5 +294,16 @@ final class VoiceFlowUITests: XCTestCase {
         let predicate = NSPredicate(format: "value CONTAINS %@", text)
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         return XCTWaiter.wait(for: [expectation], timeout: 5) == .completed
+    }
+}
+
+private extension XCUIElement {
+    func clearAndEnterText(_ text: String) {
+        tap()
+        if let currentValue = value as? String, !currentValue.isEmpty {
+            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentValue.count)
+            typeText(deleteString)
+        }
+        typeText(text)
     }
 }

@@ -13,7 +13,9 @@ struct SettingsView: View {
                 openCodeSection
                 languageSection
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(Text(localized("tab.settings")))
+            .dismissKeyboardOnTapOutsideTextInputs()
         }
     }
 
@@ -49,6 +51,7 @@ struct SettingsView: View {
                 Text(localized("settings.endpoint.title"))
                     .font(.subheadline)
                     .foregroundStyle(.primary)
+                    .accessibilityIdentifier("settings.endpointTitle")
 
                 Text(appState.aiBuilderEndpoint)
                     .font(.caption)
@@ -95,10 +98,11 @@ struct SettingsView: View {
             .disabled(!appState.hasSavedAIBuilderToken || appState.connectionStatus == .testing)
             .accessibilityIdentifier("settings.testConnectionButton")
 
-            connectionStatusText
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("settings.connectionStatus")
+            connectionStatusView(
+                status: appState.connectionStatus,
+                identifier: "settings.connectionStatus",
+                detailIdentifier: "settings.connectionStatusDetail"
+            )
 
             Text(localized("settings.apiToken.securityHint"))
                 .font(.caption)
@@ -180,7 +184,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button(localized("settings.openCode.clear"), role: .destructive) {
-                    appState.clearOpenCodeConfig()
+                    appState.clearOpenCodePassword()
                     openCodePasswordInput = ""
                 }
                 .buttonStyle(BorderedButtonStyle())
@@ -196,10 +200,12 @@ struct SettingsView: View {
             .disabled(!appState.isOpenCodeConfigured || appState.openCodeConnectionStatus == .testing)
             .accessibilityIdentifier("settings.testOpenCodeConnectionButton")
 
-            openCodeConnectionStatusText
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("settings.openCodeConnectionStatus")
+            connectionStatusView(
+                status: appState.openCodeConnectionStatus,
+                localizedKey: { $0.openCodeLocalizedKey },
+                identifier: "settings.openCodeConnectionStatus",
+                detailIdentifier: "settings.openCodeConnectionStatusDetail"
+            )
 
             Text(localized("settings.openCode.optionalHint"))
                 .font(.caption)
@@ -227,12 +233,27 @@ struct SettingsView: View {
         }
     }
 
-    private var connectionStatusText: Text {
-        Text(localized(appState.connectionStatus.localizedKey))
-    }
+    @ViewBuilder
+    private func connectionStatusView(
+        status: ConnectionStatus,
+        localizedKey: (ConnectionStatus) -> String = { $0.localizedKey },
+        identifier: String,
+        detailIdentifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localized(localizedKey(status)))
+                .font(.caption)
+                .foregroundStyle(status.detail == nil ? Color.secondary : Color.red)
+                .accessibilityIdentifier(identifier)
 
-    private var openCodeConnectionStatusText: Text {
-        Text(localized(appState.openCodeConnectionStatus.openCodeLocalizedKey))
+            if let detail = status.detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(detailIdentifier)
+            }
+        }
     }
 
     private func localized(_ key: String) -> String {

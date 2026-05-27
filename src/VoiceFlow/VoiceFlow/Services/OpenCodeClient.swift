@@ -13,6 +13,23 @@ enum OpenCodeClientError: Error, Equatable {
     case promptSendFailed
 }
 
+extension OpenCodeClientError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            "The server URL is invalid."
+        case .insecureRemoteURL:
+            "Remote servers must use HTTPS. HTTP is allowed only for localhost and Tailscale (*.ts.net) hosts."
+        case .invalidResponse:
+            "The server returned an unexpected response."
+        case .sessionCreationFailed:
+            "Could not reach the OpenCode server or authentication failed."
+        case .promptSendFailed:
+            "The server rejected the transcript prompt."
+        }
+    }
+}
+
 struct OpenCodeClient: OpenCodeSending {
     static let defaultServerURL = "http://localhost:4096"
     static let defaultUsername = "opencode"

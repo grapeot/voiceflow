@@ -4,7 +4,7 @@ enum ConnectionStatus: Equatable {
     case untested
     case testing
     case success
-    case failed(String)
+    case failed(String, String?)
 
     var localizedKey: String {
         switch self {
@@ -14,7 +14,7 @@ enum ConnectionStatus: Equatable {
             "settings.connection.testing"
         case .success:
             "settings.connection.success"
-        case .failed(let key):
+        case .failed(let key, _):
             key
         }
     }
@@ -27,8 +27,15 @@ enum ConnectionStatus: Equatable {
             "settings.openCode.connection.testing"
         case .success:
             "settings.openCode.connection.success"
-        case .failed(let key):
+        case .failed(let key, _):
             key
         }
+    }
+
+    var detail: String? {
+        if case .failed(_, let detail) = self {
+            return detail
+        }
+        return nil
     }
 }

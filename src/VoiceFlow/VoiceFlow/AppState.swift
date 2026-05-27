@@ -101,7 +101,18 @@ final class AppState: ObservableObject {
         self.audioRecorder = audioRecorder ?? (isUITestMode ? MockAudioRecorder() : AudioRecorder())
         self.transcriptionClient = transcriptionClient ?? (isUITestMode ? MockAIBuilderTranscriptionClient(result: .success("Mock transcription")) : AIBuilderTranscriptionClient())
         self.clipboardWriter = clipboardWriter ?? (isUITestMode ? MockClipboardWriter() : SystemClipboardWriter())
-        self.openCodeClient = openCodeClient ?? (isUITestMode ? MockOpenCodeClient(result: .success(())) : OpenCodeClient())
+        if let openCodeClient {
+            self.openCodeClient = openCodeClient
+        } else if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestOpenCodeConnectionFailure") {
+            self.openCodeClient = MockOpenCodeClient(
+                result: .success(()),
+                testConnectionResult: .failure(OpenCodeClientError.sessionCreationFailed)
+            )
+        } else if isUITestMode {
+            self.openCodeClient = MockOpenCodeClient(result: .success(()))
+        } else {
+            self.openCodeClient = OpenCodeClient()
+        }
         self.diagnostics = diagnostics ?? (isUITestMode ? InMemoryRecordingDiagnostics() : OSRecordingDiagnostics())
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestSavedToken") {
             try? self.keychainStore.saveString("fake-ui-token", for: tokenKey)
@@ -179,7 +190,7 @@ final class AppState: ObservableObject {
             hasSavedAIBuilderToken = true
             connectionStatus = .untested
         } catch {
-            connectionStatus = .failed("settings.connection.saveFailed")
+            connectionStatus = .failed("settings.connection.saveFailed", nil)
         }
     }
 
@@ -187,7 +198,7 @@ final class AppState: ObservableObject {
         do {
             try keychainStore.deleteString(for: tokenKey)
         } catch {
-            connectionStatus = .failed("settings.connection.clearFailed")
+            connectionStatus = .failed("settings.connection.clearFailed", nil)
             return
         }
         hasSavedAIBuilderToken = false
@@ -196,7 +207,7 @@ final class AppState: ObservableObject {
 
     func testAIBuilderConnection() async {
         guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-            connectionStatus = .failed("settings.connection.missingToken")
+            connectionStatus = .failed("settings.connection.missingToken", nil)
             return
         }
 
@@ -205,7 +216,7 @@ final class AppState: ObservableObject {
             try await aiBuilderClient.testConnection(baseURL: aiBuilderEndpoint, token: token)
             connectionStatus = .success
         } catch {
-            connectionStatus = .failed("settings.connection.failed")
+            connectionStatus = .failed("settings.connection.failed", userFacingErrorDetail(for: error))
         }
     }
 
@@ -351,15 +362,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    func clearOpenCodeConfig() {
+    func clearOpenCodePassword() {
         do {
             try keychainStore.deleteString(for: openCodePasswordKey)
         } catch {
             openCodeSendStatus = .failed("settings.openCode.clearFailed")
             return
         }
-        openCodeServerURL = OpenCodeClient.defaultServerURL
-        openCodeUsername = OpenCodeClient.defaultUsername
         hasSavedOpenCodePassword = false
         openCodeSendStatus = .idle
         openCodeConnectionStatus = .untested
@@ -367,7 +376,7 @@ final class AppState: ObservableObject {
 
     func testOpenCodeConnection() async {
         guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
-            openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig")
+            openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig", nil)
             return
         }
 
@@ -380,7 +389,7 @@ final class AppState: ObservableObject {
             )
             openCodeConnectionStatus = .success
         } catch {
-            openCodeConnectionStatus = .failed("settings.openCode.connection.failed")
+            openCodeConnectionStatus = .failed("settings.openCode.connection.failed", userFacingErrorDetail(for: error))
         }
     }
 
@@ -395,6 +404,16 @@ final class AppState: ObservableObject {
 
     private func diagnosticMetadata(for error: Error) -> [String: String] {
         DiagnosticErrorMetadata.metadata(for: error)
+    }
+
+    private func userFacingErrorDetail(for error: Error) -> String {
+        if let localizedError = error as? LocalizedError,
+           let description = localizedError.errorDescription,
+           !description.isEmpty {
+            return description
+        }
+        let description = error.localizedDescription
+        return description.isEmpty ? String(describing: error) : description
     }
 
     private func audioFileMetadata(for url: URL) -> [String: String] {

@@ -69,7 +69,12 @@ struct VoiceFlowTests {
 
         state.saveAIBuilderToken("fake-token")
         await state.testAIBuilderConnection()
-        #expect(state.connectionStatus == .failed("settings.connection.failed"))
+        if case .failed(let key, let detail) = state.connectionStatus {
+            #expect(key == "settings.connection.failed")
+            #expect(detail?.isEmpty == false)
+        } else {
+            #expect(Bool(false))
+        }
 
         state.transcript = "private dictated words"
         state.copyTranscript()
@@ -102,7 +107,7 @@ struct VoiceFlowTests {
         #expect(state.canSendToOpenCode == true)
     }
 
-    @Test func openCodePasswordUsesKeychainAndClearResetsConfig() async throws {
+    @Test func openCodePasswordUsesKeychainAndClearRemovesPasswordOnly() async throws {
         resetOpenCodeDefaults()
         let keychain = InMemoryKeychainStore()
         let state = AppState(keychainStore: keychain)
@@ -116,13 +121,33 @@ struct VoiceFlowTests {
         #expect(state.openCodePasswordDisplayValue == "••••••••")
         #expect(try keychain.readString(for: "openCodePassword") == "fake-password")
 
-        state.clearOpenCodeConfig()
+        state.clearOpenCodePassword()
 
         #expect(state.hasSavedOpenCodePassword == false)
         #expect(state.isOpenCodeConfigured == false)
-        #expect(state.openCodeServerURL == "http://localhost:4096")
-        #expect(state.openCodeUsername == "opencode")
+        #expect(state.openCodeServerURL == "https://example.test")
+        #expect(state.openCodeUsername == "user")
         #expect(try keychain.readString(for: "openCodePassword") == nil)
+    }
+
+    @Test func connectionFailureIncludesErrorDetail() async throws {
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(
+            keychainStore: keychain,
+            openCodeClient: MockOpenCodeClient(
+                result: .success(()),
+                testConnectionResult: .failure(OpenCodeClientError.insecureRemoteURL)
+            )
+        )
+
+        state.saveOpenCodePassword("fake-password")
+        await state.testOpenCodeConnection()
+
+        #expect(state.openCodeConnectionStatus == .failed(
+            "settings.openCode.connection.failed",
+            "Remote servers must use HTTPS. HTTP is allowed only for localhost and Tailscale (*.ts.net) hosts."
+        ))
     }
 
     @Test func openCodeClientCreatesSessionAndSendsPromptAsync() async throws {

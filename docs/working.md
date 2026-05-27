@@ -51,6 +51,10 @@
 - Record 控制区对齐参考实现：左右 chevron 分别浏览更旧/更新历史；三点菜单只保留「保存录音」和「重发录音」，去掉与底部重复的复制/OpenCode 发送。
 - 转写历史改为 index 导航（index 0 为最新）；录音完成后持久化 last-recording.wav 供保存到 Documents 和重发转写。
 - 新增 unit/UI tests 覆盖双向历史导航、保存/重发录音，以及 Record 控制区新按钮。
+- Settings OpenCode 清除改为只删 Keychain 密码，保留 server URL 和 username；清除按钮文案改为「Clear Password / 清除密码」。
+- 连接测试失败时在 Settings 展示具体错误信息（`ConnectionStatus.detail`）。
+- Settings 点击文本框外区域自动收起键盘（API token 与 OpenCode 字段均适用）。
+- OpenCode 说明文案更新：URL/username 保留在本机，仅密码进 Keychain。
 
 ## Lessons Learned
 
@@ -138,4 +142,10 @@
 
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - UI tests 本轮未跑；`testRecordingControlsExposeHistoryNavigationAndSaveResendMenu` 已加入但待后续单独验证。
+
+### 2026-05-26 Settings OpenCode UX
+
+- `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
+- 单元测试覆盖：OpenCode 清除仅删密码、连接失败 detail。
+- UI tests 本轮未跑；新增 Settings UX 相关 UI test 待后续单独验证。
 - 单元测试覆盖：双向历史导航、保存录音到 Documents、重发录音重新转写、OpenCode gating mock 连接。
