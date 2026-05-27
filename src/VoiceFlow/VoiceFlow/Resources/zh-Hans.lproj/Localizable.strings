@@ -9,7 +9,7 @@
 "record.copy" = "复制";
 "record.history" = "历史";
 "record.sendToOpenCode" = "发送到 OpenCode";
-"record.openCode.optional" = "OpenCode 是可选配置；不配置也可以使用语音输入。";
+"record.openCode.optional" = "OpenCode 是可选配置；发送时会把当前转写文本传到你配置的服务器。";
 "record.status.idle" = "可以开始录音";
 "record.status.requestingPermission" = "正在请求麦克风权限...";
 "record.status.recording" = "正在录音...";
@@ -21,6 +21,11 @@
 "record.error.transcriptionFailed" = "转写失败。你的 token 和录音内容不会写入日志。";
 "record.clipboard.copied" = "已复制到剪贴板。";
 "record.clipboard.failed" = "无法复制到剪贴板。";
+"record.openCode.idle" = "OpenCode 可用";
+"record.openCode.sending" = "正在发送到 OpenCode...";
+"record.openCode.sent" = "已发送到 OpenCode。";
+"record.openCode.error.notConfigured" = "OpenCode 未配置。";
+"record.openCode.error.sendFailed" = "发送到 OpenCode 失败。";
 "settings.aiBuilder.title" = "AI Builder Space";
 "settings.apiToken.placeholder" = "API token";
 "settings.apiToken.status" = "Token";
@@ -39,5 +44,14 @@
 "settings.connection.saveFailed" = "无法保存 token。";
 "settings.connection.clearFailed" = "无法清除 token。";
 "settings.openCode.title" = "OpenCode";
-"settings.openCode.enabled" = "启用 OpenCode";
-"settings.openCode.optionalHint" = "可选。不启用时，VoiceFlow 仍然是纯粹的语音输入工具。";
+"settings.openCode.optionalHint" = "可选。不配置时仍可使用语音输入。远程服务器请使用 HTTPS；HTTP 只允许 localhost。";
+"settings.openCode.serverURL" = "服务器地址";
+"settings.openCode.username" = "用户名";
+"settings.openCode.password" = "密码";
+"settings.openCode.status" = "状态";
+"settings.openCode.configured" = "已配置";
+"settings.openCode.notConfigured" = "未配置";
+"settings.openCode.save" = "保存 OpenCode 配置";
+"settings.openCode.clear" = "清除 OpenCode 配置";
+"settings.openCode.saveFailed" = "无法保存 OpenCode 配置。";
+"settings.openCode.clearFailed" = "无法清除 OpenCode 配置。";

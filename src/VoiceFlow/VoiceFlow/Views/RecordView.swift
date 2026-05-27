@@ -29,6 +29,13 @@ struct RecordView: View {
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("record.clipboardStatus")
                         }
+
+                        if appState.openCodeSendStatus != .idle {
+                            Text(appState.openCodeSendStatus.localizedText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("record.openCodeSendStatus")
+                        }
                     }
                 } header: {
                     Text("record.transcript.title")
@@ -65,8 +72,10 @@ struct RecordView: View {
                             .accessibilityIdentifier("record.historyButton")
                     }
 
-                    Button("record.sendToOpenCode") {}
-                        .disabled(!appState.canSendToOpenCode)
+                    Button("record.sendToOpenCode") {
+                        Task { await appState.sendTranscriptToOpenCode() }
+                    }
+                        .disabled(!appState.canSendToOpenCode || appState.openCodeSendStatus == .sending)
                         .accessibilityIdentifier("record.sendOpenCodeButton")
                 } header: {
                     Text("record.controls.title")

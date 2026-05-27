@@ -35,6 +35,9 @@ final class VoiceFlowUITests: XCTestCase {
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["https://space.ai-builders.com/backend"].exists)
+        XCTAssertTrue(app.textFields["settings.openCodeServerURLField"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["settings.openCodeUsernameField"].exists)
+        XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].exists)
     }
 
     @MainActor
@@ -63,7 +66,7 @@ final class VoiceFlowUITests: XCTestCase {
     @MainActor
     func testMockRecordingFlowShowsTranscriptAndClipboardStatus() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-uiTestMode", "-uiTestSavedToken", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-uiTestMode", "-uiTestSavedToken", "-uiTestSavedOpenCode", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
 
         XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
@@ -73,6 +76,28 @@ final class VoiceFlowUITests: XCTestCase {
         app.buttons["Stop"].tap()
         XCTAssertTrue(app.staticTexts["Mock transcription"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
+
+        app.buttons["Send to OpenCode"].tap()
+        XCTAssertTrue(app.staticTexts["Sent to OpenCode."].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testOpenCodeConfigCanBeSavedAndCleared() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestMode", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: 5))
+        app.secureTextFields["settings.openCodePasswordField"].tap()
+        app.secureTextFields["settings.openCodePasswordField"].typeText("fake-opencode-password")
+        app.buttons["settings.saveOpenCodeButton"].tap()
+
+        XCTAssertTrue(app.staticTexts["Configured"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["settings.openCodePasswordMaskedValue"].exists)
+
+        app.buttons["settings.clearOpenCodeButton"].tap()
+        XCTAssertTrue(app.secureTextFields["settings.openCodePasswordField"].waitForExistence(timeout: 5))
     }
 
     @MainActor

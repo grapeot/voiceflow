@@ -9,7 +9,7 @@
 "record.copy" = "Copy";
 "record.history" = "History";
 "record.sendToOpenCode" = "Send to OpenCode";
-"record.openCode.optional" = "OpenCode is optional. Voice input works without it.";
+"record.openCode.optional" = "OpenCode is optional. Sending transmits the current transcript to your configured server.";
 "record.status.idle" = "Ready to record";
 "record.status.requestingPermission" = "Requesting microphone access...";
 "record.status.recording" = "Recording...";
@@ -21,6 +21,11 @@
 "record.error.transcriptionFailed" = "Transcription failed. Your token and recording were not logged.";
 "record.clipboard.copied" = "Copied to clipboard.";
 "record.clipboard.failed" = "Could not copy to clipboard.";
+"record.openCode.idle" = "OpenCode ready";
+"record.openCode.sending" = "Sending to OpenCode...";
+"record.openCode.sent" = "Sent to OpenCode.";
+"record.openCode.error.notConfigured" = "OpenCode is not configured.";
+"record.openCode.error.sendFailed" = "Failed to send to OpenCode.";
 "settings.aiBuilder.title" = "AI Builder Space";
 "settings.apiToken.placeholder" = "API token";
 "settings.apiToken.status" = "Token";
@@ -39,5 +44,14 @@
 "settings.connection.saveFailed" = "Could not save the token.";
 "settings.connection.clearFailed" = "Could not clear the token.";
 "settings.openCode.title" = "OpenCode";
-"settings.openCode.enabled" = "Enable OpenCode";
-"settings.openCode.optionalHint" = "Optional. Leave it off to use VoiceFlow as a pure voice input tool.";
+"settings.openCode.optionalHint" = "Optional. VoiceFlow works without OpenCode. Use HTTPS for remote servers; HTTP is limited to localhost.";
+"settings.openCode.serverURL" = "Server URL";
+"settings.openCode.username" = "Username";
+"settings.openCode.password" = "Password";
+"settings.openCode.status" = "Status";
+"settings.openCode.configured" = "Configured";
+"settings.openCode.notConfigured" = "Not configured";
+"settings.openCode.save" = "Save OpenCode Config";
+"settings.openCode.clear" = "Clear OpenCode Config";
+"settings.openCode.saveFailed" = "Could not save OpenCode configuration.";
+"settings.openCode.clearFailed" = "Could not clear OpenCode configuration.";

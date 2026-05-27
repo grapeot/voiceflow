@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @State private var tokenInput = ""
+    @State private var openCodePasswordInput = ""
 
     var body: some View {
         NavigationStack {
@@ -71,8 +72,53 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("settings.openCode.enabled", isOn: $appState.isOpenCodeConfigured)
-                        .accessibilityIdentifier("settings.openCodeToggle")
+                    TextField("settings.openCode.serverURL", text: $appState.openCodeServerURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("settings.openCodeServerURLField")
+
+                    TextField("settings.openCode.username", text: $appState.openCodeUsername)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("settings.openCodeUsernameField")
+
+                    if appState.hasSavedOpenCodePassword {
+                        HStack {
+                            Text("settings.openCode.password")
+                            Spacer()
+                            Text(appState.openCodePasswordDisplayValue)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("settings.openCodePasswordMaskedValue")
+                        }
+                    } else {
+                        SecureField("settings.openCode.password", text: $openCodePasswordInput)
+                            .textContentType(.password)
+                            .accessibilityIdentifier("settings.openCodePasswordField")
+                    }
+
+                    HStack {
+                        Text("settings.openCode.status")
+                        Spacer()
+                        Text(appState.isOpenCodeConfigured ? "settings.openCode.configured" : "settings.openCode.notConfigured")
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("settings.openCodeStatus")
+                    }
+
+                    HStack {
+                        Button("settings.openCode.save") {
+                            appState.saveOpenCodePassword(openCodePasswordInput)
+                            openCodePasswordInput = ""
+                        }
+                        .disabled(appState.hasSavedOpenCodePassword || openCodePasswordInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("settings.saveOpenCodeButton")
+
+                        Button("settings.openCode.clear", role: .destructive) {
+                            appState.clearOpenCodeConfig()
+                            openCodePasswordInput = ""
+                        }
+                        .disabled(!appState.hasSavedOpenCodePassword)
+                        .accessibilityIdentifier("settings.clearOpenCodeButton")
+                    }
 
                     Text("settings.openCode.optionalHint")
                         .foregroundStyle(.secondary)
