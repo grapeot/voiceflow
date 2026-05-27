@@ -6,7 +6,8 @@
 
 - 实时转写改 ticket 流程：POST `/v1/audio/realtime/sessions` → `wss://.../ws?ticket=`（修复 Bearer 直连 WS 的 -1011）
 - 协议：`start` / PCM16 24kHz / `commit` / `stop`；事件 `session_ready`、`transcript_delta`、`transcript_completed`、`session_stopped`
-- `RealtimeTranscriptionConfig` sample rate 48k → 24k；单元测试更新 URL / parser 用例
+- `RealtimeTranscriptionConfig` sample rate 48k → 24k；单元测试 48 项通过
+- Swift 6 strict concurrency：WAV header nonisolated helpers、`RealtimeConnectionPhase` 手写 `==`、`BulkTranscriptionProgress` 锁、mock `nonisolated(unsafe)`；`SWIFT_STRICT_CONCURRENCY=complete` build 通过
 
 ### 2026-05-26 (live WebSocket integration tests)
 
