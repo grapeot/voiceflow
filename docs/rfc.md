@@ -80,7 +80,76 @@ Settings：表单式 AI Builder token、只读 endpoint、OpenCode URL/username/
 
 ## 转写方案
 
-V0 录完上传：48 kHz PCM16 mono WAV → multipart 上传 → 文本写入 transcript 与历史 → 自动复制。实时转写留后续。
+### V0（已交付）：录完上传
+
+48 kHz PCM16 mono WAV → 停止录音 → multipart `POST /v1/audio/transcriptions` → 完整文本写入 transcript 与历史 → 自动复制。
+
+### V1（规划）：WebSocket 实时 stream
+
+目标：边录边发，Stop 只 finalize，文本随服务端 push 增量显示。
+
+#### 协议与会话（对齐 AI Builder Space WebSocket realtime API）
+
+```text
+wss://<ai-builder-host>/api/v1/ws
+Authorization: Bearer <token>   # 实现阶段确认 header 携带方式
+```
+
+控制消息（JSON text frame）：
+
+| type | 方向 | 含义 |
+|---|---|---|
+| `start_recording` | client → server | 开始会话，携带 model |
+| `stop_recording` | client → server | 结束采集，请求进入 generating |
+| `status_request` | client → server | 查询连接/会话状态 |
+| `status` | server → client | `idle` / `connecting` / `connected` / `generating` |
+| `text` | server → client | 转写 delta；`content` 字符串，`isNewResponse` 可选 |
+| `error` | server → client | 错误文案，会话回到 idle |
+
+音频（binary frame）：录音期间按 ~0.5s PCM16 mono 分片发送；Stop 时发送剩余 buffer。不做按录音时间轴的 sleep 重放。
+
+#### 客户端模块（拟新增）
+
+```text
+Services/
+  RealtimeTranscriptionClient.swift   # WebSocket 连接、send/receive、reconnect
+  AudioChunkEncoder.swift             # 从 AudioRecorder 回调聚合 chunk
+Models/
+  RealtimeTranscriptEvent.swift       # text delta / status / error
+```
+
+`AppState` 调整：
+
+- `recordingStatus` 与 WebSocket `status` 协同（recording 本地态 + server generating）。
+- `transcript` 由 `text` delta 驱动：`isNewResponse == true` 则替换当前轮次，否则 append。
+- 剪贴板：对 transcript 做 throttle 写入（随 stream 更新，而非仅最终一次）。
+- Stop 路径：停止 mic → flush 最后 chunk → `stop_recording` → 继续接收 text 直到 `idle`。
+
+#### UI
+
+- 转写区仍为 `TextEditor`，但 stream 期间若用户未手动编辑，则跟随 append。
+- 状态灯映射扩展：`generating` → orange，`connected`+recording → green。
+- 录音计时器逻辑保持不变。
+
+#### Failure recovery
+
+| 场景 | 行为 |
+|---|---|
+| WebSocket disconnect | 标记 disconnected；保留 partial transcript；前台 reconnect + ping |
+| Start 时 socket 未连接 | 缓冲 audio，连接后 bulk 发送 backlog |
+| server `error` | alert/caption；status → idle；不 clear partial |
+| connected/generating → idle | 保存 history、自动 copy（与 V0 相同门槛：非空且 >3 字符） |
+| Resend last recording | 保持 bulk chunk 发送 + `stop_recording`，不模拟实时 |
+
+#### 测试策略
+
+- 单元：JSON message parse、`text` append/replace、chunk 边界、resend bulk 时序（无 sleep）。
+- Mock `URLSessionWebSocketTask` 或 inject socket protocol。
+- 集成/UITest 可选：mock server 推 delta，断言 transcript 逐字增长。
+
+#### 与 V0 关系
+
+实现 V1 时优先替换 `AIBuilderTranscriptionClient` batch 路径；是否保留 HTTP fallback 作为 setting 或离线兜底，实现阶段再定。OpenCode、`last-recording.wav` 持久化、保存/重发菜单不变。
 
 ## Record Tab 状态机
 
@@ -148,8 +217,9 @@ ready -> (start again) -> requestingPermission -> ...
 | Deep link `voiceflow://record` | 已完成 |
 | OpenCode 连接测试 gating / Tailscale HTTP | 已完成 |
 | 历史双向导航、保存/重发菜单 | 已完成 |
+| 录音计时 + Start/Stop 120pt | 已完成 |
 
-后续优先：外观偏好；UI test suite 稳定跑通（部分用例已写，日常迭代以 `./scripts/test_unit.sh` 为主）。
+后续优先：V1 WebSocket 实时转写（见 PRD/RFC V1 章节）；外观偏好；UI test suite 稳定跑通。
 
 ## 验证要求
 
@@ -173,7 +243,7 @@ rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]
 
 ## 后续可选
 
+- V1 WebSocket 实时转写（PRD/RFC 已写设计）
 - Settings 外观偏好
-- 实时转写
 - App Store 视觉截图自动化
 - UI tests 在 CI 中默认可靠通过
