@@ -226,6 +226,18 @@ struct VoiceFlowTests {
         )
     }
 
+    @Test func infoPlistAllowsInsecureHTTPForTailscaleHosts() throws {
+        guard let appTransportSecurity = Bundle.main.infoDictionary?["NSAppTransportSecurity"] as? [String: Any],
+              let exceptionDomains = appTransportSecurity["NSExceptionDomains"] as? [String: Any],
+              let tailscaleDomain = exceptionDomains["ts.net"] as? [String: Any] else {
+            Issue.record("Missing ts.net ATS exception in app Info.plist")
+            return
+        }
+
+        #expect(tailscaleDomain["NSIncludesSubdomains"] as? Bool == true)
+        #expect(tailscaleDomain["NSExceptionAllowsInsecureHTTPLoads"] as? Bool == true)
+    }
+
     @Test func openCodeClientTestConnectionUsesSessionEndpoint() async throws {
         MockURLProtocol.requestHandler = { request in
             #expect(request.url?.path == "/session")

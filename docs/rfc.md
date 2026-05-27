@@ -43,7 +43,7 @@ VoiceFlow/
   Resources/
     en.lproj/ / zh-Hans.lproj/
     Assets.xcassets
-URLScheme.plist               # CFBundleURLTypes、UIFileSharingEnabled
+URLScheme.plist               # CFBundleURLTypes、UIFileSharingEnabled、ATS ts.net 例外
 scripts/test_unit.sh
 scripts/test_all.sh
 ```
@@ -56,7 +56,7 @@ scripts/test_all.sh
 
 AI Builder Space 使用 Bearer token，写入 Keychain，请求带 `Authorization: Bearer <token>`。token 不进日志或错误文案。
 
-OpenCode 使用 Basic Auth。远程 server 必须 HTTPS；localhost、loopback 与 Tailscale（`*.ts.net`）允许 HTTP。拒绝 URL user-info。
+OpenCode 使用 Basic Auth。远程 server 必须 HTTPS；localhost、loopback 与 Tailscale（`*.ts.net`）允许 HTTP（`OpenCodeClient` 校验 + `URLScheme.plist` 中 `NSAppTransportSecurity` 对 `ts.net` 开 `NSIncludesSubdomains` / `NSExceptionAllowsInsecureHTTPLoads`，对齐 brainwave iOS）。拒绝 URL user-info。
 
 OpenCode 发送前须保存配置且连接测试通过（`openCodeConnectionStatus == .success`）。
 
