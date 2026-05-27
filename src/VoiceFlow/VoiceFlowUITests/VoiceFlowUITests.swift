@@ -10,6 +10,7 @@ final class VoiceFlowUITests: XCTestCase {
         let app = launchApp(language: "en", locale: "en_US", extraArguments: ["-uiTestMode"])
 
         XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["VoiceFlow"].exists)
         XCTAssertTrue(app.buttons["Copy"].exists)
         XCTAssertTrue(app.buttons["Send to OpenCode"].exists)
 
@@ -51,11 +52,11 @@ final class VoiceFlowUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["Start Recording"].waitForExistence(timeout: 5))
         app.buttons["Start Recording"].tap()
-        XCTAssertTrue(app.staticTexts["Recording..."].waitForExistence(timeout: 5))
-
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "recording"))
         XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
+
         app.buttons["Stop"].tap()
-        XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
         XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
 
         app.buttons["Send to OpenCode"].tap()
@@ -191,7 +192,8 @@ final class VoiceFlowUITests: XCTestCase {
         app.buttons["Start Recording"].tap()
         XCTAssertTrue(app.buttons["Stop"].waitForExistence(timeout: 5))
         app.buttons["Stop"].tap()
-        XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
+        XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
 
         moreButton.tap()
         let saveButton = app.buttons.matching(identifier: "record.saveRecordingButton").firstMatch
@@ -214,7 +216,7 @@ final class VoiceFlowUITests: XCTestCase {
         } else {
             app.buttons["Resend Recording"].tap()
         }
-        XCTAssertTrue(app.staticTexts["Transcript ready"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "ready"))
         XCTAssertTrue(app.staticTexts["Copied to clipboard."].waitForExistence(timeout: 5))
     }
 
@@ -226,7 +228,8 @@ final class VoiceFlowUITests: XCTestCase {
             extraArguments: ["-uiTestMode", "-uiTestSavedToken", "-uiTestDeepLinkRecord"]
         )
 
-        XCTAssertTrue(app.staticTexts["Recording..."].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecordingIndicator(in: app, status: "recording"))
+        XCTAssertTrue(app.staticTexts["VoiceFlow"].exists)
         XCTAssertTrue(app.buttons["Stop"].exists)
     }
 
@@ -298,6 +301,12 @@ final class VoiceFlowUITests: XCTestCase {
             if element.waitForExistence(timeout: 1) { return true }
         }
         return false
+    }
+
+    @MainActor
+    private func waitForRecordingIndicator(in app: XCUIApplication, status: String) -> Bool {
+        let indicator = app.otherElements["record.statusIndicator"]
+        return waitForValue(of: indicator, containing: status)
     }
 
     @MainActor
