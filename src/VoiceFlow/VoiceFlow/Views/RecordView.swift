@@ -4,6 +4,7 @@ struct RecordView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
     @State private var showOpenCodeInfo = false
+    @State private var shareRecordingURL: URL?
 
     var body: some View {
         GeometryReader { geometry in
@@ -47,6 +48,60 @@ struct RecordView: View {
         } message: {
             Text(localized("record.openCode.optional"))
         }
+        .alert(
+            Text(localized("record.save.confirmation.title")),
+            isPresented: savedRecordingAlertPresented
+        ) {
+            Button(localized("record.save.openInFiles")) {
+                if let url = appState.lastSavedRecording?.fileURL {
+                    shareRecordingURL = url
+                }
+                appState.acknowledgeSavedRecordingAlert()
+            }
+            .accessibilityIdentifier("record.save.openInFilesButton")
+            Button(localized("record.error.alert.ok"), role: .cancel) {
+                appState.acknowledgeSavedRecordingAlert()
+            }
+            .accessibilityIdentifier("record.save.confirmation.okButton")
+        } message: {
+            if let savedRecording = appState.lastSavedRecording {
+                Text(
+                    String(
+                        format: localized("record.save.confirmation.message"),
+                        savedRecording.fileName
+                    )
+                )
+            }
+        }
+        #if os(iOS)
+        .sheet(isPresented: shareSheetPresented, onDismiss: { shareRecordingURL = nil }) {
+            if let url = shareRecordingURL {
+                DocumentShareSheet(url: url)
+            }
+        }
+        #endif
+    }
+
+    private var savedRecordingAlertPresented: Binding<Bool> {
+        Binding(
+            get: { appState.shouldPresentSavedRecordingAlert },
+            set: { isPresented in
+                if !isPresented {
+                    appState.acknowledgeSavedRecordingAlert()
+                }
+            }
+        )
+    }
+
+    private var shareSheetPresented: Binding<Bool> {
+        Binding(
+            get: { shareRecordingURL != nil },
+            set: { isPresented in
+                if !isPresented {
+                    shareRecordingURL = nil
+                }
+            }
+        )
     }
 
     private var recordErrorAlertPresented: Binding<Bool> {
@@ -81,6 +136,23 @@ struct RecordView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+        } else if let savedRecording = appState.lastSavedRecording {
+            Button {
+                shareRecordingURL = savedRecording.fileURL
+            } label: {
+                Text(
+                    String(
+                        format: localized("record.save.statusLine"),
+                        savedRecording.fileName
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("record.save.statusLineButton")
         } else if let lastClipboardStatusKey = appState.lastClipboardStatusKey {
             Text(localized(lastClipboardStatusKey))
                 .font(.caption)

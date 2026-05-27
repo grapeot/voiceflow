@@ -417,7 +417,9 @@ struct VoiceFlowTests {
         #expect(state.canResendRecording == true)
 
         state.saveCurrentRecording()
-        #expect(state.lastClipboardStatusKey == "record.save.succeeded")
+        #expect(state.shouldPresentSavedRecordingAlert == true)
+        #expect(state.lastSavedRecording?.fileName.hasPrefix("recording_") == true)
+        #expect(state.lastSavedRecording?.fileName.hasSuffix(".wav") == true)
 
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let savedFiles = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: nil)
@@ -428,12 +430,55 @@ struct VoiceFlowTests {
             }
         }
         #expect(savedFiles.isEmpty == false)
+        #expect(savedFiles.contains(where: { $0.lastPathComponent == state.lastSavedRecording?.fileName }) == true)
 
         transcriptionClient.result = .success("resent transcript")
         await state.resendLastRecording()
 
         #expect(state.transcript == "resent transcript")
         #expect(state.transcriptHistory.entries.first?.text == "resent transcript")
+    }
+
+    @Test func recordingFileSaverCreatesTimestampedDestinationAndCopiesFile() async throws {
+        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-source.wav")
+        let destinationDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-dest", isDirectory: true)
+        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        try Data("audio-bytes".utf8).write(to: sourceURL)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destinationDirectory)
+        }
+
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let destinationURL = RecordingFileSaver.makeDestinationURL(in: destinationDirectory, date: fixedDate)
+        try RecordingFileSaver.saveRecording(from: sourceURL, to: destinationURL)
+
+        #expect(destinationURL.lastPathComponent.hasPrefix("recording_"))
+        #expect(destinationURL.lastPathComponent.hasSuffix(".wav"))
+        #expect(FileManager.default.fileExists(atPath: destinationURL.path))
+        let savedData = try Data(contentsOf: destinationURL)
+        #expect(savedData == Data("audio-bytes".utf8))
+    }
+
+    @Test func recordingFileSaverThrowsWhenSourceMissing() async throws {
+        let destinationURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-missing-dest.wav")
+        defer { try? FileManager.default.removeItem(at: destinationURL) }
+
+        let missingSourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-missing-source.wav")
+
+        await #expect(throws: Error.self) {
+            try RecordingFileSaver.saveRecording(from: missingSourceURL, to: destinationURL)
+        }
+    }
+
+    @Test func saveCurrentRecordingDoesNothingWithoutPersistedAudio() async throws {
+        let state = AppState(keychainStore: InMemoryKeychainStore())
+
+        state.saveCurrentRecording()
+
+        #expect(state.lastSavedRecording == nil)
+        #expect(state.shouldPresentSavedRecordingAlert == false)
+        #expect(state.lastClipboardStatusKey == nil)
     }
 
     @Test func multipartBodyUsesAudioFileFieldAndClosingBoundary() async throws {
