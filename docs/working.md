@@ -49,7 +49,7 @@
 - Record 页 OpenCode 说明移到「发送到 OpenCode」旁的 info 按钮，点击后弹窗展示。
 - OpenCode 发送默认禁用；Settings 保存配置并通过连接测试后，Record 页发送按钮才可用。
 - Settings 增加 OpenCode 连接测试；URL/username/password 变更后连接状态回到未测试。
-- OpenCode HTTP 校验对齐 Tailscale：除 localhost/loopback 外，`*.ts.net` 主机也允许 HTTP。
+- OpenCode HTTP 校验对齐 Tailscale：除 localhost/loopback 外，`*.ts.net` 主机也允许 HTTP；并在 Info.plist 为 `ts.net` 配置 ATS 例外（对齐 brainwave iOS），否则 URLSession 仍会被 `-1022` 拦截。
 - Record 控制区对齐参考实现：左右 chevron 分别浏览更旧/更新历史；三点菜单只保留「保存录音」和「重发录音」，去掉与底部重复的复制/OpenCode 发送。
 - 转写历史改为 index 导航（index 0 为最新）；录音完成后持久化 last-recording.wav 供保存到 Documents 和重发转写。
 - 新增 unit/UI tests 覆盖双向历史导航、保存/重发录音，以及 Record 控制区新按钮。
@@ -84,7 +84,7 @@
 - `AVAudioSession.setPreferred*` 是 preference，不是 contract；把 `setPreferredInputNumberOfChannels(1)` 当硬 requirement 会在部分 input route 上触发 `-50 paramErr`。
 - `xcodebuild test` 默认会跑 UI tests 并多次冷启动 Simulator app；日常迭代用 `-only-testing:VoiceFlowTests` 或 `./scripts/test_unit.sh`。
 - OpenCode 发送应独立于转写主路径 gating：配置保存不等于可发送，连接测试通过后再启用发送按钮，避免误发到未验证 server。
-- Tailscale MagicDNS（`*.ts.net`）可按私有网络处理，HTTP 不应与公网 remote HTTP 使用同一拒绝规则。
+- Tailscale MagicDNS（`*.ts.net`）可按私有网络处理，HTTP 不应与公网 remote HTTP 使用同一拒绝规则；应用层允许不够，还需 Info.plist `NSExceptionDomains`。
 - iOS 要在 Files app 中浏览 app Documents，必须在 Info.plist 启用 `UIFileSharingEnabled`；仅有 `copyItem` 到 Documents 不够。
 - 对 app sandbox 内的 file URL，不要直接塞给 `UIActivityViewController`；真机会报 `NSOSStatusErrorDomain -10814`。保存录音只需告知 Files 路径，iOS 无公开 API deep link 到 app Documents 目录。
 
@@ -166,6 +166,12 @@
 - `./scripts/test_unit.sh`（VoiceFlowTests）：通过。
 - 单元测试覆盖：`voiceflow://record` 解析、启动录音、未知 URL 忽略且不记录 query 内容。
 - UI test 已加 `-uiTestDeepLinkRecord` 覆盖；本轮未跑 UI test suite。
+
+### 2026-05-26 ATS Tailscale ts.net exception
+
+- 对齐 brainwave iOS：在 `URLScheme.plist` 为 `ts.net` 增加 `NSExceptionAllowsInsecureHTTPLoads` + `NSIncludesSubdomains`，修复 OpenCode 连接 `http://*.ts.net` 时 ATS `-1022`。
+- 单元测试断言构建产物 Info.plist 含 ts.net ATS 例外。
+- `./scripts/test_unit.sh`：通过。
 
 ### 2026-05-26 Save recording confirmation simplification
 
