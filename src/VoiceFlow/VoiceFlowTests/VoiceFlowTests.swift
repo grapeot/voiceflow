@@ -9,30 +9,168 @@ import Foundation
 import Testing
 @testable import VoiceFlow
 
+@Suite(.serialized)
 @MainActor
 struct VoiceFlowTests {
 
     @Test func appStateStartsAsPureVoiceInput() async throws {
+        resetOpenCodeDefaults()
         let state = AppState()
 
         #expect(state.recordingStatus == .idle)
         #expect(state.transcript.isEmpty)
         #expect(state.hasSavedAIBuilderToken == false)
         #expect(state.isOpenCodeConfigured == false)
+        #expect(state.openCodeServerURL == "http://localhost:4096")
+        #expect(state.openCodeUsername == "opencode")
         #expect(state.canCopyTranscript == false)
         #expect(state.canSendToOpenCode == false)
         #expect(state.aiBuilderEndpoint == "https://space.ai-builders.com/backend")
     }
 
     @Test func openCodeRequiresConfigurationAndTranscript() async throws {
-        let state = AppState()
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain)
 
         state.transcript = "hello"
         #expect(state.canCopyTranscript == true)
         #expect(state.canSendToOpenCode == false)
 
-        state.isOpenCodeConfigured = true
+        state.saveOpenCodePassword("fake-password")
         #expect(state.canSendToOpenCode == true)
+    }
+
+    @Test func openCodePasswordUsesKeychainAndClearResetsConfig() async throws {
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain)
+
+        state.openCodeServerURL = "https://example.test"
+        state.openCodeUsername = "user"
+        state.saveOpenCodePassword("  fake-password  ")
+
+        #expect(state.hasSavedOpenCodePassword == true)
+        #expect(state.isOpenCodeConfigured == true)
+        #expect(state.openCodePasswordDisplayValue == "••••••••")
+        #expect(try keychain.readString(for: "openCodePassword") == "fake-password")
+
+        state.clearOpenCodeConfig()
+
+        #expect(state.hasSavedOpenCodePassword == false)
+        #expect(state.isOpenCodeConfigured == false)
+        #expect(state.openCodeServerURL == "http://localhost:4096")
+        #expect(state.openCodeUsername == "opencode")
+        #expect(try keychain.readString(for: "openCodePassword") == nil)
+    }
+
+    @Test func openCodeClientCreatesSessionAndSendsPromptAsync() async throws {
+        MockURLProtocol.requestHandler = { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Basic dXNlcjpwYXNz")
+            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+            if request.url?.path == "/session" {
+                #expect(request.httpMethod == "POST")
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data("{\"id\":\"session-1\"}".utf8))
+            }
+
+            #expect(request.url?.path == "/session/session-1/prompt_async")
+            #expect(request.httpMethod == "POST")
+            let body = try requestBodyData(for: request)
+            let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+            let model = json?["model"] as? [String: String]
+            #expect(model?["modelID"] == "gpt-5.5")
+            #expect(model?["providerID"] == "openai")
+            #expect(json?["agent"] as? String == "Sisyphus - Ultraworker")
+            let parts = json?["parts"] as? [[String: String]]
+            #expect(parts?.first?["text"] == "hello opencode")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = OpenCodeClient(session: URLSession(configuration: configuration))
+
+        try await client.sendTranscript("hello opencode", serverURL: "http://localhost:4096/", username: "user", password: "pass")
+    }
+
+    @Test func openCodeClientRejectsInsecureRemoteHTTP() async throws {
+        let client = OpenCodeClient(session: URLSession(configuration: .ephemeral))
+
+        do {
+            try await client.sendTranscript("hello", serverURL: "http://example.com", username: "user", password: "pass")
+            #expect(Bool(false))
+        } catch let error as OpenCodeClientError {
+            #expect(error == .insecureRemoteURL)
+        } catch {
+            #expect(Bool(false))
+        }
+    }
+
+    @Test func openCodeClientRejectsURLUserInfo() async throws {
+        let client = OpenCodeClient(session: URLSession(configuration: .ephemeral))
+
+        do {
+            try await client.sendTranscript("hello", serverURL: "https://user@example.com", username: "user", password: "pass")
+            #expect(Bool(false))
+        } catch let error as OpenCodeClientError {
+            #expect(error == .invalidURL)
+        } catch {
+            #expect(Bool(false))
+        }
+    }
+
+    @Test func openCodeClientMapsSessionFailure() async throws {
+        MockURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/session")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = OpenCodeClient(session: URLSession(configuration: configuration))
+
+        do {
+            try await client.sendTranscript("hello", serverURL: "http://localhost:4096", username: "user", password: "pass")
+            #expect(Bool(false))
+        } catch let error as OpenCodeClientError {
+            #expect(error == .sessionCreationFailed)
+        } catch {
+            #expect(Bool(false))
+        }
+    }
+
+    @Test func openCodeSendFlowUsesSavedConfig() async throws {
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain, openCodeClient: MockOpenCodeClient(result: .success(())))
+
+        state.transcript = "send this"
+        state.openCodeServerURL = "http://localhost:4096"
+        state.openCodeUsername = "opencode"
+        state.saveOpenCodePassword("fake-password")
+        await state.sendTranscriptToOpenCode()
+
+        #expect(state.openCodeSendStatus == .success)
+    }
+
+    @Test func openCodeSendFlowFailsGracefully() async throws {
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain, openCodeClient: MockOpenCodeClient(result: .failure(OpenCodeClientError.promptSendFailed)))
+
+        state.transcript = "send this"
+        state.saveOpenCodePassword("fake-password")
+        await state.sendTranscriptToOpenCode()
+
+        if case .failed(let message) = state.openCodeSendStatus {
+            #expect(message.isEmpty == false)
+        } else {
+            #expect(Bool(false))
+        }
+        #expect(state.canCopyTranscript == true)
     }
 
     @Test func tokenSaveClearAndMaskingUseKeychain() async throws {
@@ -131,8 +269,10 @@ struct VoiceFlowTests {
         )
 
         state.saveAIBuilderToken("fake-token")
+        state.openCodeSendStatus = .success
         await state.startRecording()
         #expect(state.recordingStatus == .recording)
+        #expect(state.openCodeSendStatus == .idle)
         await state.stopRecording()
 
         #expect(state.recordingStatus == .ready)
@@ -141,6 +281,38 @@ struct VoiceFlowTests {
         #expect(clipboard.writtenText == "voice text")
     }
 
+}
+
+private func resetOpenCodeDefaults() {
+    UserDefaults.standard.removeObject(forKey: "openCodeServerURL")
+    UserDefaults.standard.removeObject(forKey: "openCodeUsername")
+}
+
+private func requestBodyData(for request: URLRequest) throws -> Data {
+    if let body = request.httpBody {
+        return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+        return Data()
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while stream.hasBytesAvailable {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count < 0 {
+            throw stream.streamError ?? URLError(.cannotDecodeContentData)
+        }
+        if count == 0 {
+            break
+        }
+        data.append(buffer, count: count)
+    }
+    return data
 }
 
 final class MockURLProtocol: URLProtocol {
