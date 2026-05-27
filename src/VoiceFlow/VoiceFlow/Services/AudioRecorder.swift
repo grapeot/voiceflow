@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 
 protocol AudioRecording {
@@ -102,9 +102,10 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
             }
 
             var error: NSError?
+            nonisolated(unsafe) let capturedBuffer = buffer
             let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
                 outStatus.pointee = .haveData
-                return buffer
+                return capturedBuffer
             }
             converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
 
