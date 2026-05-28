@@ -65,13 +65,18 @@ extension Color {
 /// `ShapeStyle` (it conforms via `resolve(in:)`), so existing call sites
 /// like `.foregroundStyle(DesignTokens.Palette.textPrimary)` keep working.
 ///
-/// Why not just use `Color(UIColor { traits in ... })`? On visionOS the
-/// UIKit trait collection's `userInterfaceStyle` is pinned to `.dark`
-/// (Vision Pro uses glass UI by default), so the UIKit dynamic provider
-/// would lock the app to dark regardless of the user's Settings →
-/// Appearance choice. SwiftUI's `colorScheme` env, however, does reflect
-/// the system Appearance on visionOS, matching first-party apps like
-/// Safari that flip Light/Dark via Settings → Appearance.
+/// On iOS / iPadOS this is wired up through a UIKit dynamic provider
+/// (`Color(UIColor { traits in ... })`) so the system Dark / Light
+/// preference flips colors automatically. On visionOS native targets
+/// there is no Dark Mode to follow — visionOS uses glass materials that
+/// adapt to ambient lighting instead of offering a Light/Dark toggle.
+/// (Settings → Appearance on Vision Pro does show a Light / Dark
+/// switch, but its subtitle is "Compatible Apps Appearance" — it only
+/// affects iPad/iPhone compatibility-mode apps, not native visionOS
+/// builds like this one.) `VoiceFlowApp` therefore pins the visionOS
+/// window to `.preferredColorScheme(.light)`, and this struct's
+/// `resolve(in:)` always picks the light variant on visionOS — which
+/// is the right call against Vision Pro's default glass UI.
 struct DynamicColor: ShapeStyle, View, Sendable {
     let lightHex: UInt32
     let darkHex: UInt32

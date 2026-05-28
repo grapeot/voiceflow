@@ -37,7 +37,7 @@ VoiceFlowKit 按 [generative kernel](https://yage.ai/ai-software-engineering.htm
 
 已在 `master` 交付：Record / Settings 双 tab、GUI 对齐、Keychain token、录完上传转写、自动复制、双向历史导航、保存/重发录音、可选 OpenCode（含连接测试 gating）、录音诊断日志、语言偏好（System / English / 简体中文）、Settings 键盘收起与连接失败 detail、privacy review、GitHub 发布（https://github.com/grapeot/voiceflow）、deep link（`voiceflow://record`）。
 
-尚未交付：Settings 外观偏好（System / Light / Dark 手动选择）。当前 UI 跟随系统日间/夜间模式。
+尚未交付：iOS / iPadOS 的 Settings 外观偏好（System / Light / Dark 手动选择）。当前 iOS 跟随系统日间/夜间模式；**visionOS 不在这个偏好的范围内** —— visionOS native app 没有 Light/Dark 概念，Apple 用 glass 材质自适应环境光。Vision Pro 上 Settings → Appearance 里那条 Light/Dark 子标题是 "Compatible Apps Appearance"，只影响 iPad/iPhone compatibility app（不是 visionOS native build），对我们这种 native visionOS target 完全无效。VoiceFlow 在 visionOS 上 pin 到 Light 配色，与 Vision Pro 默认 glass UI 一致。
 
 ## V1 交付状态（2026-05-26）
 
@@ -138,7 +138,7 @@ Record tab 包含开始录音、停止录音、录音状态、转写文本显示
 
 Settings tab 包含 AI Builder Space API token 输入、保存状态、连接测试结果和默认 endpoint 说明。endpoint 固定为 AI Builder Space 默认地址，不提供编辑入口。Settings 还包含可选 OpenCode 配置（server URL、username、Keychain password）；清除操作只删除 password，URL 和 username 保留。OpenCode 连接测试失败时展示具体错误信息。
 
-Settings tab 包含语言偏好：System、English、简体中文；默认 System。外观偏好（System / Light / Dark）列入 V0 范围但尚未实现。
+Settings tab 包含语言偏好：System、English、简体中文；默认 System。iOS / iPadOS 外观偏好（System / Light / Dark）列入 V0 范围但尚未实现。visionOS native build 不需要这个偏好 —— visionOS 系统没有 Light/Dark 概念（Settings → Appearance 里那条 Light/Dark 只对 Compatible Apps，即 iPad/iPhone compatibility 模式有效）。
 
 Deep link：`voiceflow://record` 已注册。打开 app 后切到 Record tab 并复用现有开始录音流程；不接受 token、文本或其他外部 payload。
 
@@ -166,7 +166,7 @@ App UI 默认使用系统语言。用户可在 Settings 中手动选择 English 
 
 ## 外观要求
 
-App 当前跟随系统日间/夜间模式。计划中的 Settings 外观偏好（System / Light / Dark）尚未实现；落地后 Record 和 Settings 应使用语义颜色，保证浅/深模式下对比度足够。
+iOS / iPadOS 当前跟随系统日间/夜间模式。visionOS native build 没有这一回事 —— visionOS 系统没有 Light/Dark 切换（Settings → Appearance 里的 Light/Dark 只针对 Compatible Apps，即 iPad/iPhone compatibility 模式，对 native visionOS target 无效），app 在 visionOS 上 pin 到 Light 配色，与 Vision Pro glass UI 一致。计划中的 iOS Settings 外观偏好（System / Light / Dark）尚未实现；落地后 Record 和 Settings 应使用语义颜色，保证浅/深模式下对比度足够。
 
 ## 录音诊断要求
 
