@@ -356,48 +356,6 @@ final class AppState: ObservableObject {
         return FileManager.default.fileExists(atPath: lastRecordingURL.path)
     }
 
-    var tokenDisplayValue: String {
-        hasSavedAIBuilderToken ? "••••••••" : ""
-    }
-
-    func saveAIBuilderToken(_ token: String) {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try keychainStore.saveString(trimmed, for: tokenKey)
-            hasSavedAIBuilderToken = true
-            connectionStatus = .untested
-        } catch {
-            connectionStatus = .failed("settings.connection.saveFailed", nil)
-        }
-    }
-
-    func clearAIBuilderToken() {
-        do {
-            try keychainStore.deleteString(for: tokenKey)
-        } catch {
-            connectionStatus = .failed("settings.connection.clearFailed", nil)
-            return
-        }
-        hasSavedAIBuilderToken = false
-        connectionStatus = .untested
-    }
-
-    func testAIBuilderConnection() async {
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-            connectionStatus = .failed("settings.connection.missingToken", nil)
-            return
-        }
-
-        connectionStatus = .testing
-        do {
-            try await aiBuilderClient.testConnection(baseURL: aiBuilderEndpoint, token: token)
-            connectionStatus = .success
-        } catch {
-            connectionStatus = .failed("settings.connection.failed", userFacingErrorDetail(for: error))
-        }
-    }
-
     func startRecording() async {
         guard hasSavedAIBuilderToken else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
