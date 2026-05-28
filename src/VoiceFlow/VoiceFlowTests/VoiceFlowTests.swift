@@ -7,6 +7,7 @@
 
 import Foundation
 import Testing
+import VoiceFlowKit
 @testable import VoiceFlow
 
 @Suite(.serialized)

@@ -1,27 +1,29 @@
+#if os(iOS) || os(visionOS)
 @preconcurrency import AVFoundation
+#endif
 import Foundation
 
-protocol AudioRecording {
+public protocol AudioRecording {
     func requestPermission() async -> Bool
     func startRecording(onPCMChunk: (@Sendable (Data) -> Void)?) async throws
     func stopRecording() async throws -> URL
     func discardRecording()
 }
 
-enum AudioRecorderError: Error {
+public enum AudioRecorderError: Error {
     case couldNotCreateRecorder
     case recordingDidNotStart
     case noActiveRecording
     case sessionSetupFailed(phase: SessionSetupPhase, underlying: NSError)
 
-    enum SessionSetupPhase: String {
+    public enum SessionSetupPhase: String {
         case setCategory
         case setActive
         case createRecorder
         case startEngine
     }
 
-    var diagnosticMetadata: [String: String] {
+    public var diagnosticMetadata: [String: String] {
         switch self {
         case .sessionSetupFailed(let phase, let underlying):
             return [
@@ -39,14 +41,19 @@ enum AudioRecorderError: Error {
     }
 }
 
-final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
+#if os(iOS) || os(visionOS)
+public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
     private var audioEngine: AVAudioEngine?
     private var recordingURL: URL?
     private var pcmBuffer = Data()
     private var onPCMChunk: (@Sendable (Data) -> Void)?
     private var isRecording = false
 
-    func requestPermission() async -> Bool {
+    public override init() {
+        super.init()
+    }
+
+    public func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             if #available(iOS 17.0, visionOS 1.0, *) {
                 AVAudioApplication.requestRecordPermission { granted in
@@ -60,7 +67,7 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
         }
     }
 
-    func startRecording(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
+    public func startRecording(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
         self.onPCMChunk = onPCMChunk
         pcmBuffer.removeAll(keepingCapacity: false)
 
@@ -144,7 +151,7 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
         }
     }
 
-    func stopRecording() async throws -> URL {
+    public func stopRecording() async throws -> URL {
         guard isRecording, let recordingURL else {
             throw AudioRecorderError.noActiveRecording
         }
@@ -165,7 +172,7 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
         return recordingURL
     }
 
-    func discardRecording() {
+    public func discardRecording() {
         if let engine = audioEngine {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
@@ -181,18 +188,19 @@ final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
+#endif
 
-final class MockAudioRecorder: AudioRecording {
-    var permissionGranted: Bool
-    var outputURL: URL
-    var startError: Error?
-    var stopError: Error?
-    var outputPCMData: Data
-    private(set) var didStart = false
-    private(set) var didStop = false
-    private(set) var receivedChunkHandler = false
+public final class MockAudioRecorder: AudioRecording {
+    public var permissionGranted: Bool
+    public var outputURL: URL
+    public var startError: Error?
+    public var stopError: Error?
+    public var outputPCMData: Data
+    public private(set) var didStart = false
+    public private(set) var didStop = false
+    public private(set) var receivedChunkHandler = false
 
-    init(
+    public init(
         permissionGranted: Bool = true,
         outputURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-ui-test.wav"),
         outputPCMData: Data = Data("mock-audio".utf8),
@@ -206,11 +214,11 @@ final class MockAudioRecorder: AudioRecording {
         self.stopError = stopError
     }
 
-    func requestPermission() async -> Bool {
+    public func requestPermission() async -> Bool {
         permissionGranted
     }
 
-    func startRecording(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
+    public func startRecording(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
         if let startError {
             throw startError
         }
@@ -218,7 +226,7 @@ final class MockAudioRecorder: AudioRecording {
         didStart = true
     }
 
-    func stopRecording() async throws -> URL {
+    public func stopRecording() async throws -> URL {
         if let stopError {
             throw stopError
         }
@@ -231,5 +239,5 @@ final class MockAudioRecorder: AudioRecording {
         return outputURL
     }
 
-    func discardRecording() {}
+    public func discardRecording() {}
 }

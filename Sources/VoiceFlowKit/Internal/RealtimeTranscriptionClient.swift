@@ -35,7 +35,7 @@ private nonisolated final class LiveSessionHandleBox: @unchecked Sendable {
     var handle: RealtimeLiveSessionHandle?
 }
 
-protocol RealtimeTranscribing: Sendable {
+public protocol RealtimeTranscribing: Sendable {
     func beginLiveSession(
         baseURL: String,
         token: String,
@@ -52,7 +52,7 @@ protocol RealtimeTranscribing: Sendable {
     ) async throws -> String
 }
 
-protocol RealtimeLiveTranscriptionSession: Sendable {
+public protocol RealtimeLiveTranscriptionSession: Sendable {
     func appendAudioChunk(_ chunk: Data) async
     func heartbeat() async
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws -> String
@@ -456,8 +456,10 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 }
 
-struct RealtimeTranscriptionClient: RealtimeTranscribing {
-    func beginLiveSession(
+public struct RealtimeTranscriptionClient: RealtimeTranscribing {
+    public init() {}
+
+    public func beginLiveSession(
         baseURL: String,
         token: String,
         model: String = RealtimeTranscriptionConfig.defaultModel,
@@ -505,7 +507,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         return handle
     }
 
-    func transcribeBulkPCM(
+    public func transcribeBulkPCM(
         pcmData: Data,
         baseURL: String,
         token: String,
@@ -650,7 +652,10 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
     }
 }
 
-private actor BulkTranscriptionProgress {
+/// Internal aggregator for the WS event stream during bulk transcribe.
+/// Exposed at module-internal access so `VoiceFlowKitTests` can verify
+/// the finished-vs-error ordering directly. PR #34 fix lives here.
+actor BulkTranscriptionProgress {
     private var transcriptValue = ""
     private var finishedValue = false
     private var receivedErrorValue: String?
@@ -709,9 +714,9 @@ private actor BulkTranscriptionProgress {
     }
 }
 
-final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
-    var liveResult: Result<String, Error>
-    var bulkResult: Result<String, Error>
+public final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
+    public var liveResult: Result<String, Error>
+    public var bulkResult: Result<String, Error>
     private var appendedChunkCountValue = 0
     private var didFinalizeValue = false
     private var didCancelValue = false
@@ -720,7 +725,7 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
     private var livePhase: RealtimeConnectionPhase = .connected
     private var liveIsFinalizing = false
 
-    init(
+    public init(
         liveResult: Result<String, Error> = .success("mock stream transcript"),
         bulkResult: Result<String, Error>? = nil
     ) {
@@ -728,7 +733,7 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         self.bulkResult = bulkResult ?? liveResult
     }
 
-    func beginLiveSession(
+    public func beginLiveSession(
         baseURL: String,
         token: String,
         model: String,
@@ -742,7 +747,7 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         return MockLiveSessionProxy(client: self)
     }
 
-    func emitLiveEvent(_ event: RealtimeTranscriptEvent) async {
+    public func emitLiveEvent(_ event: RealtimeTranscriptEvent) async {
         if liveOnEvent != nil {
             ingestLiveEvent(event)
         } else {
@@ -750,7 +755,7 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         }
     }
 
-    func ingestLiveEvent(_ event: RealtimeTranscriptEvent) {
+    public func ingestLiveEvent(_ event: RealtimeTranscriptEvent) {
         switch event {
         case .textDelta:
             guard liveIsFinalizing else { return }
@@ -760,19 +765,19 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         }
     }
 
-    func liveConnectionPhase() -> RealtimeConnectionPhase {
+    public func liveConnectionPhase() -> RealtimeConnectionPhase {
         livePhase
     }
 
-    func setLivePhase(_ phase: RealtimeConnectionPhase) {
+    public func setLivePhase(_ phase: RealtimeConnectionPhase) {
         livePhase = phase
     }
 
-    func setLiveFinalizing(_ isFinalizing: Bool) {
+    public func setLiveFinalizing(_ isFinalizing: Bool) {
         liveIsFinalizing = isFinalizing
     }
 
-    func transcribeBulkPCM(
+    public func transcribeBulkPCM(
         pcmData: Data,
         baseURL: String,
         token: String,
@@ -785,15 +790,15 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         return text
     }
 
-    func recordAppendedChunk() {
+    public func recordAppendedChunk() {
         appendedChunkCountValue += 1
     }
 
-    func markCancelled() {
+    public func markCancelled() {
         didCancelValue = true
     }
 
-    func simulateFinalize(onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) throws -> String {
+    public func simulateFinalize(onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) throws -> String {
         didFinalizeValue = true
         let text = try liveResult.get()
         onEvent(.textDelta(content: text, isNewResponse: true))
@@ -801,23 +806,23 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         return text
     }
 
-    func resolvedLiveTranscript() throws -> String {
+    public func resolvedLiveTranscript() throws -> String {
         try liveResult.get()
     }
 
-    func setBulkResult(_ result: Result<String, Error>) {
+    public func setBulkResult(_ result: Result<String, Error>) {
         bulkResult = result
     }
 
-    var appendedChunkCount: Int {
+    public var appendedChunkCount: Int {
         appendedChunkCountValue
     }
 
-    var didFinalize: Bool {
+    public var didFinalize: Bool {
         didFinalizeValue
     }
 
-    var didCancel: Bool {
+    public var didCancel: Bool {
         didCancelValue
     }
 }

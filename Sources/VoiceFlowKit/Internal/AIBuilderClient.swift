@@ -1,17 +1,17 @@
 import Foundation
 
-protocol AIBuilderConnectionTesting {
+public protocol AIBuilderConnectionTesting {
     func testConnection(baseURL: String, token: String) async throws
 }
 
-enum AIBuilderClientError: Error {
+public enum AIBuilderClientError: Error {
     case invalidBaseURL
     case invalidResponse
     case requestFailed
 }
 
 extension AIBuilderClientError: LocalizedError {
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidBaseURL:
             "The AI Builder endpoint URL is invalid."
@@ -23,8 +23,10 @@ extension AIBuilderClientError: LocalizedError {
     }
 }
 
-struct AIBuilderClient: AIBuilderConnectionTesting {
-    func testConnection(baseURL: String, token: String) async throws {
+public struct AIBuilderClient: AIBuilderConnectionTesting {
+    public init() {}
+
+    public func testConnection(baseURL: String, token: String) async throws {
         guard let url = URL(string: baseURL)?.appending(path: "v1/usage/summary") else {
             throw AIBuilderClientError.invalidBaseURL
         }
@@ -43,10 +45,14 @@ struct AIBuilderClient: AIBuilderConnectionTesting {
     }
 }
 
-struct MockAIBuilderConnectionClient: AIBuilderConnectionTesting {
-    let result: Result<Void, Error>
+public struct MockAIBuilderConnectionClient: AIBuilderConnectionTesting {
+    public let result: Result<Void, Error>
 
-    func testConnection(baseURL: String, token: String) async throws {
+    public init(result: Result<Void, Error>) {
+        self.result = result
+    }
+
+    public func testConnection(baseURL: String, token: String) async throws {
         try result.get()
     }
 }
