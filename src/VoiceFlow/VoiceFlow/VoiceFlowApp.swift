@@ -27,13 +27,15 @@ struct VoiceFlowApp: App {
         WindowGroup {
             localizedRootView
             #if os(visionOS)
-            // On visionOS the SwiftUI `colorScheme` env defaults to `.dark`
-            // regardless of the user's Settings → Appearance preference,
-            // and UIKit's trait collection follows suit. Pin the whole
-            // app to Light here so the design tokens render the warm
-            // paper-white palette that matches Vision Pro's glass UI.
-            // (A Settings → Appearance toggle is planned for V0 but not
-            // shipped; see docs/design.md.)
+            // visionOS native apps don't have a Light/Dark system mode
+            // to follow — Apple uses glass materials that adapt to
+            // ambient lighting instead. (The Light/Dark switch you can
+            // find under Settings → Appearance on Vision Pro is
+            // subtitled "Compatible Apps Appearance" and only affects
+            // iPad/iPhone compatibility-mode apps, not native visionOS
+            // builds like this one.) Pin the whole window to Light so
+            // the design tokens render the warm paper-white palette
+            // that reads well against the Vision Pro glass background.
             .preferredColorScheme(.light)
             #endif
         }
