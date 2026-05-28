@@ -105,7 +105,7 @@ struct WaveformView: View {
 
 #Preview {
     VStack(spacing: 32) {
-        WaveformView(mode: .idle, color: DesignTokens.Palette.textSecondary)
+        WaveformView(mode: .idle, color: DesignTokens.Palette.textSecondary.color(for: .light))
         WaveformView(mode: .active, color: DesignTokens.Palette.accent, level: 0.6)
         WaveformView(mode: .generating, color: DesignTokens.Palette.accent)
     }

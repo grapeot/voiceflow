@@ -4,6 +4,7 @@ import VoiceFlowKit
 struct RecordView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showOpenCodeInfo = false
 
     var body: some View {
@@ -221,15 +222,15 @@ struct RecordView: View {
         case .recording:
             switch appState.streamConnectionPhase {
             case .connected, .generating: return DesignTokens.Palette.accent
-            case .connecting, .recovering: return DesignTokens.Palette.textSecondary
-            case .disconnected: return DesignTokens.Palette.textTertiary
+            case .connecting, .recovering: return DesignTokens.Palette.textSecondary.color(for: colorScheme)
+            case .disconnected: return DesignTokens.Palette.textTertiary.color(for: colorScheme)
             }
         case .transcribing:
             return DesignTokens.Palette.accent
         case .requestingPermission:
-            return DesignTokens.Palette.textSecondary
+            return DesignTokens.Palette.textSecondary.color(for: colorScheme)
         case .idle, .ready:
-            return DesignTokens.Palette.textTertiary
+            return DesignTokens.Palette.textTertiary.color(for: colorScheme)
         }
     }
 

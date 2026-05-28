@@ -38,11 +38,13 @@ struct CapsuleButton: View {
         .disabled(!isEnabled)
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var foregroundColor: Color {
         switch role {
         case .primary:   return DesignTokens.Palette.onAccent
         case .secondary: return DesignTokens.Palette.accent
-        case .ghost:     return DesignTokens.Palette.textSecondary
+        case .ghost:     return DesignTokens.Palette.textSecondary.color(for: colorScheme)
         }
     }
 

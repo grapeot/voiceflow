@@ -13,6 +13,8 @@ struct StatusText: View {
     let key: LocalizedStringKey
     let role: Role
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         Text(key)
             .font(DesignTokens.Typography.caption)
@@ -24,9 +26,9 @@ struct StatusText: View {
 
     private var color: Color {
         switch role {
-        case .neutral: return DesignTokens.Palette.textSecondary
+        case .neutral: return DesignTokens.Palette.textSecondary.color(for: colorScheme)
         case .accent:  return DesignTokens.Palette.accent
-        case .muted:   return DesignTokens.Palette.textTertiary
+        case .muted:   return DesignTokens.Palette.textTertiary.color(for: colorScheme)
         }
     }
 }
