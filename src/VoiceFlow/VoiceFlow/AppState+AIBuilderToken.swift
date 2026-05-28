@@ -14,7 +14,7 @@ extension AppState {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
-            try keychainStore.saveString(trimmed, for: tokenKey)
+            try keychainStore.saveString(trimmed, for: Self.tokenKey)
             hasSavedAIBuilderToken = true
             connectionStatus = .untested
         } catch {
@@ -24,7 +24,7 @@ extension AppState {
 
     func clearAIBuilderToken() {
         do {
-            try keychainStore.deleteString(for: tokenKey)
+            try keychainStore.deleteString(for: Self.tokenKey)
         } catch {
             connectionStatus = .failed("settings.connection.clearFailed", nil)
             return
@@ -34,7 +34,7 @@ extension AppState {
     }
 
     func testAIBuilderConnection() async {
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
+        guard let token = try? keychainStore.readString(for: Self.tokenKey), !token.isEmpty else {
             connectionStatus = .failed("settings.connection.missingToken", nil)
             return
         }

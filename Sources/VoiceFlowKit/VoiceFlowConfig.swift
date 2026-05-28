@@ -4,8 +4,19 @@ import Foundation
 /// underlying settings (endpoint, token, language/prompt/terms) change;
 /// the next session/transcribe call picks it up.
 public struct VoiceFlowConfig: Sendable {
+    /// AI Builder Space backend base URL. Defaults to
+    /// `https://space.ai-builders.com/backend`. Sessions POST to
+    /// `{endpoint}/v1/audio/realtime/sessions` to get a WS ticket.
     public var endpoint: URL
+    /// Called once per request to fetch the Bearer token. The closure can
+    /// re-read Keychain on every call (host always observes the latest
+    /// saved token) or capture a snapshot (host pins one token per
+    /// session). Both are valid; pick based on what you want the user
+    /// experience to be when the token changes mid-session.
     public var tokenProvider: @Sendable () async throws -> String
+    /// OpenAI realtime model name. Defaults to `gpt-realtime`. Changing
+    /// this only matters if AI Builder Space rolls out additional
+    /// realtime models — the wire protocol is shared.
     public var model: String
     /// Optional context prompt for the transcription model. The
     /// backend treats this as prompt concatenation, so the host is

@@ -40,7 +40,7 @@ struct SettingsView: View {
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(DesignTokens.Palette.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .modifier(InputCardSurface())
+                        .inputCardSurface()
                         .accessibilityIdentifier("settings.apiTokenMaskedValue")
                 } else {
                     SecureField(localized("settings.apiToken.placeholder"), text: $tokenInput)
@@ -48,7 +48,7 @@ struct SettingsView: View {
                         .textFieldStyle(.plain)
                         .font(DesignTokens.Typography.body)
                         .foregroundStyle(DesignTokens.Palette.textPrimary)
-                        .modifier(InputCardSurface())
+                        .inputCardSurface()
                         .accessibilityIdentifier("settings.apiTokenField")
                 }
             }
@@ -136,7 +136,7 @@ struct SettingsView: View {
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .modifier(InputCardSurface())
+                    .inputCardSurface()
                     .accessibilityIdentifier("settings.openCodeServerURLField")
             }
 
@@ -150,7 +150,7 @@ struct SettingsView: View {
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .modifier(InputCardSurface())
+                    .inputCardSurface()
                     .accessibilityIdentifier("settings.openCodeUsernameField")
             }
 
@@ -164,7 +164,7 @@ struct SettingsView: View {
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(DesignTokens.Palette.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .modifier(InputCardSurface())
+                        .inputCardSurface()
                         .accessibilityIdentifier("settings.openCodePasswordMaskedValue")
                 } else {
                     SecureField(localized("settings.openCode.password"), text: $openCodePasswordInput)
@@ -172,7 +172,7 @@ struct SettingsView: View {
                         .textFieldStyle(.plain)
                         .font(DesignTokens.Typography.body)
                         .foregroundStyle(DesignTokens.Palette.textPrimary)
-                        .modifier(InputCardSurface())
+                        .inputCardSurface()
                         .accessibilityIdentifier("settings.openCodePasswordField")
                 }
             }
@@ -327,7 +327,7 @@ struct SettingsView: View {
                 .foregroundStyle(DesignTokens.Palette.textPrimary)
                 .textInputAutocapitalization(capitalize ? .sentences : .never)
                 .autocorrectionDisabled(!capitalize)
-                .modifier(InputCardSurface())
+                .inputCardSurface()
                 .accessibilityIdentifier(identifier)
         }
     }
@@ -407,5 +407,11 @@ struct InputCardSurface: ViewModifier {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(DesignTokens.Palette.bgPrimary)
             )
+    }
+}
+
+extension View {
+    func inputCardSurface() -> some View {
+        modifier(InputCardSurface())
     }
 }

@@ -56,7 +56,7 @@ extension AppState {
             return nil
         }
 
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
+        guard let token = try? keychainStore.readString(for: Self.tokenKey), !token.isEmpty else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
             if presentErrorOnFailure {
                 presentRecordError("record.error.missingToken")
@@ -97,13 +97,13 @@ extension AppState {
             switch phase {
             case .connected, .connecting:
                 if recordingStatus == .recording,
-                   persistentStreamCaptionKey == "record.status.reconnecting" {
+                   persistentStreamCaptionKey == StreamCaptionKey.reconnecting {
                     setPersistentStreamCaption(nil)
-                    flashTransientStreamCaption("record.status.reconnected")
+                    flashTransientStreamCaption(StreamCaptionKey.reconnected)
                 }
             case .recovering:
                 if recordingStatus == .recording {
-                    setPersistentStreamCaption("record.status.reconnecting")
+                    setPersistentStreamCaption(StreamCaptionKey.reconnecting)
                 }
             case .disconnected, .generating:
                 break
@@ -111,7 +111,7 @@ extension AppState {
         case .recoveryStarted:
             streamConnectionPhase = .recovering
             if recordingStatus == .recording {
-                setPersistentStreamCaption("record.status.reconnecting")
+                setPersistentStreamCaption(StreamCaptionKey.reconnecting)
             }
         case .recoveryFailed(let message):
             if isTranscriptionTeardown {
@@ -120,11 +120,11 @@ extension AppState {
             recordDiagnostic("transcription_stream_recovery_failed", metadata: ["reason": message])
             streamConnectionPhase = .disconnected
             if recordingStatus == .recording {
-                setPersistentStreamCaption("record.error.streamDisconnected")
+                setPersistentStreamCaption(StreamCaptionKey.streamDisconnected)
             } else if recordingStatus == .transcribing {
-                setPersistentStreamCaption("record.error.streamDisconnected")
+                setPersistentStreamCaption(StreamCaptionKey.streamDisconnected)
             } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                setPersistentStreamCaption("record.error.streamDisconnected")
+                setPersistentStreamCaption(StreamCaptionKey.streamDisconnected)
             } else {
                 presentRecordError("record.error.transcriptionFailed")
             }
@@ -225,7 +225,7 @@ extension AppState {
             transcriptHistory.add(transcript)
             copyTranscript()
             recordingStatus = .ready
-            setPersistentStreamCaption("record.error.streamDisconnected")
+            setPersistentStreamCaption(StreamCaptionKey.streamDisconnected)
             return
         }
         presentRecordError("record.error.transcriptionFailed")

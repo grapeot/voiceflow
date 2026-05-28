@@ -6,6 +6,17 @@ import Foundation
 /// `transientStreamCaptionDuration`. `RecordView` reads
 /// `streamStatusCaptionKey`, which prefers the transient layer.
 extension AppState {
+    /// Localization keys for the stream-status captions. Centralized to
+    /// avoid the literal string drifting between `+LiveSession` (the
+    /// state machine) and `+StreamCaption` (the setters/clearers).
+    enum StreamCaptionKey {
+        static let reconnecting = "record.status.reconnecting"
+        static let reconnected = "record.status.reconnected"
+        static let streamDisconnected = "record.error.streamDisconnected"
+    }
+}
+
+extension AppState {
     /// Set the long-lived stream caption. Pass `nil` to clear only the
     /// persistent layer (transient overlay stays visible if active).
     func setPersistentStreamCaption(_ key: String?) {

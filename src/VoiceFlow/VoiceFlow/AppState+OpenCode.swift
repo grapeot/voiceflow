@@ -23,7 +23,7 @@ extension AppState {
         let trimmed = password.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
-            try keychainStore.saveString(trimmed, for: openCodePasswordKey)
+            try keychainStore.saveString(trimmed, for: Self.openCodePasswordKey)
             hasSavedOpenCodePassword = true
             openCodeSendStatus = .idle
             openCodeConnectionStatus = .untested
@@ -34,7 +34,7 @@ extension AppState {
 
     func clearOpenCodePassword() {
         do {
-            try keychainStore.deleteString(for: openCodePasswordKey)
+            try keychainStore.deleteString(for: Self.openCodePasswordKey)
         } catch {
             openCodeSendStatus = .failed("settings.openCode.clearFailed")
             return
@@ -45,7 +45,7 @@ extension AppState {
     }
 
     func testOpenCodeConnection() async {
-        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
+        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: Self.openCodePasswordKey), !password.isEmpty else {
             openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig", nil)
             return
         }
@@ -65,7 +65,7 @@ extension AppState {
 
     func sendTranscriptToOpenCode() async {
         guard canCopyTranscript else { return }
-        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
+        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: Self.openCodePasswordKey), !password.isEmpty else {
             recordDiagnostic("opencode_send_failed", metadata: ["reason": "notConfigured"])
             openCodeSendStatus = .failed("record.openCode.error.notConfigured")
             return

@@ -132,13 +132,13 @@ final class AppState: ObservableObject {
     let clipboardWriter: ClipboardWriting
     let openCodeClient: OpenCodeSending
     let diagnostics: RecordingDiagnosticsReporting
-    let tokenKey = "aiBuilderToken"
-    let openCodePasswordKey = "openCodePassword"
-    private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
-    private static let openCodeUsernameDefaultsKey = "openCodeUsername"
-    private static let appLanguageDefaultsKey = "appLanguage"
-    private static let transcriptionPromptDefaultsKey = "transcriptionPrompt"
-    private static let transcriptionTermsDefaultsKey = "transcriptionTerms"
+    static let tokenKey = "aiBuilderToken"               // Keychain
+    static let openCodePasswordKey = "openCodePassword"  // Keychain
+    static let openCodeServerURLDefaultsKey = "openCodeServerURL"      // UserDefaults
+    static let openCodeUsernameDefaultsKey = "openCodeUsername"        // UserDefaults
+    static let appLanguageDefaultsKey = "appLanguage"                  // UserDefaults
+    static let transcriptionPromptDefaultsKey = "transcriptionPrompt"  // UserDefaults
+    static let transcriptionTermsDefaultsKey = "transcriptionTerms"    // UserDefaults
     static let streamHeartbeatIntervalSeconds: UInt64 = 12
     var lastRecordingURL: URL?
     var recordingTimerStartDate: Date?
@@ -204,7 +204,7 @@ final class AppState: ObservableObject {
             self.voiceFlowClient = AppState.makeMockVoiceFlowClient()
         } else {
             let keychain = self.keychainStore
-            let tokenLookupKey = self.tokenKey
+            let tokenLookupKey = Self.tokenKey
             let config = VoiceFlowConfig(
                 endpoint: URL(string: aiBuilderEndpoint)!,
                 tokenProvider: {
@@ -231,8 +231,8 @@ final class AppState: ObservableObject {
         if isUITestMode {
             applyUITestLaunchArgumentSeeds()
         }
-        self.hasSavedAIBuilderToken = (try? self.keychainStore.readString(for: tokenKey)) != nil
-        self.hasSavedOpenCodePassword = (try? self.keychainStore.readString(for: openCodePasswordKey)) != nil
+        self.hasSavedAIBuilderToken = (try? self.keychainStore.readString(for: Self.tokenKey)) != nil
+        self.hasSavedOpenCodePassword = (try? self.keychainStore.readString(for: Self.openCodePasswordKey)) != nil
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestDeepLinkRecord") {
             handleIncomingURL(URL(string: "voiceflow://record")!)
         }
@@ -293,8 +293,8 @@ final class AppState: ObservableObject {
         transcriptionPrompt = ""
         transcriptionTerms = ""
 
-        try? keychainStore.deleteString(for: tokenKey)
-        try? keychainStore.deleteString(for: openCodePasswordKey)
+        try? keychainStore.deleteString(for: Self.tokenKey)
+        try? keychainStore.deleteString(for: Self.openCodePasswordKey)
         hasSavedAIBuilderToken = false
         hasSavedOpenCodePassword = false
 
@@ -304,13 +304,13 @@ final class AppState: ObservableObject {
     private func applyUITestLaunchArgumentSeeds() {
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("-uiTestSavedToken") {
-            try? keychainStore.saveString("fake-ui-token", for: tokenKey)
+            try? keychainStore.saveString("fake-ui-token", for: Self.tokenKey)
             hasSavedAIBuilderToken = true
         }
         if arguments.contains("-uiTestSavedOpenCode") {
             openCodeServerURL = OpenCodeClient.defaultServerURL
             openCodeUsername = OpenCodeClient.defaultUsername
-            try? keychainStore.saveString("fake-opencode-password", for: openCodePasswordKey)
+            try? keychainStore.saveString("fake-opencode-password", for: Self.openCodePasswordKey)
             hasSavedOpenCodePassword = true
             openCodeConnectionStatus = .success
         }
@@ -363,7 +363,7 @@ final class AppState: ObservableObject {
             return
         }
 
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
+        guard let token = try? keychainStore.readString(for: Self.tokenKey), !token.isEmpty else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
             presentRecordError("record.error.missingToken")
             return
