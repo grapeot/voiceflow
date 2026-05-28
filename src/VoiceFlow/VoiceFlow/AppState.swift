@@ -546,10 +546,6 @@ final class AppState: ObservableObject {
         stopRecordingTimer()
     }
 
-    func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
-        diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
-    }
-
     /// Refresh the kit-side config with the current token + prompt + terms
     /// from Settings. `tokenProvider` is rebuilt to close over the token
     /// value (rather than re-reading Keychain on every call) so the
@@ -586,25 +582,6 @@ final class AppState: ObservableObject {
                 }
             }
         }
-    }
-
-    func diagnosticMetadata(for error: Error) -> [String: String] {
-        DiagnosticErrorMetadata.metadata(for: error)
-    }
-
-    func userFacingErrorDetail(for error: Error) -> String {
-        if let localizedError = error as? LocalizedError,
-           let description = localizedError.errorDescription,
-           !description.isEmpty {
-            return description
-        }
-        let description = error.localizedDescription
-        return description.isEmpty ? String(describing: error) : description
-    }
-
-    private func audioFileMetadata(for url: URL) -> [String: String] {
-        let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
-        return ["byteCount": byteCount.map(String.init) ?? "unknown"]
     }
 
     private func persistLastRecording(from temporaryURL: URL) throws -> URL {
@@ -851,29 +828,6 @@ final class AppState: ObservableObject {
         } catch {
             lastClipboardStatusKey = "record.clipboard.failed"
         }
-    }
-
-    private func transcriptionFailureEventName(for error: Error) -> String {
-        if let transcriptionError = error as? AIBuilderTranscriptionError {
-            switch transcriptionError {
-            case .invalidBaseURL, .requestFailed:
-                return "transcription_upload_failed"
-            case .invalidResponse, .emptyTranscript:
-                return "transcription_response_failed"
-            }
-        }
-        if let kitError = error as? VoiceFlowError {
-            switch kitError {
-            case .invalidEndpoint, .missingToken, .connectionLost, .sessionUnavailable, .httpError:
-                return "transcription_upload_failed"
-            case .websocketError, .emptyTranscript, .audioConversionFailed, .microphoneUnavailable, .underlying:
-                return "transcription_response_failed"
-            }
-        }
-        if error is DecodingError {
-            return "transcription_response_failed"
-        }
-        return "transcription_upload_failed"
     }
 
 }
