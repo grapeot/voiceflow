@@ -80,6 +80,10 @@ final class AppState: ObservableObject {
     @Published private(set) var streamConnectionPhase: RealtimeConnectionPhase = .disconnected
     @Published private(set) var streamStatusCaptionKey: String?
     @Published private(set) var recordingTimerText = "00:00"
+    /// Smoothed 0…1 microphone level. Driven by the mic PCM tap while
+    /// recording; falls back to 0 when idle/transcribing/error so the
+    /// waveform reads as quiet rather than frozen.
+    @Published private(set) var audioLevel: Float = 0
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }
@@ -205,6 +209,7 @@ final class AppState: ObservableObject {
         recordingStatus = .idle
         streamConnectionPhase = .disconnected
         recordingTimerText = "00:00"
+        audioLevel = 0
         lastRecordingURL = nil
         lastStreamClipboardHash = nil
         lastStreamClipboardUpdate = nil
@@ -758,6 +763,8 @@ final class AppState: ObservableObject {
     }
 
     private func handleCapturedPCMChunk(_ chunk: Data) async {
+        updateAudioLevel(from: chunk)
+
         let chunks = audioChunkEncoder.append(chunk)
         for encodedChunk in chunks {
             await liveTranscriptionSession?.appendAudioChunk(encodedChunk)
@@ -769,6 +776,49 @@ final class AppState: ObservableObject {
                 streamStatusCaptionKey = "record.status.reconnected"
             }
         }
+    }
+
+    /// Compute RMS of a PCM16 little-endian chunk, normalize to 0…1 with a
+    /// gentle perceptual curve, and feed it into an exponential moving
+    /// average so the waveform never jitters on short silences mid-syllable.
+    private func updateAudioLevel(from chunk: Data) {
+        let normalized = Self.normalizedLevel(fromPCM16LE: chunk)
+        // 30 % new sample, 70 % carried — short attack, slow release.
+        let smoothed = audioLevel * 0.7 + normalized * 0.3
+        audioLevel = smoothed
+    }
+
+    private static func normalizedLevel(fromPCM16LE data: Data) -> Float {
+        let sampleCount = data.count / 2
+        guard sampleCount > 0 else { return 0 }
+
+        let sumSquares: Double = data.withUnsafeBytes { raw -> Double in
+            guard let base = raw.baseAddress else { return 0 }
+            var accumulator: Double = 0
+            // Read little-endian Int16 samples without assuming alignment.
+            for i in 0..<sampleCount {
+                let lo = Int16(base.load(fromByteOffset: i * 2,     as: UInt8.self))
+                let hi = Int16(base.load(fromByteOffset: i * 2 + 1, as: UInt8.self))
+                let raw = (hi << 8) | (lo & 0xFF)
+                let sample = Double(raw) / 32768.0
+                accumulator += sample * sample
+            }
+            return accumulator
+        }
+
+        let rms = sqrt(sumSquares / Double(sampleCount))
+
+        // dB-based mapping. Typical phone-mic speech RMS sits around 0.03–0.15
+        // (−30…−16 dB FS). Mapping [−50, −10] dB → [0, 1] makes quiet rooms
+        // settle near 0 and a normal talking voice reach ~0.7–0.9 — closer to
+        // what a user expects when watching a meter. A 0.9× tail keeps loud
+        // syllables from pinning the visual ceiling so headroom stays visible.
+        let dB = 20.0 * log10(max(rms, 1e-7))
+        let minDB = -50.0
+        let maxDB = -10.0
+        let normalized = (dB - minDB) / (maxDB - minDB)
+        let scaled = normalized * 0.9
+        return Float(min(max(scaled, 0), 1))
     }
 
     private func flushRemainingAudioChunks() async {
@@ -871,6 +921,7 @@ final class AppState: ObservableObject {
         liveTranscriptionSession = nil
         streamConnectionPhase = .disconnected
         streamStatusCaptionKey = nil
+        audioLevel = 0
     }
 
     private func startStreamHeartbeat() {

@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// The single visual anchor of the Record screen. Renders a horizontal row of
-/// thin bars whose heights breathe while the user is recording, and collapse
-/// into a flat hairline when idle.
+/// The single visual anchor of the Record screen. Three modes:
 ///
-/// V0 uses a synthesized animation rather than live mic levels — AppState
-/// doesn't surface an audio-level signal yet. The component is purely
-/// presentational; replace `level` with a real metering value when
-/// AudioRecorder learns to report it.
+/// - `idle`: a faint horizontal hairline, no motion.
+/// - `active`: a scrolling history of recent mic levels — each bar is the
+///   audio amplitude N×33ms ago. The newest sample enters on the right and
+///   ages off the left.
+/// - `generating`: a traveling pulse that sweeps left to right, used while
+///   the backend is finalizing transcription (no mic signal available).
 struct WaveformView: View {
     enum Mode {
         case idle
@@ -17,11 +17,15 @@ struct WaveformView: View {
 
     var mode: Mode
     var color: Color
+    /// 0…1 microphone level. Only read in `.active` mode; ignored otherwise.
+    var level: Float = 0
 
     private let barCount = 36
     private let barWidth: CGFloat = 3
     private let barSpacing: CGFloat = 4
-    @State private var phase: Double = 0
+
+    @State private var history: [Float] = Array(repeating: 0, count: 36)
+    @State private var lastTick: TimeInterval = 0
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: mode == .idle)) { timeline in
@@ -31,45 +35,70 @@ struct WaveformView: View {
                 let total = CGFloat(barCount) * barWidth + CGFloat(barCount - 1) * barSpacing
                 let originX = (size.width - total) / 2
 
+                let snapshot = currentBars(at: t)
                 for i in 0..<barCount {
                     let x = originX + CGFloat(i) * (barWidth + barSpacing)
-                    let height = barHeight(for: i, at: t, canvasHeight: size.height)
-                    let rect = CGRect(x: x, y: centerY - height / 2, width: barWidth, height: max(height, 1))
+                    let height = snapshot[i] * (size.height - 4) + 2
+                    let rect = CGRect(
+                        x: x,
+                        y: centerY - height / 2,
+                        width: barWidth,
+                        height: max(height, 1)
+                    )
                     let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
                     context.fill(path, with: .color(color))
                 }
             }
             .accessibilityHidden(true)
+            .onChange(of: timeline.date) {
+                if mode == .active {
+                    advanceHistory(at: t)
+                } else if mode == .idle && history.contains(where: { $0 > 0.01 }) {
+                    // Decay the bars when we leave .active so the visual
+                    // collapses gracefully instead of snapping flat.
+                    history = history.map { $0 * 0.6 }
+                }
+            }
         }
         .frame(height: DesignTokens.Sizing.waveformHeight)
         .opacity(mode == .idle ? 0.45 : 1.0)
     }
 
-    private func barHeight(for index: Int, at t: TimeInterval, canvasHeight: CGFloat) -> CGFloat {
+    /// Pushes the smoothed current `level` onto the right of `history`,
+    /// drops the oldest sample. Throttled to ~30 Hz so 60 Hz redraws don't
+    /// burn through samples faster than the mic delivers them.
+    private func advanceHistory(at t: TimeInterval) {
+        guard t - lastTick >= 1.0 / 30.0 else { return }
+        lastTick = t
+        // Subtle floor (~0.04) keeps the row visible during quiet pauses
+        // mid-sentence rather than collapsing into a flat line and looking
+        // like the mic died.
+        let sample = max(Float(0.04), level)
+        history.removeFirst()
+        history.append(sample)
+    }
+
+    /// CGFloat heights (0…1) for the current frame.
+    private func currentBars(at t: TimeInterval) -> [CGFloat] {
         switch mode {
         case .idle:
-            return 2
+            // Static hairline; ignore history.
+            return Array(repeating: 0.02, count: barCount)
 
         case .active:
-            // Two superimposed sine waves at different frequencies for a more
-            // organic look than a single oscillator would give.
-            let i = Double(index)
-            let s1 = sin(t * 4.0 + i * 0.35)
-            let s2 = sin(t * 1.6 + i * 0.18)
-            let envelope = sin(t * 2.4 + i * 0.12) * 0.5 + 0.5
-            let amplitude = (s1 * 0.6 + s2 * 0.4) * envelope
-            let normalized = abs(amplitude)
-            return CGFloat(2 + normalized * Double(canvasHeight - 4))
+            return history.map { CGFloat($0) }
 
         case .generating:
-            // A traveling pulse: a narrow window of bars at high amplitude
-            // sweeps left-to-right, the rest stay near baseline.
-            let i = Double(index)
+            // Traveling pulse — independent of mic level, indicates the
+            // server is doing the work now.
             let speed = 12.0
             let position = (t * speed).truncatingRemainder(dividingBy: Double(barCount))
-            let distance = min(abs(i - position), Double(barCount) - abs(i - position))
-            let intensity = max(0, 1 - distance / 3)
-            return CGFloat(2 + intensity * Double(canvasHeight - 4))
+            return (0..<barCount).map { i in
+                let distance = min(abs(Double(i) - position),
+                                   Double(barCount) - abs(Double(i) - position))
+                let intensity = max(0, 1 - distance / 3)
+                return CGFloat(0.04 + intensity * 0.96)
+            }
         }
     }
 }
@@ -77,7 +106,7 @@ struct WaveformView: View {
 #Preview {
     VStack(spacing: 32) {
         WaveformView(mode: .idle, color: DesignTokens.Palette.textSecondary)
-        WaveformView(mode: .active, color: DesignTokens.Palette.accent)
+        WaveformView(mode: .active, color: DesignTokens.Palette.accent, level: 0.6)
         WaveformView(mode: .generating, color: DesignTokens.Palette.accent)
     }
     .padding()

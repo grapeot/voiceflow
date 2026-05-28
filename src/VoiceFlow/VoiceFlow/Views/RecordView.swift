@@ -16,9 +16,13 @@ struct RecordView: View {
 
                 Spacer().frame(height: DesignTokens.Spacing.l)
 
-                WaveformView(mode: waveformMode, color: waveformColor)
-                    .padding(.horizontal, DesignTokens.Spacing.xl)
-                    .accessibilityIdentifier("record.waveform")
+                WaveformView(
+                    mode: waveformMode,
+                    color: waveformColor,
+                    level: appState.audioLevel
+                )
+                .padding(.horizontal, DesignTokens.Spacing.xl)
+                .accessibilityIdentifier("record.waveform")
 
                 Spacer().frame(height: DesignTokens.Spacing.xxl)
 
