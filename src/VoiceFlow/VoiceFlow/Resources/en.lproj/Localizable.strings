@@ -82,6 +82,6 @@
 "settings.transcription.title" = "Transcription";
 "settings.transcription.description" = "Optional hints the transcription model reads before working. Include language, vocabulary, or context in plain language.";
 "settings.transcription.prompt" = "Context prompt";
-"settings.transcription.prompt.placeholder" = "e.g. Speaker discusses Kubernetes and gRPC in English with occasional Mandarin.";
+"settings.transcription.prompt.placeholder" = "e.g. Transcribe every word in ALL CAPS. Example: THIS IS A TEST.";
 "settings.transcription.terms" = "Terms";
 "settings.transcription.terms.placeholder" = "Comma-separated terms to preserve verbatim, e.g. Kubernetes, gRPC, Anthropic.";
