@@ -1,18 +1,18 @@
 import Foundation
 
-protocol AIBuilderTranscribing {
+public protocol AIBuilderTranscribing {
     func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String
 }
 
-enum AIBuilderTranscriptionError: Error {
+public enum AIBuilderTranscriptionError: Error {
     case invalidBaseURL
     case invalidResponse
     case requestFailed
     case emptyTranscript
 }
 
-struct MultipartFormDataBuilder {
-    static func makeBody(
+public struct MultipartFormDataBuilder {
+    public static func makeBody(
         boundary: String,
         fields: [String: String] = [:],
         fileFieldName: String,
@@ -39,14 +39,14 @@ struct MultipartFormDataBuilder {
     }
 }
 
-struct AIBuilderTranscriptionClient: AIBuilderTranscribing {
+public struct AIBuilderTranscriptionClient: AIBuilderTranscribing {
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    public init(session: URLSession = .shared) {
         self.session = session
     }
 
-    func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String {
+    public func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String {
         guard let url = URL(string: baseURL)?.appending(path: "v1/audio/transcriptions") else {
             throw AIBuilderTranscriptionError.invalidBaseURL
         }
@@ -73,7 +73,7 @@ struct AIBuilderTranscriptionClient: AIBuilderTranscribing {
             throw AIBuilderTranscriptionError.requestFailed
         }
 
-        let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
+        let decoded = try JSONDecoder().decode(TranscriptionResponseBody.self, from: data)
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             throw AIBuilderTranscriptionError.emptyTranscript
@@ -82,19 +82,19 @@ struct AIBuilderTranscriptionClient: AIBuilderTranscribing {
     }
 }
 
-final class MockAIBuilderTranscriptionClient: AIBuilderTranscribing {
-    var result: Result<String, Error>
+public final class MockAIBuilderTranscriptionClient: AIBuilderTranscribing {
+    public var result: Result<String, Error>
 
-    init(result: Result<String, Error>) {
+    public init(result: Result<String, Error>) {
         self.result = result
     }
 
-    func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String {
+    public func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String {
         try result.get()
     }
 }
 
-private struct TranscriptionResponse: Decodable {
+private struct TranscriptionResponseBody: Decodable {
     let text: String
 }
 

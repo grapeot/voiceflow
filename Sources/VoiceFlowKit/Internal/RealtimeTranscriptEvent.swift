@@ -1,13 +1,13 @@
 import Foundation
 
-enum RealtimeServerStatus: String, Equatable, Sendable {
+public enum RealtimeServerStatus: String, Equatable, Sendable {
     case idle
     case connecting
     case connected
     case generating
 }
 
-enum RealtimeTranscriptEvent: Equatable, Sendable {
+public enum RealtimeTranscriptEvent: Equatable, Sendable {
     case status(RealtimeServerStatus)
     case textDelta(content: String, isNewResponse: Bool)
     case error(message: String)
@@ -16,7 +16,7 @@ enum RealtimeTranscriptEvent: Equatable, Sendable {
     case recoveryFailed(message: String)
 }
 
-enum RealtimeConnectionPhase: Sendable, Hashable {
+public enum RealtimeConnectionPhase: Sendable, Hashable {
     case disconnected
     case connecting
     case connected
@@ -25,7 +25,7 @@ enum RealtimeConnectionPhase: Sendable, Hashable {
 }
 
 extension RealtimeConnectionPhase: Equatable {
-    nonisolated static func == (lhs: RealtimeConnectionPhase, rhs: RealtimeConnectionPhase) -> Bool {
+    public nonisolated static func == (lhs: RealtimeConnectionPhase, rhs: RealtimeConnectionPhase) -> Bool {
         switch (lhs, rhs) {
         case (.disconnected, .disconnected),
              (.connecting, .connecting),
@@ -39,7 +39,7 @@ extension RealtimeConnectionPhase: Equatable {
     }
 }
 
-enum RealtimeTranscriptionError: Error, Equatable {
+public enum RealtimeTranscriptionError: Error, Equatable {
     case invalidBaseURL
     case missingToken
     case invalidMessage
@@ -51,34 +51,34 @@ enum RealtimeTranscriptionError: Error, Equatable {
     case httpError(statusCode: Int)
 }
 
-enum RealtimeTranscriptionConfig: Sendable {
-    nonisolated static let defaultModel = "gpt-realtime"
-    nonisolated static let sampleRate: Double = 24_000
-    nonisolated static let chunkDurationSeconds: Double = 0.5
-    nonisolated static let replayChunkSize = 240_000
-    nonisolated static let heartbeatIntervalSeconds: UInt64 = 12
-    nonisolated static let sessionCreatePath = "/v1/audio/realtime/sessions"
-    nonisolated static let commitMessage = "{\"type\":\"commit\"}"
-    nonisolated static let stopMessage = "{\"type\":\"stop\"}"
-    nonisolated static let maxRecoverAttempts = 5
-    nonisolated static let recoverBackoffBaseMilliseconds = 300
+public enum RealtimeTranscriptionConfig: Sendable {
+    public nonisolated static let defaultModel = "gpt-realtime"
+    public nonisolated static let sampleRate: Double = 24_000
+    public nonisolated static let chunkDurationSeconds: Double = 0.5
+    public nonisolated static let replayChunkSize = 240_000
+    public nonisolated static let heartbeatIntervalSeconds: UInt64 = 12
+    public nonisolated static let sessionCreatePath = "/v1/audio/realtime/sessions"
+    public nonisolated static let commitMessage = "{\"type\":\"commit\"}"
+    public nonisolated static let stopMessage = "{\"type\":\"stop\"}"
+    public nonisolated static let maxRecoverAttempts = 5
+    public nonisolated static let recoverBackoffBaseMilliseconds = 300
 
-    nonisolated static var chunkByteSize: Int {
+    public nonisolated static var chunkByteSize: Int {
         Int(sampleRate * chunkDurationSeconds) * 2
     }
 
     /// Minimum PCM16 mono audio required before sending `commit` (100 ms at 24 kHz).
-    nonisolated static var minCommitAudioBytes: Int {
+    public nonisolated static var minCommitAudioBytes: Int {
         Int(sampleRate * 0.1) * 2
     }
 }
 
-enum RealtimeTranscriptionSupport: Sendable {
-    nonisolated static func isRecoverableBufferTooSmallError(_ message: String) -> Bool {
+public enum RealtimeTranscriptionSupport: Sendable {
+    public nonisolated static func isRecoverableBufferTooSmallError(_ message: String) -> Bool {
         message.localizedCaseInsensitiveContains("buffer too small")
     }
 
-    nonisolated static func resolveFinalizeTranscript(partial: String, completed: String?) -> String {
+    public nonisolated static func resolveFinalizeTranscript(partial: String, completed: String?) -> String {
         let trimmedPartial = partial.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCompleted = completed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmedPartial.isEmpty { return trimmedCompleted }
@@ -87,7 +87,7 @@ enum RealtimeTranscriptionSupport: Sendable {
     }
 }
 
-struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
+public struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
     let sessionID: String
     let wsURL: String
 
@@ -97,13 +97,13 @@ struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
     }
 }
 
-struct RealtimeSocketEvent: Sendable, Equatable {
-    let type: String
-    let text: String?
-    let code: String?
-    let message: String?
+public struct RealtimeSocketEvent: Sendable, Equatable {
+    public let type: String
+    public let text: String?
+    public let code: String?
+    public let message: String?
 
-    nonisolated init(data: Data) throws {
+    public nonisolated init(data: Data) throws {
         let raw = try JSONSerialization.jsonObject(with: data)
         guard let json = raw as? [String: Any],
               let type = json["type"] as? String else {
@@ -116,8 +116,8 @@ struct RealtimeSocketEvent: Sendable, Equatable {
     }
 }
 
-enum RealtimeMessageParser: Sendable {
-    nonisolated static func parseSocketEvent(_ event: RealtimeSocketEvent) -> RealtimeTranscriptEvent? {
+public enum RealtimeMessageParser: Sendable {
+    public nonisolated static func parseSocketEvent(_ event: RealtimeSocketEvent) -> RealtimeTranscriptEvent? {
         switch event.type {
         case "session_ready":
             return .status(.connected)
@@ -141,7 +141,7 @@ enum RealtimeMessageParser: Sendable {
         }
     }
 
-    nonisolated static func parseMessage(_ message: URLSessionWebSocketTask.Message) throws -> RealtimeTranscriptEvent {
+    public nonisolated static func parseMessage(_ message: URLSessionWebSocketTask.Message) throws -> RealtimeTranscriptEvent {
         let socketEvent = try parseSocketMessage(message)
         guard let event = parseSocketEvent(socketEvent) else {
             throw RealtimeTranscriptionError.invalidMessage
@@ -149,7 +149,7 @@ enum RealtimeMessageParser: Sendable {
         return event
     }
 
-    nonisolated static func parseSocketMessage(_ message: URLSessionWebSocketTask.Message) throws -> RealtimeSocketEvent {
+    public nonisolated static func parseSocketMessage(_ message: URLSessionWebSocketTask.Message) throws -> RealtimeSocketEvent {
         switch message {
         case .data(let data):
             return try RealtimeSocketEvent(data: data)
@@ -163,7 +163,7 @@ enum RealtimeMessageParser: Sendable {
         }
     }
 
-    nonisolated static func startControlMessage(
+    public nonisolated static func startControlMessage(
         model: String,
         vad: Bool = true,
         silenceDurationMs: Int = 1200
@@ -182,8 +182,8 @@ enum RealtimeMessageParser: Sendable {
     }
 }
 
-enum TranscriptDeltaReducer: Sendable {
-    nonisolated static func apply(current: String, content: String, isNewResponse: Bool) -> String {
+public enum TranscriptDeltaReducer: Sendable {
+    public nonisolated static func apply(current: String, content: String, isNewResponse: Bool) -> String {
         if isNewResponse {
             return content
         }
@@ -191,28 +191,30 @@ enum TranscriptDeltaReducer: Sendable {
     }
 }
 
-struct TranscriptEpochMerger: Sendable, Equatable {
-    private(set) var transcriptSnapshot: String = ""
-    private(set) var streamEpoch: Int = 0
+public struct TranscriptEpochMerger: Sendable, Equatable {
+    public private(set) var transcriptSnapshot: String = ""
+    public private(set) var streamEpoch: Int = 0
     private var epochText: String = ""
 
-    var mergedTranscript: String {
+    public init() {}
+
+    public var mergedTranscript: String {
         transcriptSnapshot + epochText
     }
 
-    mutating func reset() {
+    public mutating func reset() {
         transcriptSnapshot = ""
         epochText = ""
         streamEpoch = 0
     }
 
-    mutating func beginRecovery() {
+    public mutating func beginRecovery() {
         transcriptSnapshot = mergedTranscript
         epochText = ""
         streamEpoch += 1
     }
 
-    mutating func apply(content: String, isNewResponse: Bool) -> String {
+    public mutating func apply(content: String, isNewResponse: Bool) -> String {
         if isNewResponse {
             epochText = content
         } else {
@@ -222,8 +224,8 @@ struct TranscriptEpochMerger: Sendable, Equatable {
     }
 }
 
-enum RealtimeAPIURLBuilder: Sendable {
-    nonisolated static func normalizedBaseURL(from rawBaseURL: String) throws -> URL {
+public enum RealtimeAPIURLBuilder: Sendable {
+    public nonisolated static func normalizedBaseURL(from rawBaseURL: String) throws -> URL {
         let trimmed = rawBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw RealtimeTranscriptionError.invalidBaseURL
@@ -237,7 +239,7 @@ enum RealtimeAPIURLBuilder: Sendable {
         return url
     }
 
-    nonisolated static func buildAPIURL(base: URL, path: String) -> URL? {
+    public nonisolated static func buildAPIURL(base: URL, path: String) -> URL? {
         let relPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
         var basePath = components?.path ?? ""
@@ -249,7 +251,7 @@ enum RealtimeAPIURLBuilder: Sendable {
         return URL(string: relPath, relativeTo: baseForAppend)?.absoluteURL
     }
 
-    nonisolated static func realtimeWebSocketURL(baseURL: URL, relativePath: String) throws -> URL {
+    public nonisolated static func realtimeWebSocketURL(baseURL: URL, relativePath: String) throws -> URL {
         let websocketPath: String
         if relativePath.hasPrefix("/"),
            let basePath = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)?.path,
@@ -277,8 +279,8 @@ enum RealtimeAPIURLBuilder: Sendable {
     }
 }
 
-enum PCM16WAVWriter: Sendable {
-    nonisolated static func write(pcmData: Data, sampleRate: UInt32 = 24_000, to url: URL) throws {
+public enum PCM16WAVWriter: Sendable {
+    public nonisolated static func write(pcmData: Data, sampleRate: UInt32 = 24_000, to url: URL) throws {
         guard !pcmData.isEmpty else {
             throw RealtimeTranscriptionError.audioConversionFailed
         }
@@ -305,7 +307,7 @@ enum PCM16WAVWriter: Sendable {
         FileManager.default.createFile(atPath: url.path, contents: header + pcmData)
     }
 
-    nonisolated static func readPCM(from wavURL: URL) throws -> Data {
+    public nonisolated static func readPCM(from wavURL: URL) throws -> Data {
         let data = try Data(contentsOf: wavURL)
         guard data.count > 44 else {
             throw RealtimeTranscriptionError.audioConversionFailed
@@ -315,16 +317,16 @@ enum PCM16WAVWriter: Sendable {
 }
 
 private enum WAVHeaderBuilder: Sendable {
-    nonisolated static func appendUTF8(_ string: String, to data: inout Data) {
+    public nonisolated static func appendUTF8(_ string: String, to data: inout Data) {
         data.append(Data(string.utf8))
     }
 
-    nonisolated static func appendUInt16LE(_ value: UInt16, to data: inout Data) {
+    public nonisolated static func appendUInt16LE(_ value: UInt16, to data: inout Data) {
         var littleEndian = value.littleEndian
         data.append(Data(bytes: &littleEndian, count: MemoryLayout<UInt16>.size))
     }
 
-    nonisolated static func appendUInt32LE(_ value: UInt32, to data: inout Data) {
+    public nonisolated static func appendUInt32LE(_ value: UInt32, to data: inout Data) {
         var littleEndian = value.littleEndian
         data.append(Data(bytes: &littleEndian, count: MemoryLayout<UInt32>.size))
     }

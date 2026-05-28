@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceFlowKit
 
 struct RecordView: View {
     @EnvironmentObject private var appState: AppState

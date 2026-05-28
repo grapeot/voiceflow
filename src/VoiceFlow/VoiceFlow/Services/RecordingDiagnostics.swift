@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import VoiceFlowKit
 
 struct RecordingDiagnosticEvent: Equatable {
     let name: String

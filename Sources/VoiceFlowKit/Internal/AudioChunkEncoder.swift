@@ -1,14 +1,14 @@
 import Foundation
 
-struct AudioChunkEncoder {
-    private(set) var pending = Data()
-    let chunkByteSize: Int
+public struct AudioChunkEncoder {
+    public private(set) var pending = Data()
+    public let chunkByteSize: Int
 
-    init(chunkByteSize: Int = RealtimeTranscriptionConfig.chunkByteSize) {
+    public init(chunkByteSize: Int = RealtimeTranscriptionConfig.chunkByteSize) {
         self.chunkByteSize = chunkByteSize
     }
 
-    mutating func append(_ data: Data) -> [Data] {
+    public mutating func append(_ data: Data) -> [Data] {
         guard !data.isEmpty else { return [] }
         pending.append(data)
         var chunks: [Data] = []
@@ -20,7 +20,7 @@ struct AudioChunkEncoder {
         return chunks
     }
 
-    mutating func flushRemainder() -> Data {
+    public mutating func flushRemainder() -> Data {
         defer { pending.removeAll(keepingCapacity: false) }
         return pending
     }

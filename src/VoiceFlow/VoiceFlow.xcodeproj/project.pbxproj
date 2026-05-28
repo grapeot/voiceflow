@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A1B2C3D4E5F60001A0000001 /* VoiceFlowKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002A0000002 /* VoiceFlowKit */; };
+		A1B2C3D4E5F60001A0000003 /* VoiceFlowKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002A0000004 /* VoiceFlowKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		3B245FE82FC667AE0092237A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +57,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F60001A0000001 /* VoiceFlowKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -59,6 +65,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F60001A0000003 /* VoiceFlowKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +119,7 @@
 			);
 			name = VoiceFlow;
 			packageProductDependencies = (
+				A1B2C3D4E5F60002A0000002 /* VoiceFlowKit */,
 			);
 			productName = VoiceFlow;
 			productReference = 3B245FDA2FC667AD0092237A /* VoiceFlow.app */;
@@ -135,6 +143,7 @@
 			);
 			name = VoiceFlowTests;
 			packageProductDependencies = (
+				A1B2C3D4E5F60002A0000004 /* VoiceFlowKit */,
 			);
 			productName = VoiceFlowTests;
 			productReference = 3B245FE72FC667AE0092237A /* VoiceFlowTests.xctest */;
@@ -196,6 +205,9 @@
 			);
 			mainGroup = 3B245FD12FC667AD0092237A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1B2C3D4E5F60003A0000005 /* XCLocalSwiftPackageReference "../.." */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3B245FDB2FC667AD0092237A /* Products */;
 			projectDirPath = "";
@@ -587,6 +599,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A1B2C3D4E5F60003A0000005 /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1B2C3D4E5F60002A0000002 /* VoiceFlowKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VoiceFlowKit;
+		};
+		A1B2C3D4E5F60002A0000004 /* VoiceFlowKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VoiceFlowKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3B245FD22FC667AD0092237A /* Project object */;
 }
