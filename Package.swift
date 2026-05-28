@@ -22,7 +22,10 @@ let package = Package(
         .testTarget(
             name: "VoiceFlowKitTests",
             dependencies: ["VoiceFlowKit"],
-            path: "Tests/VoiceFlowKitTests"
+            path: "Tests/VoiceFlowKitTests",
+            resources: [
+                .copy("Fixtures/tts_all_caps_24k.wav")
+            ]
         )
     ]
 )
