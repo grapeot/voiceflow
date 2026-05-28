@@ -77,9 +77,51 @@ voiceflow/                       # repo root
 
 `AppState` 通过 `import VoiceFlowKit` 直接持有 Kit 暴露的 `RealtimeTranscribing` / `AudioRecording` / `AIBuilderConnectionTesting` / `AIBuilderTranscribing` 协议引用——PR 1 阶段保留这些 protocol-level 接入，避免对 1073 行的 AppState 做大重构；后续 PR 可以渐进式迁移到 `VoiceFlowClient` / `VoiceFlowSession` / `VoiceFlowMicrophone` 这套 thin facade。两种 API 在 Kit 里同时存在、长期共存——thin facade 是给新客户（含 OpenCode iOS Client pilot）用的稳定接口，protocol-level types 是 PR 1 的兼容接入点。
 
-`AppState` 保存跨页面状态：录音状态、transcript、历史索引、tab 选择、token/OpenCode 配置与连接状态、剪贴板/OpenCode 发送状态、语言偏好、deep link 待处理标志。录音、API、剪贴板、Keychain 在 service 层；UI 不直接碰系统接口。
+`AppState` 保存跨页面状态：录音状态、transcript、历史索引、tab 选择、token/OpenCode 配置与连接状态、剪贴板/OpenCode 发送状态、语言偏好、转写上下文（prompt / terms）、deep link 待处理标志。录音、API、剪贴板、Keychain 现在分两层：底层 audio/WS pipeline 在 `VoiceFlowKit`（SPM package），上层 app 业务行为在 `src/VoiceFlow/VoiceFlow/Services/`（Clipboard、OpenCode HTTP relay、RecordingDiagnostics、KeychainStore、RecordingFileSaver）。UI 不直接碰系统接口。
 
-语言偏好用 `UserDefaults`。AI Builder token 与 OpenCode password 只进 Keychain。OpenCode server URL 与 username 进 UserDefaults；清除 OpenCode 只删 password。
+语言偏好、转写 prompt 与 terms 用 `UserDefaults`。AI Builder token 与 OpenCode password 只进 Keychain。OpenCode server URL 与 username 进 UserDefaults；清除 OpenCode 只删 password。
+
+## VoiceFlowKit 公开 API
+
+下面是 `VoiceFlowKit` 暴露给 host（VoiceFlow app 和未来的 OpenCode iOS Client）的 surface：
+
+- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession()` / `transcribe(audioFile:onPartialTranscript:)` / `testConnection()` / `updateConfig(_:)`。
+- `VoiceFlowSession`（actor）：实时会话句柄。`sendAudioChunk(_:)` 推 PCM，`ping()` 心跳，`commitAndStop(onPartialTranscript:)` 收口，`cancel()` 取消，`connectionPhase`（VoiceFlowConnectionPhase）读相位，`events`（AsyncStream<VoiceFlowEvent>）订阅事件。
+- `VoiceFlowMicrophone`（class，iOS/visionOS only）：mic 封装。`requestPermission()` / `start(onPCMChunk:)` / `stop()` / `discard()`，`audioLevel`（AsyncStream<Float>）暴露 0..1 RMS。
+- `VoiceFlowConfig`（struct）：`endpoint` / `tokenProvider` / `model` / `prompt` / `terms` / `loggerSubsystem`。注意：**没有** `language` 字段——backend 把语言提示当 prompt 拼接，用户自己在 prompt 里写。
+- `VoiceFlowError`（enum）：`invalidEndpoint` / `missingToken` / `httpError(statusCode:)` / `sessionUnavailable` / `websocketError(_)` / `connectionLost(_)` / `audioConversionFailed` / `emptyTranscript` / `microphoneUnavailable` / `underlying(_)`。
+- `StreamCaption` / `StreamCaptionStore`：双层 caption 模型（persistent + transient 3 秒闪现），数据结构层、不画 UI。
+
+同时为了让 VoiceFlow app PR 1 时不必大改 AppState，库也把底层 protocol 公开为 internal-but-public（`RealtimeTranscribing` / `AudioRecording` / `AIBuilderConnectionTesting` / `AIBuilderTranscribing` 以及它们的 `Mock*` 测试实现）。**这是兼容层**——新 host（如 OpenCode）不应该用这些 protocol，应该用上面 facade。详细决策见 `docs/Library.md`。
+
+## 转写上下文（prompt + terms）
+
+Settings → Transcription 分组让用户设置两个值：
+
+- **Context prompt**：自由文本，跟随每个 session.create 请求的 POST body 一起发到 backend，作为模型的上下文提示。
+- **Terms**：英文逗号分隔的字符串，app 层 split + trim 后变 `[String]` 传给 `VoiceFlowConfig.terms`，库内部塞进 session.create payload 的 `terms` 字段。
+
+两值都 UserDefaults 持久化。空字符串和纯空白 trim 后视为未设置，wire 上不出现这个 key。
+
+详细 wire 格式：
+
+```http
+POST {endpoint}/v1/audio/realtime/sessions
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "model": "gpt-realtime",
+  "vad": false,
+  "silence_duration_ms": 1200,
+  "prompt": "...optional...",
+  "terms": ["...", "..."]
+}
+```
+
+库内部用 `RealtimeSessionContext` 结构传递这两个值，覆盖 `transcribeBulkPCM` 和 `beginLiveSession` 两条路径。OSLog 里 `session.create model=... hasPrompt=true promptChars=N termsCount=M` 可作 wire 诊断。
+
+**模型 prompt-following 行为**：`gpt-realtime` 对纯指令型 prompt 反应弱，对"指令 + Example"形态响应强。详见 `docs/Library.md` 的"已知陷阱" #6 及 Settings placeholder 提示。这是模型行为不是 library 问题。
 
 ## 鉴权模型
 

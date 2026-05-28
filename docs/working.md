@@ -20,6 +20,31 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-28 (VoiceFlowKit 抽取 + 转写上下文 UI)
+
+**PR #35 — VoiceFlowKit 抽取**
+
+- 把 services 层 7 个文件（`AIBuilderClient`、`AIBuilderTranscriptionClient`、`AudioChunkEncoder`、`AudioRecorder`、`RealtimeTranscriptionClient`、`RealtimeWebSocketSender`、`RealtimeTranscriptEvent`/models）从 `src/VoiceFlow/VoiceFlow/Services/` 搬到 `Sources/VoiceFlowKit/Internal/`。
+- 新 SPM package 在仓库根：`Package.swift` + `Sources/VoiceFlowKit/` + `Tests/VoiceFlowKitTests/`。
+- App 通过本地 SPM dep 引 `../..`（pbxproj 加了 `XCLocalSwiftPackageReference`）。
+- 公开 facade：`VoiceFlowClient` / `VoiceFlowSession` / `VoiceFlowMicrophone` / `VoiceFlowConfig` / `VoiceFlowError` / `StreamCaption` / `StreamCaptionStore`。
+- 内部 protocol 也保持 public（`RealtimeTranscribing` / `AudioRecording` 等），让 VoiceFlow AppState 无需重构。新 host（OpenCode）应该用 facade，protocol 是兼容层。
+- 4 个 BulkProgress regression test（PR #34 修过的 race）从 Xcode test target 搬到 SPM tests target——之前 swift-testing 在 Xcode 不 discover，搬走后 discover 正常。
+- 验收：9 Kit tests + 59 unit tests + 11 UI tests + 手动全功能 smoke，0 行为退化。
+
+**PR #36 — 转写上下文 UI**
+
+- Settings 加 "Transcription" 分组，含 prompt + terms 两个字段（UserDefaults 持久化）。
+- `VoiceFlowConfig` 加 `prompt` + `terms` 字段。库内部用 `RealtimeSessionContext` 结构传递，覆盖 `beginLiveSession` 和 `transcribeBulkPCM` 两条路径。Wire payload `/v1/audio/realtime/sessions` POST body 包含 `prompt` + `terms` keys（空时不出现）。
+- 拿掉 PR #35 临时引入的 `language` 字段——backend 把语言提示当 prompt 拼接，独立 language 字段是冗余。
+- `InputCardSurface` ViewModifier 加进 SettingsView，所有输入框（API token、OpenCode 字段、prompt、terms）共用"深底浮起浅色卡片"视觉。详细规则见 `docs/design.md` 的 "Settings 输入控件视觉" 章节。
+- 4 个 Swift 6 concurrency warning 全清。Core protocol 标 `Sendable`，mock 标 `@unchecked Sendable`。
+- Mock 加 `lastLiveContext` / `lastBulkContext`，新 unit test 验证 prompt/terms 进 wire 完整。
+- `createRealtimeSession` 加 OSLog summary（`hasPrompt`/`promptChars`/`termsCount`），便于诊断 wiring 是否通。
+- 验收：9 Kit tests + 61 unit tests + 12 UI tests，手动确认 prompt 真的影响转写输出（用"指令 + Example"形态的 prompt）。
+
+**剩余工作**：见 `docs/Library.md`。下一步是 PR 3——让 OpenCode iOS Client 通过 SPM 远程依赖切换到 VoiceFlowKit，删掉那 950 行平行实现。
+
 ### 2026-05-27 (UX 重做：暖琥珀 / 深墨与纸白双模式)
 
 设计方向锁定在 GPT image 生成的候选 B（夜间深墨 + 暖琥珀）与候选 D（日间纸白 + 同色琥珀点缀）。Spec 在 `docs/design.md`。
