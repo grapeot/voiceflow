@@ -61,6 +61,7 @@ public actor VoiceFlowClient {
                 baseURL: config.endpoint.absoluteString,
                 token: token,
                 model: config.model,
+                context: RealtimeSessionContext(prompt: config.prompt, terms: config.terms),
                 onPartialTranscript: onPartialTranscript
             )
             return TranscriptionResult(text: text, requestID: UUID().uuidString)
@@ -79,6 +80,7 @@ public actor VoiceFlowClient {
                 baseURL: config.endpoint.absoluteString,
                 token: token,
                 model: config.model,
+                context: RealtimeSessionContext(prompt: config.prompt, terms: config.terms),
                 onEvent: { event in
                     bridge.emit(event)
                 }

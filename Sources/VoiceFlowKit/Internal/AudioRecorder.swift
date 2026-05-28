@@ -3,7 +3,7 @@
 #endif
 import Foundation
 
-public protocol AudioRecording {
+public protocol AudioRecording: Sendable {
     func requestPermission() async -> Bool
     func startRecording(onPCMChunk: (@Sendable (Data) -> Void)?) async throws
     func stopRecording() async throws -> URL
@@ -190,7 +190,9 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
 }
 #endif
 
-public final class MockAudioRecorder: AudioRecording {
+/// Test-only mock. Uses `@unchecked Sendable` because instances are
+/// mutated from a single test scope; not safe for real cross-actor sharing.
+public final class MockAudioRecorder: AudioRecording, @unchecked Sendable {
     public var permissionGranted: Bool
     public var outputURL: URL
     public var startError: Error?

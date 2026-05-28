@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol AIBuilderTranscribing {
+public protocol AIBuilderTranscribing: Sendable {
     func transcribe(audioFileURL: URL, baseURL: String, token: String) async throws -> String
 }
 
@@ -82,7 +82,10 @@ public struct AIBuilderTranscriptionClient: AIBuilderTranscribing {
     }
 }
 
-public final class MockAIBuilderTranscriptionClient: AIBuilderTranscribing {
+/// Test-only mock. Uses `@unchecked Sendable` because the test
+/// instances are mutated from a single test scope; not safe for real
+/// cross-actor sharing.
+public final class MockAIBuilderTranscriptionClient: AIBuilderTranscribing, @unchecked Sendable {
     public var result: Result<String, Error>
 
     public init(result: Result<String, Error>) {

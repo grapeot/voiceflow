@@ -13,6 +13,7 @@ struct SettingsView: View {
 
                 Form {
                     aiBuilderSection
+                    transcriptionSection
                     openCodeSection
                     languageSection
                     uiTestSection
@@ -38,7 +39,8 @@ struct SettingsView: View {
                     Text(appState.tokenDisplayValue)
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(DesignTokens.Palette.textSecondary)
-                        .padding(.vertical, DesignTokens.Spacing.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(InputCardSurface())
                         .accessibilityIdentifier("settings.apiTokenMaskedValue")
                 } else {
                     SecureField(localized("settings.apiToken.placeholder"), text: $tokenInput)
@@ -46,6 +48,7 @@ struct SettingsView: View {
                         .textFieldStyle(.plain)
                         .font(DesignTokens.Typography.body)
                         .foregroundStyle(DesignTokens.Palette.textPrimary)
+                        .modifier(InputCardSurface())
                         .accessibilityIdentifier("settings.apiTokenField")
                 }
             }
@@ -123,7 +126,7 @@ struct SettingsView: View {
 
     private var openCodeSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
                 Text(localized("settings.openCode.serverURL"))
                     .font(DesignTokens.Typography.captionSub)
                     .foregroundStyle(DesignTokens.Palette.textSecondary)
@@ -133,10 +136,11 @@ struct SettingsView: View {
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .modifier(InputCardSurface())
                     .accessibilityIdentifier("settings.openCodeServerURLField")
             }
 
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
                 Text(localized("settings.openCode.username"))
                     .font(DesignTokens.Typography.captionSub)
                     .foregroundStyle(DesignTokens.Palette.textSecondary)
@@ -146,10 +150,11 @@ struct SettingsView: View {
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .modifier(InputCardSurface())
                     .accessibilityIdentifier("settings.openCodeUsernameField")
             }
 
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
                 Text(localized("settings.openCode.password"))
                     .font(DesignTokens.Typography.captionSub)
                     .foregroundStyle(DesignTokens.Palette.textSecondary)
@@ -158,7 +163,8 @@ struct SettingsView: View {
                     Text(appState.openCodePasswordDisplayValue)
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(DesignTokens.Palette.textSecondary)
-                        .padding(.vertical, DesignTokens.Spacing.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(InputCardSurface())
                         .accessibilityIdentifier("settings.openCodePasswordMaskedValue")
                 } else {
                     SecureField(localized("settings.openCode.password"), text: $openCodePasswordInput)
@@ -166,6 +172,7 @@ struct SettingsView: View {
                         .textFieldStyle(.plain)
                         .font(DesignTokens.Typography.body)
                         .foregroundStyle(DesignTokens.Palette.textPrimary)
+                        .modifier(InputCardSurface())
                         .accessibilityIdentifier("settings.openCodePasswordField")
                 }
             }
@@ -249,6 +256,82 @@ struct SettingsView: View {
         }
     }
 
+    private var transcriptionSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+                Text(localized("settings.transcription.description"))
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                inputField(
+                    label: "settings.transcription.prompt",
+                    placeholder: "settings.transcription.prompt.placeholder",
+                    text: $appState.transcriptionPrompt,
+                    accessibilityIdentifier: "settings.transcriptionPromptField",
+                    multiline: true,
+                    capitalize: true
+                )
+
+                inputField(
+                    label: "settings.transcription.terms",
+                    placeholder: "settings.transcription.terms.placeholder",
+                    text: $appState.transcriptionTerms,
+                    accessibilityIdentifier: "settings.transcriptionTermsField",
+                    multiline: true,
+                    capitalize: false
+                )
+            }
+            .padding(.vertical, DesignTokens.Spacing.xs)
+        } header: {
+            Text(localized("settings.transcription.title"))
+                .font(DesignTokens.Typography.bodyBold)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .textCase(nil)
+        }
+        .listRowBackground(DesignTokens.Palette.bgSecondary)
+    }
+
+    /// Visual cue for "this is an input": a filled rounded surface in
+    /// `bg.primary` floating on the section's `bg.secondary`. Same
+    /// shape works for single-line and multi-line — multiline just
+    /// gets `axis: .vertical` and grows.
+    @ViewBuilder
+    private func inputField(
+        label labelKey: String,
+        placeholder placeholderKey: String,
+        text: Binding<String>,
+        accessibilityIdentifier identifier: String,
+        multiline: Bool = false,
+        capitalize: Bool = true
+    ) -> some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+            Text(localized(labelKey))
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(DesignTokens.Palette.textSecondary)
+
+            let field: AnyView = {
+                if multiline {
+                    return AnyView(
+                        TextField(localized(placeholderKey), text: text, axis: .vertical)
+                            .lineLimit(2...4)
+                    )
+                } else {
+                    return AnyView(TextField(localized(placeholderKey), text: text))
+                }
+            }()
+
+            field
+                .textFieldStyle(.plain)
+                .font(DesignTokens.Typography.body)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .textInputAutocapitalization(capitalize ? .sentences : .never)
+                .autocorrectionDisabled(!capitalize)
+                .modifier(InputCardSurface())
+                .accessibilityIdentifier(identifier)
+        }
+    }
+
     private var languageSection: some View {
         Section {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
@@ -309,4 +392,20 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environmentObject(AppState())
+}
+
+/// Visual cue for "this is an editable input field" inside Settings.
+/// A filled rounded surface in `bg.primary` floating on the section's
+/// `bg.secondary` listRowBackground. See docs/design.md > "Settings
+/// 输入控件视觉" for the rationale.
+struct InputCardSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, DesignTokens.Spacing.m)
+            .padding(.vertical, DesignTokens.Spacing.s + 2)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(DesignTokens.Palette.bgPrimary)
+            )
+    }
 }

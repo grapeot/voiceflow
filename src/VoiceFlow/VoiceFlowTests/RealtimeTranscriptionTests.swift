@@ -149,6 +149,7 @@ struct RealtimeTranscriptionTests {
             baseURL: "https://space.ai-builders.com/backend",
             token: "token",
             model: "gpt-realtime",
+            context: .empty,
             onEvent: { uiEvents.append($0) }
         )
 
@@ -157,7 +158,7 @@ struct RealtimeTranscriptionTests {
         await client.emitLiveEvent(.recoveryStarted)
         #expect(uiEvents.contains { if case .textDelta = $0 { return true }; return false } == false)
 
-        let finalized = try await session.finalize(onPartialTranscript: nil)
+        let finalized = try await session.finalize(onPartialTranscript: { _ in })
         await session.cancel()
 
         #expect(finalized == "final words")
@@ -171,11 +172,12 @@ struct RealtimeTranscriptionTests {
             baseURL: "https://space.ai-builders.com/backend",
             token: "token",
             model: "gpt-realtime",
+            context: .empty,
             onEvent: { events.append($0) }
         )
 
         await session.appendAudioChunk(Data(repeating: 0, count: 100))
-        let finalized = try await session.finalize(onPartialTranscript: nil)
+        let finalized = try await session.finalize(onPartialTranscript: { _ in })
         await session.cancel()
 
         #expect(finalized == "streamed words")

@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol AIBuilderConnectionTesting {
+public protocol AIBuilderConnectionTesting: Sendable {
     func testConnection(baseURL: String, token: String) async throws
 }
 

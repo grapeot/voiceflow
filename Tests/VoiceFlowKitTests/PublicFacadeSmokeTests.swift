@@ -8,7 +8,6 @@ struct PublicFacadeSmokeTests {
         let config = VoiceFlowConfig(tokenProvider: { "fake" })
         #expect(config.endpoint == VoiceFlowConfig.defaultEndpoint)
         #expect(config.model == VoiceFlowConfig.defaultModel)
-        #expect(config.language == nil)
         #expect(config.prompt == nil)
         #expect(config.terms.isEmpty)
     }

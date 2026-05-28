@@ -245,4 +245,28 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertGreaterThan(transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).count, 3)
         XCTAssertTrue(app.staticTexts["Copied to clipboard."].exists)
     }
+
+    func testTranscriptionSettingsFieldsAcceptInputAndPersistInForm() throws {
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
+
+        openSettings(in: app, label: "Settings")
+
+        let promptField = app.textFields["settings.transcriptionPromptField"]
+        XCTAssertTrue(reveal(promptField, in: app))
+        promptField.tap()
+        promptField.typeText("Talking about Kubernetes")
+
+        let termsField = app.textFields["settings.transcriptionTermsField"]
+        XCTAssertTrue(reveal(termsField, in: app))
+        termsField.tap()
+        termsField.typeText("k8s, gRPC")
+
+        // Hop to Record and back to dismiss the keyboard reliably, then
+        // verify the typed values survived the round-trip.
+        openRecord(in: app, label: "Record")
+        openSettings(in: app, label: "Settings")
+        XCTAssertTrue(reveal(promptField, in: app))
+        XCTAssertEqual(promptField.value as? String, "Talking about Kubernetes")
+        XCTAssertEqual(termsField.value as? String, "k8s, gRPC")
+    }
 }

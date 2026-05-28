@@ -128,6 +128,41 @@
 
 **实施分两阶段**：第一阶段保留现有 Form 结构（避免一次性改太多），只换色板、字体、去掉 `RoundedRectangle.stroke` 边框，让 Settings 看起来克制；第二阶段（V2）再把 Form 重写成自定义 list。这次 PR 做第一阶段。
 
+### Settings 输入控件视觉
+
+第一轮"全部走 SwiftUI `.textFieldStyle(.plain)`、无边框、无背景色"的尝试在实测中失败——用户反馈"我都不知道那个玩意能点、能输入"。原因是去掉 visual affordance 之后，输入框跟它周围的 label、说明文字看起来没区别，没人会去 tap 一个看上去是纯静态文字的区域。design.md 之前的"无边框、靠间距和字号建立层级"原则在 Record 屏那种**大留白**场景下成立，但在 Settings form 这种**信息密集**场景下需要补救。
+
+修正：Settings 输入控件用 **"填色卡片" 形态**——SwiftUI Form 的 `Section` 用 `bg.secondary` 作 `listRowBackground`，每个输入框在它上面叠一个 `bg.primary` 填色的 rounded rectangle（圆角 10pt）作为输入区域。结果是输入框看起来像一张**漂浮在 section 上的小卡片**，明确告诉用户"这里可以点、可以输入"。无边框原则保留——是 fill 而不是 stroke。
+
+```
+   ┌─────────────────────────────┐  ← section listRowBackground = bg.secondary
+   │                             │
+   │  Context prompt             │  ← label，13pt captionSub, text.secondary
+   │  ┌─────────────────────────┐│  ← 输入卡片：bg.primary 填色，
+   │  │ Free-form text the      ││     圆角 10，水平 padding 16，
+   │  │ model sees before…      ││     垂直 padding 10。placeholder 用
+   │  └─────────────────────────┘│     text.tertiary，输入文字用 text.primary。
+   │                             │
+   │  Terms                      │
+   │  ┌─────────────────────────┐│
+   │  │ Comma-separated terms…  ││
+   │  └─────────────────────────┘│
+   │                             │
+   └─────────────────────────────┘
+```
+
+视觉对比的层级：
+
+- **section listRowBackground**（`bg.secondary`）—— 比 view background 略亮的次级层
+- **输入卡片**（`bg.primary`）—— 跟 view 主色一致、视觉上凹陷感
+- **文字层级**：label = `text.secondary` 13pt，输入内容 = `text.primary` 17pt，placeholder = `text.tertiary` 17pt
+
+这个 pattern 在 dark mode 下读为"input 区域是一个挖出来的凹槽"，是 iOS 17+ 系统 Settings 里 Game Center、家庭等使用 grouped sections 时的同款手法。Light mode 下视觉对比天然减弱（两个浅色叠加），但因为 `bg.primary` 是纸白、`bg.secondary` 是略灰的纸白，仍然能看出"有一块小卡片在那"。
+
+适用范围：所有 multi-line 输入（Settings 的 prompt / terms）、所有 single-line 输入（token / password / OpenCode 服务器地址）都走同一套。Picker、Toggle、Button 不用这个 pattern——它们已经有自己的 affordance。
+
+这套规则是 **PR 2 阶段（2026-05-28）** 加进来的修正，对应 `SettingsView.swift` 里的 `inputField(label:placeholder:text:...)` helper。后续 V2 完整重做 Settings 时，这个 input card 视觉应该保留——它是 Settings 区域的稳定视觉语言。
+
 ## 组件级规格
 
 ### `WaveformView`（新组件）
