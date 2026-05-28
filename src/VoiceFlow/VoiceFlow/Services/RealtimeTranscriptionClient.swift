@@ -659,6 +659,20 @@ private actor BulkTranscriptionProgress {
         _ event: RealtimeTranscriptEvent,
         onPartialTranscript: (@Sendable (String) -> Void)?
     ) {
+        // Once the server has reported `.status(.idle)` (transcription
+        // complete) any subsequent `.disconnected` / `.error` events are
+        // just the WebSocket winding down on the way home and must not
+        // be treated as failures — otherwise resend reports "transcription
+        // failed" right after successfully delivering the transcript.
+        if finishedValue {
+            if case .textDelta = event {
+                // Ignore — accumulating further deltas after .idle would
+                // corrupt the final value; the server already told us
+                // it's done.
+            }
+            return
+        }
+
         switch event {
         case .textDelta(let content, let isNewResponse):
             transcriptValue = TranscriptDeltaReducer.apply(
