@@ -194,6 +194,8 @@ struct RecordView: View {
                     .frame(width: DesignTokens.Sizing.ghostButton,
                            height: DesignTokens.Sizing.ghostButton)
                     .foregroundStyle(DesignTokens.Palette.textSecondary)
+                    .contentShape(.hoverEffect, Circle())
+                    .hoverEffect(.lift)
             }
             .accessibilityIdentifier("record.moreButton")
 

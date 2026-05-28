@@ -21,6 +21,8 @@ struct GhostIconButton: View {
                     : DesignTokens.Palette.textTertiary
                 )
                 .opacity(isEnabled ? 1.0 : 0.6)
+                .contentShape(.hoverEffect, Circle())
+                .hoverEffect(.lift)
         }
         .disabled(!isEnabled)
         .accessibilityLabel(accessibilityLabel.map { Text($0) } ?? Text(verbatim: ""))
