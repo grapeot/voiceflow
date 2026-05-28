@@ -863,47 +863,13 @@ final class AppState: ObservableObject {
         await liveTranscriptionSession?.sendAudioChunk(chunk)
     }
 
-    /// Compute RMS of a PCM16 little-endian chunk, normalize to 0…1 with a
-    /// gentle perceptual curve, and feed it into an exponential moving
-    /// average so the waveform never jitters on short silences mid-syllable.
+    /// Compute RMS of a PCM16 little-endian chunk via VoiceFlowKit's metering
+    /// helper, then feed it into an exponential moving average so the waveform
+    /// never jitters on short silences mid-syllable. 30 % new sample,
+    /// 70 % carried — short attack, slow release.
     private func updateAudioLevel(from chunk: Data) {
-        let normalized = Self.normalizedLevel(fromPCM16LE: chunk)
-        // 30 % new sample, 70 % carried — short attack, slow release.
-        let smoothed = audioLevel * 0.7 + normalized * 0.3
-        audioLevel = smoothed
-    }
-
-    private static func normalizedLevel(fromPCM16LE data: Data) -> Float {
-        let sampleCount = data.count / 2
-        guard sampleCount > 0 else { return 0 }
-
-        let sumSquares: Double = data.withUnsafeBytes { raw -> Double in
-            guard let base = raw.baseAddress else { return 0 }
-            var accumulator: Double = 0
-            // Read little-endian Int16 samples without assuming alignment.
-            for i in 0..<sampleCount {
-                let lo = Int16(base.load(fromByteOffset: i * 2,     as: UInt8.self))
-                let hi = Int16(base.load(fromByteOffset: i * 2 + 1, as: UInt8.self))
-                let raw = (hi << 8) | (lo & 0xFF)
-                let sample = Double(raw) / 32768.0
-                accumulator += sample * sample
-            }
-            return accumulator
-        }
-
-        let rms = sqrt(sumSquares / Double(sampleCount))
-
-        // dB-based mapping. Typical phone-mic speech RMS sits around 0.03–0.15
-        // (−30…−16 dB FS). Mapping [−50, −10] dB → [0, 1] makes quiet rooms
-        // settle near 0 and a normal talking voice reach ~0.7–0.9 — closer to
-        // what a user expects when watching a meter. A 0.9× tail keeps loud
-        // syllables from pinning the visual ceiling so headroom stays visible.
-        let dB = 20.0 * log10(max(rms, 1e-7))
-        let minDB = -50.0
-        let maxDB = -10.0
-        let normalized = (dB - minDB) / (maxDB - minDB)
-        let scaled = normalized * 0.9
-        return Float(min(max(scaled, 0), 1))
+        let normalized = VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE: chunk)
+        audioLevel = audioLevel * 0.7 + normalized * 0.3
     }
 
     private func updateTranscriptDuringFinalize(_ partial: String) {
