@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let sessionLogger = Logger(subsystem: "com.voiceflow.kit", category: "Session")
 
 private nonisolated struct FinalizeTranscriptAccumulator: Sendable {
     private(set) var partialText = ""
@@ -35,11 +38,28 @@ private nonisolated final class LiveSessionHandleBox: @unchecked Sendable {
     var handle: RealtimeLiveSessionHandle?
 }
 
+/// Optional per-call hints the host wants the transcription model to
+/// read before working. The backend concatenates these into the
+/// underlying prompt — there's no separate "language" knob because the
+/// model treats language hints as natural-language context.
+public struct RealtimeSessionContext: Sendable, Equatable {
+    public var prompt: String?
+    public var terms: [String]
+
+    public init(prompt: String? = nil, terms: [String] = []) {
+        self.prompt = prompt
+        self.terms = terms
+    }
+
+    public static let empty = RealtimeSessionContext()
+}
+
 public protocol RealtimeTranscribing: Sendable {
     func beginLiveSession(
         baseURL: String,
         token: String,
         model: String,
+        context: RealtimeSessionContext,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession
 
@@ -48,6 +68,7 @@ public protocol RealtimeTranscribing: Sendable {
         baseURL: String,
         token: String,
         model: String,
+        context: RealtimeSessionContext,
         onPartialTranscript: (@Sendable (String) -> Void)?
     ) async throws -> String
 }
@@ -463,6 +484,7 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String = RealtimeTranscriptionConfig.defaultModel,
+        context: RealtimeSessionContext = .empty,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession {
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -478,6 +500,7 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
                 token: trimmedToken,
                 model: model,
                 vad: false,
+                context: context,
                 onEvent: { event in
                     guard let boundHandle = handleBox.handle else { return }
                     Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
@@ -493,6 +516,7 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
                     token: trimmedToken,
                     model: model,
                     vad: false,
+                    context: context,
                     onEvent: { event in
                         guard let boundHandle = handleBox.handle else { return }
                         Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
@@ -512,6 +536,7 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String = RealtimeTranscriptionConfig.defaultModel,
+        context: RealtimeSessionContext = .empty,
         onPartialTranscript: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         guard !pcmData.isEmpty else {
@@ -525,6 +550,7 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
             token: token,
             model: model,
             vad: false,
+            context: context,
             onEvent: { event in
                 Task {
                     await progress.handle(event, onPartialTranscript: onPartialTranscript)
@@ -575,6 +601,7 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
         token: String,
         model: String,
         vad: Bool = false,
+        context: RealtimeSessionContext = .empty,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeTranscriptionSession {
         let normalizedBase = try RealtimeAPIURLBuilder.normalizedBaseURL(from: baseURL)
@@ -582,7 +609,8 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
             baseURL: normalizedBase,
             token: token,
             model: model,
-            vad: vad
+            vad: vad,
+            context: context
         )
         let websocketURL = try RealtimeAPIURLBuilder.realtimeWebSocketURL(
             baseURL: normalizedBase,
@@ -615,7 +643,8 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: URL,
         token: String,
         model: String,
-        vad: Bool
+        vad: Bool,
+        context: RealtimeSessionContext
     ) async throws -> RealtimeSessionCreateResponse {
         guard let url = RealtimeAPIURLBuilder.buildAPIURL(
             base: baseURL,
@@ -624,11 +653,25 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
             throw RealtimeTranscriptionError.invalidBaseURL
         }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": model,
             "vad": vad,
             "silence_duration_ms": 1200
         ]
+        if let prompt = context.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !prompt.isEmpty {
+            payload["prompt"] = prompt
+        }
+        if !context.terms.isEmpty {
+            payload["terms"] = context.terms
+        }
+
+        // Log which optional context fields actually went on the wire
+        // (just the keys + character counts — never log the values
+        // themselves; they may contain user-sensitive context).
+        let promptLen = (payload["prompt"] as? String)?.count ?? 0
+        let termsCount = (payload["terms"] as? [String])?.count ?? 0
+        sessionLogger.notice("session.create payload model=\(model, privacy: .public) hasPrompt=\(promptLen > 0, privacy: .public) promptChars=\(promptLen, privacy: .public) termsCount=\(termsCount, privacy: .public)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -733,16 +776,23 @@ public final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         self.bulkResult = bulkResult ?? liveResult
     }
 
+    /// Mock records the last context passed in so tests can assert
+    /// that prompt/terms made it through the wiring layer.
+    public private(set) var lastLiveContext: RealtimeSessionContext = .empty
+    public private(set) var lastBulkContext: RealtimeSessionContext = .empty
+
     public func beginLiveSession(
         baseURL: String,
         token: String,
         model: String,
+        context: RealtimeSessionContext,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession {
         liveEventHandler = onEvent
         liveOnEvent = onEvent
         livePhase = .connected
         liveIsFinalizing = false
+        lastLiveContext = context
         onEvent(.status(.connected))
         return MockLiveSessionProxy(client: self)
     }
@@ -782,8 +832,10 @@ public final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String,
+        context: RealtimeSessionContext,
         onPartialTranscript: (@Sendable (String) -> Void)?
     ) async throws -> String {
+        lastBulkContext = context
         let text = try bulkResult.get()
         onPartialTranscript?(text)
         onPartialTranscript?(text)

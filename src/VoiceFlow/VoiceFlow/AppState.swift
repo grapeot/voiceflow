@@ -108,6 +108,20 @@ final class AppState: ObservableObject {
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }
+    /// Free-form context prompt passed to the transcription model.
+    /// Helps with proper nouns, jargon, code-switching, and language
+    /// hints (the user can write e.g. "Speaker is using Mandarin
+    /// Chinese" if they want to nudge language detection). Persisted
+    /// in UserDefaults so it survives relaunch.
+    @Published var transcriptionPrompt: String {
+        didSet { UserDefaults.standard.set(transcriptionPrompt, forKey: Self.transcriptionPromptDefaultsKey) }
+    }
+    /// Comma-separated list of domain-specific terms the recognizer should
+    /// preserve verbatim. Stored as a single string in the UI to keep the
+    /// editing UX simple; parsed into [String] when handed to the kit.
+    @Published var transcriptionTerms: String {
+        didSet { UserDefaults.standard.set(transcriptionTerms, forKey: Self.transcriptionTermsDefaultsKey) }
+    }
 
     let aiBuilderEndpoint = "https://space.ai-builders.com/backend"
     private let keychainStore: KeychainStoring
@@ -123,6 +137,8 @@ final class AppState: ObservableObject {
     private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
     private static let openCodeUsernameDefaultsKey = "openCodeUsername"
     private static let appLanguageDefaultsKey = "appLanguage"
+    private static let transcriptionPromptDefaultsKey = "transcriptionPrompt"
+    private static let transcriptionTermsDefaultsKey = "transcriptionTerms"
     private var lastRecordingURL: URL?
     private var recordingTimerStartDate: Date?
     private var recordingTimer: Timer?
@@ -153,11 +169,15 @@ final class AppState: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
         }
         self.openCodeServerURL = UserDefaults.standard.string(forKey: Self.openCodeServerURLDefaultsKey) ?? OpenCodeClient.defaultServerURL
         self.openCodeUsername = UserDefaults.standard.string(forKey: Self.openCodeUsernameDefaultsKey) ?? OpenCodeClient.defaultUsername
         let savedLanguage = UserDefaults.standard.string(forKey: Self.appLanguageDefaultsKey).flatMap(AppLanguage.init(rawValue:))
         self.appLanguage = savedLanguage ?? .system
+        self.transcriptionPrompt = UserDefaults.standard.string(forKey: Self.transcriptionPromptDefaultsKey) ?? ""
+        self.transcriptionTerms = UserDefaults.standard.string(forKey: Self.transcriptionTermsDefaultsKey) ?? ""
         self.keychainStore = keychainStore ?? (isUITestMode ? InMemoryKeychainStore() : KeychainStore())
         if let aiBuilderClient {
             self.aiBuilderClient = aiBuilderClient
@@ -241,9 +261,13 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
         openCodeServerURL = OpenCodeClient.defaultServerURL
         openCodeUsername = OpenCodeClient.defaultUsername
         appLanguage = .system
+        transcriptionPrompt = ""
+        transcriptionTerms = ""
 
         try? keychainStore.deleteString(for: tokenKey)
         try? keychainStore.deleteString(for: openCodePasswordKey)
@@ -401,6 +425,7 @@ final class AppState: ObservableObject {
                 baseURL: aiBuilderEndpoint,
                 token: token,
                 model: RealtimeTranscriptionConfig.defaultModel,
+                context: currentTranscriptionContext(),
                 onEvent: { [weak self] event in
                     guard let self else { return }
                     Task { @MainActor in
@@ -665,6 +690,21 @@ final class AppState: ObservableObject {
         diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
     }
 
+    /// Build the per-call `RealtimeSessionContext` from the user's
+    /// Settings. Prompt is passed through verbatim; terms is split on
+    /// commas and trimmed so the wire payload is a clean string array.
+    private func currentTranscriptionContext() -> RealtimeSessionContext {
+        let trimmedPrompt = transcriptionPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedTerms = transcriptionTerms
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return RealtimeSessionContext(
+            prompt: trimmedPrompt.isEmpty ? nil : trimmedPrompt,
+            terms: parsedTerms
+        )
+    }
+
     private func diagnosticMetadata(for error: Error) -> [String: String] {
         DiagnosticErrorMetadata.metadata(for: error)
     }
@@ -719,7 +759,8 @@ final class AppState: ObservableObject {
                 pcmData: pcmData,
                 baseURL: aiBuilderEndpoint,
                 token: token,
-                model: RealtimeTranscriptionConfig.defaultModel
+                model: RealtimeTranscriptionConfig.defaultModel,
+                context: currentTranscriptionContext()
             ) { [weak self] partial in
                 guard let self else { return }
                 Task { @MainActor in

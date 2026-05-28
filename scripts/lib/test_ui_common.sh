@@ -25,6 +25,7 @@ voiceflow_test_ui_only_testing_args() {
         "VoiceFlowUITests/VoiceFlowUITests/testSettingsDismissesKeyboardWhenTappingOutsideFields"
         "VoiceFlowUITests/VoiceFlowUITests/testSettingsLanguagePreferenceOverridesSystemLanguage"
         "VoiceFlowUITests/VoiceFlowUITests/testTokenIsMaskedAfterSavingAndCanBeCleared"
+        "VoiceFlowUITests/VoiceFlowUITests/testTranscriptionSettingsFieldsAcceptInputAndPersistInForm"
       )
       ;;
     perf)

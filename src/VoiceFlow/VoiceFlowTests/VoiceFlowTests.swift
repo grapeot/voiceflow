@@ -693,6 +693,55 @@ struct VoiceFlowTests {
         #expect(clipboard.writtenText == "voice text")
     }
 
+    @Test func transcriptionPromptAndTermsPropagateIntoLiveSessionContext() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionPrompt = "All caps please"
+        state.transcriptionTerms = "Kubernetes, gRPC, , Anthropic"
+
+        await state.startRecording()
+        #expect(state.recordingStatus == .recording)
+
+        let captured = await realtimeClient.lastLiveContext
+        #expect(captured.prompt == "All caps please")
+        #expect(captured.terms == ["Kubernetes", "gRPC", "Anthropic"])
+
+        await state.stopRecording()
+    }
+
+    @Test func emptyTranscriptionPromptAndTermsResultInEmptyContext() async throws {
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            realtimeTranscriptionClient: realtimeClient
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        // Default values (empty) and whitespace-only inputs should
+        // translate to a nil prompt + empty terms — the host shouldn't
+        // send "" to the backend.
+        state.transcriptionPrompt = "   \n  "
+        state.transcriptionTerms = " , , "
+
+        await state.startRecording()
+        let captured = await realtimeClient.lastLiveContext
+        #expect(captured.prompt == nil)
+        #expect(captured.terms.isEmpty)
+
+        await state.stopRecording()
+    }
+
     @Test func recordingDiagnosticsCaptureSafeSuccessPath() async throws {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-diagnostics-test.wav")
         try Data("audio".utf8).write(to: fileURL)
