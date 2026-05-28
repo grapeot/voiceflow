@@ -38,6 +38,9 @@ tmp/
 *.m4a
 *.caf
 
+# Allow checked-in test fixtures
+!Tests/**/Fixtures/*.wav
+
 # Test and cache artifacts
 .pytest_cache/
 __pycache__/
