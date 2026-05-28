@@ -26,6 +26,16 @@ struct VoiceFlowApp: App {
     var body: some Scene {
         WindowGroup {
             localizedRootView
+            #if os(visionOS)
+            // On visionOS the SwiftUI `colorScheme` env defaults to `.dark`
+            // regardless of the user's Settings → Appearance preference,
+            // and UIKit's trait collection follows suit. Pin the whole
+            // app to Light here so the design tokens render the warm
+            // paper-white palette that matches Vision Pro's glass UI.
+            // (A Settings → Appearance toggle is planned for V0 but not
+            // shipped; see docs/design.md.)
+            .preferredColorScheme(.light)
+            #endif
         }
         #if os(visionOS)
         // Portrait-ish phone-sized window. Avoids the very wide default that

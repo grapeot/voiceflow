@@ -33,6 +33,13 @@ struct CapsuleButton: View {
             .foregroundStyle(foregroundColor)
             .background(backgroundView)
             .opacity(isEnabled ? 1.0 : 0.4)
+            // Constrain visionOS gaze-hover highlight to the capsule shape
+            // and let `.lift` give a clear focused affordance — otherwise
+            // outlined / ghost roles read as "no focus" even when they are
+            // the user's gaze target, and focus appears to "jump" to a
+            // neighboring filled control.
+            .contentShape(.hoverEffect, Capsule())
+            .hoverEffect(.lift)
         }
         .buttonStyle(CapsulePressStyle())
         .disabled(!isEnabled)
