@@ -18,13 +18,43 @@ public actor VoiceFlowClient {
         self.transcriber = RealtimeTranscriptionClient()
     }
 
-    /// Test-only initializer. Hosts inject a mock conforming to the
-    /// internal transcribing protocol. Not part of the SemVer-stable
-    /// surface — kept `internal` to the kit; callers must reach in via
-    /// `@testable import VoiceFlowKit`.
+    /// Internal initializer. The host's own test target can reach this
+    /// via `@testable import VoiceFlowKit` and inject a custom mock
+    /// conforming to the internal transcribing protocol — handy for
+    /// scripting precise event sequences in unit tests. Production app
+    /// code that just needs an offline client (UI test launch mode,
+    /// SwiftUI previews) should use `makeStub(...)` instead.
     init(config: VoiceFlowConfig, transcriber: any RealtimeTranscribing) {
         self.config = config
         self.transcriber = transcriber
+    }
+
+    /// Offline stub client. Does not open a WebSocket; `startSession`
+    /// returns a session whose `commitAndStop` resolves to the canned
+    /// `liveTranscript` after emitting a `connected → idle` event
+    /// sequence. `transcribe(audioFile:)` returns `bulkTranscript`
+    /// (falls back to `liveTranscript` if unset).
+    ///
+    /// Use this in:
+    /// - App UI test launch modes (`-uiTestMode` style flags) where
+    ///   the host needs a `VoiceFlowClient` that behaves end-to-end
+    ///   without network access.
+    /// - SwiftUI previews and design-time scaffolding.
+    ///
+    /// Tokens in `config.tokenProvider` are ignored; the stub does not
+    /// authenticate. The returned client is otherwise indistinguishable
+    /// from a production one — the same facade types flow out, the
+    /// same lifecycle methods work.
+    public static func makeStub(
+        config: VoiceFlowConfig = VoiceFlowConfig(tokenProvider: { "stub-token" }),
+        liveTranscript: String = "Mock transcription",
+        bulkTranscript: String? = nil
+    ) -> VoiceFlowClient {
+        let transcriber = MockRealtimeTranscriptionClient(
+            liveResult: .success(liveTranscript),
+            bulkResult: .success(bulkTranscript ?? liveTranscript)
+        )
+        return VoiceFlowClient(config: config, transcriber: transcriber)
     }
 
     /// Replace the entire config. Effective on the next call.

@@ -78,7 +78,7 @@ final class AppState: ObservableObject {
     @Published private(set) var lastSavedRecording: SavedRecordingInfo?
     @Published var shouldPresentSavedRecordingAlert = false
     @Published var connectionStatus: ConnectionStatus = .untested
-    @Published private(set) var streamConnectionPhase: RealtimeConnectionPhase = .disconnected
+    @Published private(set) var streamConnectionPhase: VoiceFlowConnectionPhase = .disconnected
     /// Long-lived status the user should keep seeing — currently
     /// "Reconnecting…" while the stream is auto-recovering and
     /// "Stream disconnected." after recovery fails. Set this directly only
@@ -128,7 +128,7 @@ final class AppState: ObservableObject {
     private let aiBuilderClient: AIBuilderConnectionTesting
     private let audioRecorder: AudioRecording
     private let transcriptionClient: AIBuilderTranscribing
-    private let realtimeTranscriptionClient: RealtimeTranscribing
+    private let voiceFlowClient: VoiceFlowClient
     private let clipboardWriter: ClipboardWriting
     private let openCodeClient: OpenCodeSending
     private let diagnostics: RecordingDiagnosticsReporting
@@ -139,11 +139,12 @@ final class AppState: ObservableObject {
     private static let appLanguageDefaultsKey = "appLanguage"
     private static let transcriptionPromptDefaultsKey = "transcriptionPrompt"
     private static let transcriptionTermsDefaultsKey = "transcriptionTerms"
+    private static let streamHeartbeatIntervalSeconds: UInt64 = 12
     private var lastRecordingURL: URL?
     private var recordingTimerStartDate: Date?
     private var recordingTimer: Timer?
-    private var liveTranscriptionSession: (any RealtimeLiveTranscriptionSession)?
-    private var audioChunkEncoder = AudioChunkEncoder()
+    private var liveTranscriptionSession: VoiceFlowSession?
+    private var liveEventConsumerTask: Task<Void, Never>?
     private var streamHeartbeatTask: Task<Void, Never>?
     private var lastStreamClipboardHash: Int?
     private var lastStreamClipboardUpdate: Date?
@@ -154,12 +155,21 @@ final class AppState: ObservableObject {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
+    /// Default stub VoiceFlowClient for UI test mode and unit-test target
+    /// auto-discovery. Tests that need behavior beyond the canned stub
+    /// (custom mock state, error injection, event scripting) construct
+    /// their own via `@testable import VoiceFlowKit` and pass it through
+    /// the `voiceFlowClient:` DI parameter.
+    private static func makeMockVoiceFlowClient() -> VoiceFlowClient {
+        VoiceFlowClient.makeStub(liveTranscript: "Mock transcription")
+    }
+
     init(
         keychainStore: KeychainStoring? = nil,
         aiBuilderClient: AIBuilderConnectionTesting? = nil,
         audioRecorder: AudioRecording? = nil,
         transcriptionClient: AIBuilderTranscribing? = nil,
-        realtimeTranscriptionClient: RealtimeTranscribing? = nil,
+        voiceFlowClient: VoiceFlowClient? = nil,
         clipboardWriter: ClipboardWriting? = nil,
         openCodeClient: OpenCodeSending? = nil,
         diagnostics: RecordingDiagnosticsReporting? = nil
@@ -188,7 +198,22 @@ final class AppState: ObservableObject {
         }
         self.audioRecorder = audioRecorder ?? (isUITestMode ? MockAudioRecorder() : AudioRecorder())
         self.transcriptionClient = transcriptionClient ?? (isUITestMode ? MockAIBuilderTranscriptionClient(result: .success("Mock transcription")) : AIBuilderTranscriptionClient())
-        self.realtimeTranscriptionClient = realtimeTranscriptionClient ?? ((isUITestMode || Self.isRunningUnitTests) ? MockRealtimeTranscriptionClient(liveResult: .success("Mock transcription")) : RealtimeTranscriptionClient())
+        if let voiceFlowClient {
+            self.voiceFlowClient = voiceFlowClient
+        } else if isUITestMode || Self.isRunningUnitTests {
+            self.voiceFlowClient = AppState.makeMockVoiceFlowClient()
+        } else {
+            let keychain = self.keychainStore
+            let tokenLookupKey = self.tokenKey
+            let config = VoiceFlowConfig(
+                endpoint: URL(string: aiBuilderEndpoint)!,
+                tokenProvider: {
+                    let stored = try? keychain.readString(for: tokenLookupKey)
+                    return stored ?? ""
+                }
+            )
+            self.voiceFlowClient = VoiceFlowClient(config: config)
+        }
         self.clipboardWriter = clipboardWriter ?? (isUITestMode ? MockClipboardWriter() : SystemClipboardWriter())
         if let openCodeClient {
             self.openCodeClient = openCodeClient
@@ -256,7 +281,6 @@ final class AppState: ObservableObject {
         lastStreamClipboardUpdate = nil
         isTranscriptionTeardown = false
         selectedTab = .record
-        audioChunkEncoder = AudioChunkEncoder()
 
         UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
@@ -417,22 +441,13 @@ final class AppState: ObservableObject {
             lastSavedRecording = nil
             shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
-            audioChunkEncoder = AudioChunkEncoder()
             streamConnectionPhase = .connecting
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": "stream"])
 
-            liveTranscriptionSession = try await realtimeTranscriptionClient.beginLiveSession(
-                baseURL: aiBuilderEndpoint,
-                token: token,
-                model: RealtimeTranscriptionConfig.defaultModel,
-                context: currentTranscriptionContext(),
-                onEvent: { [weak self] event in
-                    guard let self else { return }
-                    Task { @MainActor in
-                        self.handleStreamEvent(event)
-                    }
-                }
-            )
+            await applyCurrentTranscriptionConfig(token: token)
+            let session = try await voiceFlowClient.startSession()
+            liveTranscriptionSession = session
+            startLiveEventConsumer(for: session)
             startStreamHeartbeat()
 
             try await audioRecorder.startRecording { [weak self] chunk in
@@ -491,17 +506,18 @@ final class AppState: ObservableObject {
         }
         try? FileManager.default.removeItem(at: audioURL)
 
-        await flushRemainingAudioChunks()
         await finishLiveTranscriptionSession()
     }
 
     func handleScenePhaseChange(to phase: ScenePhase) async {
         switch phase {
         case .active:
-            await liveTranscriptionSession?.heartbeat()
+            await liveTranscriptionSession?.ping()
         case .background:
             stopStreamHeartbeat()
             await liveTranscriptionSession?.cancel()
+            liveEventConsumerTask?.cancel()
+            liveEventConsumerTask = nil
             liveTranscriptionSession = nil
             streamConnectionPhase = .disconnected
             clearStreamCaptions()
@@ -690,19 +706,42 @@ final class AppState: ObservableObject {
         diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
     }
 
-    /// Build the per-call `RealtimeSessionContext` from the user's
-    /// Settings. Prompt is passed through verbatim; terms is split on
-    /// commas and trimmed so the wire payload is a clean string array.
-    private func currentTranscriptionContext() -> RealtimeSessionContext {
+    /// Refresh the kit-side config with the current token + prompt + terms
+    /// from Settings. `tokenProvider` is rebuilt to close over the token
+    /// value (rather than re-reading Keychain on every call) so the
+    /// session sees a consistent token even if the user clears it
+    /// mid-session.
+    private func applyCurrentTranscriptionConfig(token: String) async {
         let trimmedPrompt = transcriptionPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let parsedTerms = transcriptionTerms
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        return RealtimeSessionContext(
+        let endpoint = URL(string: aiBuilderEndpoint)!
+        let config = VoiceFlowConfig(
+            endpoint: endpoint,
+            tokenProvider: { token },
             prompt: trimmedPrompt.isEmpty ? nil : trimmedPrompt,
             terms: parsedTerms
         )
+        await voiceFlowClient.updateConfig(config)
+    }
+
+    /// Drain the session's event stream onto the main actor. The stream
+    /// is cold; iteration starts here and runs until the session is
+    /// torn down (commit / cancel / error). Cancelling
+    /// `liveEventConsumerTask` is how we unsubscribe.
+    private func startLiveEventConsumer(for session: VoiceFlowSession) {
+        liveEventConsumerTask?.cancel()
+        liveEventConsumerTask = Task { [weak self] in
+            let events = await session.events
+            for await event in events {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.handleStreamEvent(event)
+                }
+            }
+        }
     }
 
     private func diagnosticMetadata(for error: Error) -> [String: String] {
@@ -754,19 +793,13 @@ final class AppState: ObservableObject {
 
         do {
             recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "bulk"])
-            let pcmData = try PCM16WAVWriter.readPCM(from: audioURL)
-            let transcribedText = try await realtimeTranscriptionClient.transcribeBulkPCM(
-                pcmData: pcmData,
-                baseURL: aiBuilderEndpoint,
-                token: token,
-                model: RealtimeTranscriptionConfig.defaultModel,
-                context: currentTranscriptionContext()
-            ) { [weak self] partial in
-                guard let self else { return }
+            await applyCurrentTranscriptionConfig(token: token)
+            let result = try await voiceFlowClient.transcribe(audioFile: audioURL) { [weak self] partial in
                 Task { @MainActor in
-                    self.transcript = partial
+                    self?.transcript = partial
                 }
             }
+            let transcribedText = result.text
             recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)", "mode": "bulk"])
             return transcribedText
         } catch {
@@ -778,64 +811,29 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func handleStreamEvent(_ event: RealtimeTranscriptEvent) {
+    private func handleStreamEvent(_ event: VoiceFlowEvent) {
         switch event {
-        case .status(let status):
-            switch status {
-            case .connected, .connecting:
-                if recordingStatus == .recording {
-                    streamConnectionPhase = .connected
-                    if persistentStreamCaptionKey == "record.status.reconnecting" {
-                        setPersistentStreamCaption(nil)
-                        flashTransientStreamCaption("record.status.reconnected")
-                    }
-                }
-            case .generating:
-                streamConnectionPhase = .generating
-            case .idle:
-                streamConnectionPhase = .disconnected
-            }
-        case .textDelta(let content, let isNewResponse):
+        case .partialTranscript(let content):
             guard recordingStatus != .recording else { return }
-            if !userEditedTranscriptDuringStream || isNewResponse {
-                transcript = TranscriptDeltaReducer.apply(
-                    current: transcript,
-                    content: content,
-                    isNewResponse: isNewResponse
-                )
+            if !userEditedTranscriptDuringStream {
+                transcript = content
                 throttledStreamClipboardWrite(transcript)
             }
-        case .error(let message):
-            if RealtimeTranscriptionSupport.isRecoverableBufferTooSmallError(message),
-               recordingStatus == .recording || isTranscriptionTeardown {
-                return
-            }
-            if isTranscriptionTeardown || recordingStatus == .transcribing {
-                recordDiagnostic(
-                    "transcription_stream_error_ignored",
-                    metadata: ["reason": message, "phase": isTranscriptionTeardown ? "teardown" : "transcribing"]
-                )
-                if recordingStatus == .transcribing, !isTranscriptionTeardown {
-                    setPersistentStreamCaption("record.error.streamDisconnected")
+        case .phaseChanged(let phase):
+            streamConnectionPhase = phase
+            switch phase {
+            case .connected, .connecting:
+                if recordingStatus == .recording,
+                   persistentStreamCaptionKey == "record.status.reconnecting" {
+                    setPersistentStreamCaption(nil)
+                    flashTransientStreamCaption("record.status.reconnected")
                 }
-                return
-            }
-            recordDiagnostic("transcription_stream_error", metadata: ["reason": message])
-            streamConnectionPhase = .disconnected
-            if recordingStatus == .recording {
-                setPersistentStreamCaption("record.status.reconnecting")
-            } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                setPersistentStreamCaption("record.error.streamDisconnected")
-            } else {
-                presentRecordError("record.error.transcriptionFailed")
-            }
-        case .disconnected:
-            if isTranscriptionTeardown {
-                return
-            }
-            streamConnectionPhase = .disconnected
-            if recordingStatus == .recording {
-                setPersistentStreamCaption("record.status.reconnecting")
+            case .recovering:
+                if recordingStatus == .recording {
+                    setPersistentStreamCaption("record.status.reconnecting")
+                }
+            case .disconnected, .generating:
+                break
             }
         case .recoveryStarted:
             streamConnectionPhase = .recovering
@@ -843,31 +841,26 @@ final class AppState: ObservableObject {
                 setPersistentStreamCaption("record.status.reconnecting")
             }
         case .recoveryFailed(let message):
+            if isTranscriptionTeardown {
+                return
+            }
             recordDiagnostic("transcription_stream_recovery_failed", metadata: ["reason": message])
             streamConnectionPhase = .disconnected
             if recordingStatus == .recording {
                 setPersistentStreamCaption("record.error.streamDisconnected")
+            } else if recordingStatus == .transcribing {
+                setPersistentStreamCaption("record.error.streamDisconnected")
             } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 setPersistentStreamCaption("record.error.streamDisconnected")
+            } else {
+                presentRecordError("record.error.transcriptionFailed")
             }
         }
     }
 
     private func handleCapturedPCMChunk(_ chunk: Data) async {
         updateAudioLevel(from: chunk)
-
-        let chunks = audioChunkEncoder.append(chunk)
-        for encodedChunk in chunks {
-            await liveTranscriptionSession?.appendAudioChunk(encodedChunk)
-        }
-        if let session = liveTranscriptionSession {
-            let phase = await session.connectionPhase
-            streamConnectionPhase = phase
-            if phase == .connected, persistentStreamCaptionKey == "record.status.reconnecting" {
-                setPersistentStreamCaption(nil)
-                flashTransientStreamCaption("record.status.reconnected")
-            }
-        }
+        await liveTranscriptionSession?.sendAudioChunk(chunk)
     }
 
     /// Compute RMS of a PCM16 little-endian chunk, normalize to 0…1 with a
@@ -913,12 +906,6 @@ final class AppState: ObservableObject {
         return Float(min(max(scaled, 0), 1))
     }
 
-    private func flushRemainingAudioChunks() async {
-        let remainder = audioChunkEncoder.flushRemainder()
-        guard !remainder.isEmpty else { return }
-        await liveTranscriptionSession?.appendAudioChunk(remainder)
-    }
-
     private func updateTranscriptDuringFinalize(_ partial: String) {
         transcript = partial
         throttledStreamClipboardWrite(partial)
@@ -947,7 +934,7 @@ final class AppState: ObservableObject {
         recordDiagnostic("transcription_finalize_started", metadata: ["hasToken": "true", "mode": "stream"])
         var streamText = ""
         do {
-            streamText = try await session.finalize(onPartialTranscript: makeFinalizePartialHandler())
+            streamText = try await session.commitAndStop(onPartialTranscript: makeFinalizePartialHandler())
             recordDiagnostic(
                 "transcription_finalize_stream_done",
                 metadata: ["characterCount": "\(streamText.count)"]
@@ -1007,6 +994,8 @@ final class AppState: ObservableObject {
 
     private func cancelLiveTranscriptionSession() async {
         stopStreamHeartbeat()
+        liveEventConsumerTask?.cancel()
+        liveEventConsumerTask = nil
         if let session = liveTranscriptionSession {
             await session.cancel()
         }
@@ -1020,15 +1009,9 @@ final class AppState: ObservableObject {
         stopStreamHeartbeat()
         streamHeartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(RealtimeTranscriptionConfig.heartbeatIntervalSeconds))
+                try? await Task.sleep(for: .seconds(Self.streamHeartbeatIntervalSeconds))
                 guard !Task.isCancelled, let self else { return }
-                await self.liveTranscriptionSession?.heartbeat()
-                if let session = self.liveTranscriptionSession {
-                    let phase = await session.connectionPhase
-                    await MainActor.run {
-                        self.streamConnectionPhase = phase
-                    }
-                }
+                await self.liveTranscriptionSession?.ping()
             }
         }
     }
@@ -1069,11 +1052,11 @@ final class AppState: ObservableObject {
                 return "transcription_response_failed"
             }
         }
-        if let streamError = error as? RealtimeTranscriptionError {
-            switch streamError {
-            case .invalidBaseURL, .missingToken, .connectionLost, .sessionUnavailable, .httpError:
+        if let kitError = error as? VoiceFlowError {
+            switch kitError {
+            case .invalidEndpoint, .missingToken, .connectionLost, .sessionUnavailable, .httpError:
                 return "transcription_upload_failed"
-            case .invalidMessage, .websocketError, .emptyTranscript, .audioConversionFailed:
+            case .websocketError, .emptyTranscript, .audioConversionFailed, .microphoneUnavailable, .underlying:
                 return "transcription_response_failed"
             }
         }

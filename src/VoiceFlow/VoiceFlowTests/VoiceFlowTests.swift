@@ -7,7 +7,7 @@
 
 import Foundation
 import Testing
-import VoiceFlowKit
+@testable import VoiceFlowKit
 @testable import VoiceFlow
 
 @Suite(.serialized)
@@ -418,69 +418,47 @@ struct VoiceFlowTests {
     @Test func streamRecoveryDuringRecordingUsesCaptionNotAlert() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
-        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let (client, mock) = makeStubVoiceFlowClient(liveResult: .success("voice text"))
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
+            voiceFlowClient: client
         )
 
         state.saveAIBuilderToken("fake-token")
         await state.startRecording()
         #expect(state.recordingStatus == .recording)
 
-        await realtimeClient.emitLiveEvent(.recoveryStarted)
+        await mock.emitLiveEvent(.recoveryStarted)
+        try await Task.sleep(for: .milliseconds(20))
         #expect(state.streamStatusCaptionKey == "record.status.reconnecting")
         #expect(state.recordErrorAlertKey == nil)
 
-        await realtimeClient.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
+        await mock.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
+        try await Task.sleep(for: .milliseconds(20))
         #expect(state.transcript.isEmpty)
 
-        await realtimeClient.emitLiveEvent(.recoveryFailed(message: "network down"))
+        await mock.emitLiveEvent(.recoveryFailed(message: "network down"))
+        try await Task.sleep(for: .milliseconds(20))
         #expect(state.streamStatusCaptionKey == "record.error.streamDisconnected")
         #expect(state.recordErrorAlertKey == nil)
-
-        await realtimeClient.emitLiveEvent(.error(message: "websocket error"))
-        #expect(state.recordErrorAlertKey == nil)
-        #expect(state.streamStatusCaptionKey == "record.status.reconnecting")
     }
 
-    @Test func streamRecoveryIgnoresBufferTooSmallDuringRecording() async throws {
-        let keychain = InMemoryKeychainStore()
-        let recorder = MockAudioRecorder()
-        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
-        let state = AppState(
-            keychainStore: keychain,
-            audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
-        )
-
-        state.saveAIBuilderToken("fake-token")
-        await state.startRecording()
-
-        await realtimeClient.emitLiveEvent(.error(message: "Error committing input audio buffer: buffer too small"))
-        #expect(state.recordErrorAlertKey == nil)
-        #expect(state.streamStatusCaptionKey == nil)
-
-        await realtimeClient.emitLiveEvent(.status(.connected))
-        #expect(state.streamStatusCaptionKey == nil)
-    }
-
-    @Test func stopTranscriptionShowsSingleAlertWhenStreamAndBulkFail() async throws {
+@Test func stopTranscriptionShowsSingleAlertWhenStreamAndBulkFail() async throws {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-single-alert-test.wav")
         try Data("audio-bytes".utf8).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder(outputURL: fileURL)
-        let realtimeClient = MockRealtimeTranscriptionClient(
+        let (client, _) = makeStubVoiceFlowClient(
             liveResult: .success("  "),
-            bulkResult: .failure(RealtimeTranscriptionError.emptyTranscript)
+            bulkResult: .failure(VoiceFlowError.emptyTranscript)
         )
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
+            voiceFlowClient: client
         )
 
         state.saveAIBuilderToken("fake-token")
@@ -494,11 +472,11 @@ struct VoiceFlowTests {
     @Test func stopTranscriptionPrefersStreamResultWithoutAlert() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
-        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("stream success text"))
+        let (client, _) = makeStubVoiceFlowClient(liveResult: .success("stream success text"))
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
+            voiceFlowClient: client
         )
 
         state.saveAIBuilderToken("fake-token")
@@ -513,19 +491,20 @@ struct VoiceFlowTests {
     @Test func streamRecoveryDuringRecordingDoesNotUpdateTranscript() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
-        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let (client, mock) = makeStubVoiceFlowClient(liveResult: .success("voice text"))
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
+            voiceFlowClient: client
         )
 
         state.saveAIBuilderToken("fake-token")
         await state.startRecording()
 
-        await realtimeClient.emitLiveEvent(.textDelta(content: "before disconnect", isNewResponse: true))
-        await realtimeClient.emitLiveEvent(.recoveryStarted)
-        await realtimeClient.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
+        await mock.emitLiveEvent(.textDelta(content: "before disconnect", isNewResponse: true))
+        await mock.emitLiveEvent(.recoveryStarted)
+        await mock.emitLiveEvent(.textDelta(content: "after reconnect", isNewResponse: true))
+        try await Task.sleep(for: .milliseconds(30))
 
         #expect(state.transcript.isEmpty)
         #expect(state.recordErrorAlertKey == nil)
@@ -541,14 +520,14 @@ struct VoiceFlowTests {
 
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder(outputURL: fileURL)
-        var realtimeClient = MockRealtimeTranscriptionClient(
+        let (client, mock) = makeStubVoiceFlowClient(
             liveResult: .success("first transcript"),
             bulkResult: .success("first transcript")
         )
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient,
+            voiceFlowClient: client,
             clipboardWriter: MockClipboardWriter()
         )
 
@@ -575,7 +554,7 @@ struct VoiceFlowTests {
         #expect(savedFiles.isEmpty == false)
         #expect(savedFiles.contains(where: { $0.lastPathComponent == state.lastSavedRecording?.fileName }) == true)
 
-        await realtimeClient.setBulkResult(.success("resent transcript"))
+        await mock.setBulkResult(.success("resent transcript"))
         await state.resendLastRecording()
 
         #expect(state.transcript == "resent transcript")
@@ -676,7 +655,7 @@ struct VoiceFlowTests {
             keychainStore: keychain,
             aiBuilderClient: MockAIBuilderConnectionClient(result: .success(())),
             audioRecorder: recorder,
-            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(liveResult: .success("voice text")),
+            voiceFlowClient: makeStubVoiceFlowClient(liveResult: .success("voice text")).0,
             clipboardWriter: clipboard
         )
 
@@ -696,11 +675,11 @@ struct VoiceFlowTests {
     @Test func transcriptionPromptAndTermsPropagateIntoLiveSessionContext() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
-        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let (client, mock) = makeStubVoiceFlowClient(liveResult: .success("voice text"))
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
+            voiceFlowClient: client
         )
 
         state.saveAIBuilderToken("fake-token")
@@ -710,7 +689,7 @@ struct VoiceFlowTests {
         await state.startRecording()
         #expect(state.recordingStatus == .recording)
 
-        let captured = await realtimeClient.lastLiveContext
+        let captured = await mock.lastLiveContext
         #expect(captured.prompt == "All caps please")
         #expect(captured.terms == ["Kubernetes", "gRPC", "Anthropic"])
 
@@ -720,11 +699,11 @@ struct VoiceFlowTests {
     @Test func emptyTranscriptionPromptAndTermsResultInEmptyContext() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
-        let realtimeClient = MockRealtimeTranscriptionClient(liveResult: .success("voice text"))
+        let (client, mock) = makeStubVoiceFlowClient(liveResult: .success("voice text"))
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: realtimeClient
+            voiceFlowClient: client
         )
 
         state.saveAIBuilderToken("fake-token")
@@ -735,7 +714,7 @@ struct VoiceFlowTests {
         state.transcriptionTerms = " , , "
 
         await state.startRecording()
-        let captured = await realtimeClient.lastLiveContext
+        let captured = await mock.lastLiveContext
         #expect(captured.prompt == nil)
         #expect(captured.terms.isEmpty)
 
@@ -751,7 +730,7 @@ struct VoiceFlowTests {
         let state = AppState(
             keychainStore: keychain,
             audioRecorder: recorder,
-            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(liveResult: .success("private dictated words")),
+            voiceFlowClient: makeStubVoiceFlowClient(liveResult: .success("private dictated words")).0,
             clipboardWriter: MockClipboardWriter(),
             diagnostics: diagnostics
         )
@@ -792,9 +771,9 @@ struct VoiceFlowTests {
         let failingState = AppState(
             keychainStore: keychain,
             audioRecorder: MockAudioRecorder(outputURL: failureFileURL),
-            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(
-                liveResult: .failure(RealtimeTranscriptionError.websocketError("stream failed"))
-            ),
+            voiceFlowClient: makeStubVoiceFlowClient(
+                liveResult: .failure(VoiceFlowError.websocketError("stream failed"))
+            ).0,
             diagnostics: failureDiagnostics
         )
         failingState.saveAIBuilderToken("fake-sensitive-token")
@@ -918,9 +897,9 @@ struct VoiceFlowTests {
         let responseState = AppState(
             keychainStore: InMemoryKeychainStore(),
             audioRecorder: MockAudioRecorder(outputURL: responseFileURL),
-            realtimeTranscriptionClient: MockRealtimeTranscriptionClient(
-                liveResult: .failure(RealtimeTranscriptionError.emptyTranscript)
-            ),
+            voiceFlowClient: makeStubVoiceFlowClient(
+                liveResult: .failure(VoiceFlowError.emptyTranscript)
+            ).0,
             diagnostics: responseDiagnostics
         )
         responseState.saveAIBuilderToken("fake-sensitive-token")

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct AudioChunkEncoder {
+struct AudioChunkEncoder {
     public private(set) var pending = Data()
     public let chunkByteSize: Int
 

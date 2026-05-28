@@ -42,7 +42,7 @@ private nonisolated final class LiveSessionHandleBox: @unchecked Sendable {
 /// read before working. The backend concatenates these into the
 /// underlying prompt — there's no separate "language" knob because the
 /// model treats language hints as natural-language context.
-public struct RealtimeSessionContext: Sendable, Equatable {
+struct RealtimeSessionContext: Sendable, Equatable {
     public var prompt: String?
     public var terms: [String]
 
@@ -54,7 +54,7 @@ public struct RealtimeSessionContext: Sendable, Equatable {
     public static let empty = RealtimeSessionContext()
 }
 
-public protocol RealtimeTranscribing: Sendable {
+protocol RealtimeTranscribing: Sendable {
     func beginLiveSession(
         baseURL: String,
         token: String,
@@ -73,7 +73,7 @@ public protocol RealtimeTranscribing: Sendable {
     ) async throws -> String
 }
 
-public protocol RealtimeLiveTranscriptionSession: Sendable {
+protocol RealtimeLiveTranscriptionSession: Sendable {
     func appendAudioChunk(_ chunk: Data) async
     func heartbeat() async
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws -> String
@@ -477,7 +477,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 }
 
-public struct RealtimeTranscriptionClient: RealtimeTranscribing {
+struct RealtimeTranscriptionClient: RealtimeTranscribing {
     public init() {}
 
     public func beginLiveSession(
@@ -758,7 +758,7 @@ actor BulkTranscriptionProgress {
     }
 }
 
-public final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
+final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
     public var liveResult: Result<String, Error>
     public var bulkResult: Result<String, Error>
     private var appendedChunkCountValue = 0
