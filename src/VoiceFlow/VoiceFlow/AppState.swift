@@ -124,16 +124,16 @@ final class AppState: ObservableObject {
     }
 
     let aiBuilderEndpoint = "https://space.ai-builders.com/backend"
-    private let keychainStore: KeychainStoring
-    private let aiBuilderClient: AIBuilderConnectionTesting
-    private let audioRecorder: AudioRecording
-    private let transcriptionClient: AIBuilderTranscribing
-    private let voiceFlowClient: VoiceFlowClient
-    private let clipboardWriter: ClipboardWriting
-    private let openCodeClient: OpenCodeSending
-    private let diagnostics: RecordingDiagnosticsReporting
-    private let tokenKey = "aiBuilderToken"
-    private let openCodePasswordKey = "openCodePassword"
+    let keychainStore: KeychainStoring
+    let aiBuilderClient: AIBuilderConnectionTesting
+    let audioRecorder: AudioRecording
+    let transcriptionClient: AIBuilderTranscribing
+    let voiceFlowClient: VoiceFlowClient
+    let clipboardWriter: ClipboardWriting
+    let openCodeClient: OpenCodeSending
+    let diagnostics: RecordingDiagnosticsReporting
+    let tokenKey = "aiBuilderToken"
+    let openCodePasswordKey = "openCodePassword"
     private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
     private static let openCodeUsernameDefaultsKey = "openCodeUsername"
     private static let appLanguageDefaultsKey = "appLanguage"
@@ -321,20 +321,6 @@ final class AppState: ObservableObject {
 
     var canCopyTranscript: Bool {
         !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var canSendToOpenCode: Bool {
-        canCopyTranscript && isOpenCodeConfigured && openCodeConnectionStatus == .success
-    }
-
-    var isOpenCodeConfigured: Bool {
-        hasSavedOpenCodePassword
-            && !openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var openCodePasswordDisplayValue: String {
-        hasSavedOpenCodePassword ? "••••••••" : ""
     }
 
     var canStartRecording: Bool {
@@ -596,50 +582,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    func saveOpenCodePassword(_ password: String) {
-        let trimmed = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try keychainStore.saveString(trimmed, for: openCodePasswordKey)
-            hasSavedOpenCodePassword = true
-            openCodeSendStatus = .idle
-            openCodeConnectionStatus = .untested
-        } catch {
-            openCodeSendStatus = .failed("settings.openCode.saveFailed")
-        }
-    }
-
-    func clearOpenCodePassword() {
-        do {
-            try keychainStore.deleteString(for: openCodePasswordKey)
-        } catch {
-            openCodeSendStatus = .failed("settings.openCode.clearFailed")
-            return
-        }
-        hasSavedOpenCodePassword = false
-        openCodeSendStatus = .idle
-        openCodeConnectionStatus = .untested
-    }
-
-    func testOpenCodeConnection() async {
-        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
-            openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig", nil)
-            return
-        }
-
-        openCodeConnectionStatus = .testing
-        do {
-            try await openCodeClient.testConnection(
-                serverURL: openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
-            )
-            openCodeConnectionStatus = .success
-        } catch {
-            openCodeConnectionStatus = .failed("settings.openCode.connection.failed", userFacingErrorDetail(for: error))
-        }
-    }
-
     private func presentRecordError(_ key: String) {
         recordErrorAlertKey = key
         recordingStatus = .idle
@@ -702,7 +644,7 @@ final class AppState: ObservableObject {
         recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: elapsed)
     }
 
-    private func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
+    func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
         diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
     }
 
@@ -744,11 +686,11 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func diagnosticMetadata(for error: Error) -> [String: String] {
+    func diagnosticMetadata(for error: Error) -> [String: String] {
         DiagnosticErrorMetadata.metadata(for: error)
     }
 
-    private func userFacingErrorDetail(for error: Error) -> String {
+    func userFacingErrorDetail(for error: Error) -> String {
         if let localizedError = error as? LocalizedError,
            let description = localizedError.errorDescription,
            !description.isEmpty {
@@ -1032,33 +974,4 @@ final class AppState: ObservableObject {
         return "transcription_upload_failed"
     }
 
-    func sendTranscriptToOpenCode() async {
-        guard canCopyTranscript else { return }
-        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
-            recordDiagnostic("opencode_send_failed", metadata: ["reason": "notConfigured"])
-            openCodeSendStatus = .failed("record.openCode.error.notConfigured")
-            return
-        }
-        guard openCodeConnectionStatus == .success else {
-            recordDiagnostic("opencode_send_failed", metadata: ["reason": "connectionNotVerified"])
-            openCodeSendStatus = .failed("record.openCode.error.connectionNotVerified")
-            return
-        }
-
-        openCodeSendStatus = .sending
-        recordDiagnostic("opencode_send_started", metadata: ["characterCount": "\(transcript.count)"])
-        do {
-            try await openCodeClient.sendTranscript(
-                transcript,
-                serverURL: openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
-            )
-            recordDiagnostic("opencode_send_succeeded", metadata: ["characterCount": "\(transcript.count)"])
-            openCodeSendStatus = .success
-        } catch {
-            recordDiagnostic("opencode_send_failed", metadata: diagnosticMetadata(for: error))
-            openCodeSendStatus = .failed("record.openCode.error.sendFailed")
-        }
-    }
 }
