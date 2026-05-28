@@ -1,5 +1,5 @@
 import Foundation
-import VoiceFlowKit
+@testable import VoiceFlowKit
 @testable import VoiceFlow
 
 /// Helpers for opt-in live WebSocket integration tests against AI Builder Space.

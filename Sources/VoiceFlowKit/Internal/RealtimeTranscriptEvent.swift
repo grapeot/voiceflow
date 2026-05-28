@@ -1,13 +1,13 @@
 import Foundation
 
-public enum RealtimeServerStatus: String, Equatable, Sendable {
+enum RealtimeServerStatus: String, Equatable, Sendable {
     case idle
     case connecting
     case connected
     case generating
 }
 
-public enum RealtimeTranscriptEvent: Equatable, Sendable {
+enum RealtimeTranscriptEvent: Equatable, Sendable {
     case status(RealtimeServerStatus)
     case textDelta(content: String, isNewResponse: Bool)
     case error(message: String)
@@ -16,7 +16,7 @@ public enum RealtimeTranscriptEvent: Equatable, Sendable {
     case recoveryFailed(message: String)
 }
 
-public enum RealtimeConnectionPhase: Sendable, Hashable {
+enum RealtimeConnectionPhase: Sendable, Hashable {
     case disconnected
     case connecting
     case connected
@@ -39,7 +39,7 @@ extension RealtimeConnectionPhase: Equatable {
     }
 }
 
-public enum RealtimeTranscriptionError: Error, Equatable {
+enum RealtimeTranscriptionError: Error, Equatable {
     case invalidBaseURL
     case missingToken
     case invalidMessage
@@ -51,7 +51,7 @@ public enum RealtimeTranscriptionError: Error, Equatable {
     case httpError(statusCode: Int)
 }
 
-public enum RealtimeTranscriptionConfig: Sendable {
+enum RealtimeTranscriptionConfig: Sendable {
     public nonisolated static let defaultModel = "gpt-realtime"
     public nonisolated static let sampleRate: Double = 24_000
     public nonisolated static let chunkDurationSeconds: Double = 0.5
@@ -73,7 +73,7 @@ public enum RealtimeTranscriptionConfig: Sendable {
     }
 }
 
-public enum RealtimeTranscriptionSupport: Sendable {
+enum RealtimeTranscriptionSupport: Sendable {
     public nonisolated static func isRecoverableBufferTooSmallError(_ message: String) -> Bool {
         message.localizedCaseInsensitiveContains("buffer too small")
     }
@@ -87,7 +87,7 @@ public enum RealtimeTranscriptionSupport: Sendable {
     }
 }
 
-public struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
+struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
     let sessionID: String
     let wsURL: String
 
@@ -97,7 +97,7 @@ public struct RealtimeSessionCreateResponse: Decodable, Sendable, Equatable {
     }
 }
 
-public struct RealtimeSocketEvent: Sendable, Equatable {
+struct RealtimeSocketEvent: Sendable, Equatable {
     public let type: String
     public let text: String?
     public let code: String?
@@ -116,7 +116,7 @@ public struct RealtimeSocketEvent: Sendable, Equatable {
     }
 }
 
-public enum RealtimeMessageParser: Sendable {
+enum RealtimeMessageParser: Sendable {
     public nonisolated static func parseSocketEvent(_ event: RealtimeSocketEvent) -> RealtimeTranscriptEvent? {
         switch event.type {
         case "session_ready":
@@ -182,7 +182,7 @@ public enum RealtimeMessageParser: Sendable {
     }
 }
 
-public enum TranscriptDeltaReducer: Sendable {
+enum TranscriptDeltaReducer: Sendable {
     public nonisolated static func apply(current: String, content: String, isNewResponse: Bool) -> String {
         if isNewResponse {
             return content
@@ -191,7 +191,7 @@ public enum TranscriptDeltaReducer: Sendable {
     }
 }
 
-public struct TranscriptEpochMerger: Sendable, Equatable {
+struct TranscriptEpochMerger: Sendable, Equatable {
     public private(set) var transcriptSnapshot: String = ""
     public private(set) var streamEpoch: Int = 0
     private var epochText: String = ""
@@ -224,7 +224,7 @@ public struct TranscriptEpochMerger: Sendable, Equatable {
     }
 }
 
-public enum RealtimeAPIURLBuilder: Sendable {
+enum RealtimeAPIURLBuilder: Sendable {
     public nonisolated static func normalizedBaseURL(from rawBaseURL: String) throws -> URL {
         let trimmed = rawBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -279,7 +279,7 @@ public enum RealtimeAPIURLBuilder: Sendable {
     }
 }
 
-public enum PCM16WAVWriter: Sendable {
+enum PCM16WAVWriter: Sendable {
     public nonisolated static func write(pcmData: Data, sampleRate: UInt32 = 24_000, to url: URL) throws {
         guard !pcmData.isEmpty else {
             throw RealtimeTranscriptionError.audioConversionFailed

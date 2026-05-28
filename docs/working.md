@@ -20,6 +20,25 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-28 (AppState 切到 facade + Internal 可见性收紧)
+
+**PR — `feat/facade-migration`**
+
+PR #35 抽 VoiceFlowKit 的时候，为了让 VoiceFlow app 自己不大改，把 services 层的 protocol（`RealtimeTranscribing`、`AudioChunkEncoder`、`RealtimeConnectionPhase` 等等）都留成 public，AppState 直接抓内部协议在用。OpenCode 那边走的是干净 facade。结果是 kit 同时存在两套 public 表面：facade 给"新 host"，protocol 给"老 host"。等于 kit 内部不能演进，因为 VoiceFlow app 在抓内部细节。
+
+这次 PR 把 VoiceFlow app 也切到 facade，把那些只为 app 兼容而 public 的 internal 类型改回 internal。
+
+- `AppState` 接收 `voiceFlowClient: VoiceFlowClient?` DI 参数（之前是 `realtimeTranscriptionClient: RealtimeTranscribing?`）；prod 路径用 `VoiceFlowClient(config:)`，UI test mode 用新加的 `VoiceFlowClient.makeStub()`。
+- `AudioChunkEncoder` 不再被 host 持有 —— mic chunk 直接喂 `VoiceFlowSession.sendAudioChunk(_:)`，session 内部不要求精确 chunk size。
+- 事件消费从 callback 改成 `AsyncStream<VoiceFlowEvent>`。AppState 起一个 consumer Task 在 startRecording 里 drain，在 cancel/teardown 里取消。
+- `handleStreamEvent` 状态机简化：facade 把 `.error` / `.disconnected` 这种细分合并进 `phaseChanged` 和 `recoveryFailed`，buffer-too-small 噪音在 kit 内部就过滤掉了，AppState 不再需要那段冗余的双重防线。
+- `Sources/VoiceFlowKit/Internal/` 下原本为兼容 app 而 public 的类型改回 internal：`RealtimeTranscribing` / `RealtimeLiveTranscriptionSession` / `RealtimeConnectionPhase` / `RealtimeTranscriptEvent` / `RealtimeTranscriptionError` / `RealtimeTranscriptionConfig` / `RealtimeMessageParser` / `RealtimeSocketEvent` / `RealtimeSessionCreateResponse` / `RealtimeTranscriptionSupport` / `RealtimeServerStatus` / `RealtimeSessionContext` / `RealtimeAPIURLBuilder` / `TranscriptDeltaReducer` / `TranscriptEpochMerger` / `PCM16WAVWriter` / `AudioChunkEncoder` / `MockRealtimeTranscriptionClient` / `RealtimeTranscriptionClient`。
+- **保留 public**：`AIBuilderConnectionTesting` / `AIBuilderClient` / `MockAIBuilderConnectionClient`、`AudioRecording` / `AudioRecorder` / `MockAudioRecorder`、`AIBuilderTranscribing` / `AIBuilderTranscriptionClient` / `MockAIBuilderTranscriptionClient`。这三组是 AppState 的 DI 注入面，本身就是测试基础设施（UI test 不能起真 mic / 真网络）。`VoiceFlowMicrophone` 是 final class，host 想 mock 录音得不到注入点 —— 留着这三组让现状 ergonomic，下次想做"facade-only"再处理。
+- 测试改造：VoiceFlowTests / RealtimeTranscriptionTests / LiveIntegrationTestSupport 改 `@testable import VoiceFlowKit`（之前是普通 import）。新加 `VoiceFlowKitTestHelpers.swift`：`makeStubVoiceFlowClient(liveResult:, bulkResult:)` 返回 `(VoiceFlowClient, MockRealtimeTranscriptionClient)`，让 AppState 测试可以塞 client + 仍能 emit live event。
+- `streamRecoveryIgnoresBufferTooSmallDuringRecording` 这个测试被删 —— 它测的是"app 看到 `.error` 时忽略 buffer-too-small"，现在这种 error 在 facade 边界内被 kit 过滤掉、根本不进 `events` stream，app code 没法再 emit 它来测试。但语义在 kit 内部仍受 `shouldNotifyUI` 保护。
+- 删了两份只在本地维护的 working doc：`docs/Library.md`（PR 5 v1.0.0 release 计划被推翻 —— 还在快速迭代不打 SemVer tag）和 `docs/code_review_2026-05-28.md`（这次复盘的产物，已落地）。
+- 验收：Kit 10 tests + app 60 unit tests + UI smoke 3 tests，全过。
+
 ### 2026-05-28 (VoiceFlowKit 抽取 + 转写上下文 UI)
 
 **PR #35 — VoiceFlowKit 抽取**
@@ -43,7 +62,7 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 - `createRealtimeSession` 加 OSLog summary（`hasPrompt`/`promptChars`/`termsCount`），便于诊断 wiring 是否通。
 - 验收：9 Kit tests + 61 unit tests + 12 UI tests，手动确认 prompt 真的影响转写输出（用"指令 + Example"形态的 prompt）。
 
-**剩余工作**：见 `docs/Library.md`。下一步是 PR 3——让 OpenCode iOS Client 通过 SPM 远程依赖切换到 VoiceFlowKit，删掉那 950 行平行实现。
+**剩余工作**：OpenCode 切到 VoiceFlowKit 已于 PR #3（`grapeot/opencode_ios_client#52`）完成。
 
 ### 2026-05-27 (UX 重做：暖琥珀 / 深墨与纸白双模式)
 
