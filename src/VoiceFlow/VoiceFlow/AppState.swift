@@ -84,22 +84,22 @@ final class AppState: ObservableObject {
     /// "Stream disconnected." after recovery fails. Set this directly only
     /// for states that genuinely persist; transient confirmations like
     /// "Stream restored." go through `flashTransientStreamCaption(_:)`.
-    @Published private(set) var persistentStreamCaptionKey: String?
+    @Published internal(set) var persistentStreamCaptionKey: String?
     /// Briefly overlaid on top of `persistentStreamCaptionKey`. Currently
     /// used for "Stream restored.": we want to acknowledge the recovery but
     /// not leave that confirmation on screen indefinitely. After
     /// `transientStreamCaptionDuration` seconds it clears itself, revealing
     /// whatever `persistentStreamCaptionKey` currently is (which, by then,
     /// is usually nil — i.e. silent normal operation).
-    @Published private(set) var transientStreamCaptionKey: String?
+    @Published internal(set) var transientStreamCaptionKey: String?
     /// What RecordView reads. Transient layer wins so a flash confirmation
     /// hides the underlying state; once the flash clears, the persistent
     /// layer (which may itself be nil) shows through.
     var streamStatusCaptionKey: String? {
         transientStreamCaptionKey ?? persistentStreamCaptionKey
     }
-    private var transientStreamCaptionTask: Task<Void, Never>?
-    private let transientStreamCaptionDuration: Duration = .seconds(3)
+    var transientStreamCaptionTask: Task<Void, Never>?
+    let transientStreamCaptionDuration: Duration = .seconds(3)
     @Published private(set) var recordingTimerText = "00:00"
     /// Smoothed 0…1 microphone level. Driven by the mic PCM tap while
     /// recording; falls back to 0 when idle/transcribing/error so the
@@ -544,34 +544,6 @@ final class AppState: ObservableObject {
         recordErrorAlertKey = key
         recordingStatus = .idle
         stopRecordingTimer()
-    }
-
-    /// Set the long-lived stream caption. Pass `nil` to clear only the
-    /// persistent layer (transient overlay stays visible if active).
-    private func setPersistentStreamCaption(_ key: String?) {
-        persistentStreamCaptionKey = key
-    }
-
-    /// Flash a short confirmation for `transientStreamCaptionDuration`.
-    /// After the delay, the transient layer clears itself, exposing the
-    /// current persistent caption (which may have changed in the meantime).
-    /// Multiple flashes restart the timer rather than overlap.
-    private func flashTransientStreamCaption(_ key: String) {
-        transientStreamCaptionTask?.cancel()
-        transientStreamCaptionKey = key
-        transientStreamCaptionTask = Task { [weak self, duration = transientStreamCaptionDuration] in
-            try? await Task.sleep(for: duration)
-            guard !Task.isCancelled, let self else { return }
-            await MainActor.run { self.transientStreamCaptionKey = nil }
-        }
-    }
-
-    /// Clear both caption layers (used by teardown / reset paths).
-    private func clearStreamCaptions() {
-        transientStreamCaptionTask?.cancel()
-        transientStreamCaptionTask = nil
-        transientStreamCaptionKey = nil
-        persistentStreamCaptionKey = nil
     }
 
     private func resetRecordingTimer() {
