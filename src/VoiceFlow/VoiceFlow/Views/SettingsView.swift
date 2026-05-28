@@ -19,7 +19,9 @@ struct SettingsView: View {
                     uiTestSection
                 }
                 .scrollContentBackground(.hidden)
+                #if !os(visionOS)
                 .scrollDismissesKeyboard(.interactively)
+                #endif
                 .tint(DesignTokens.Palette.accent)
             }
             .navigationTitle(Text(localized("tab.settings")))
