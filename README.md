@@ -1,57 +1,138 @@
 # VoiceFlow
 
-VoiceFlow 是一个面向 iPhone、iPad 和 Apple Vision Pro 的语音输入工具。它把录音、转写、自动复制到剪贴板、历史浏览和可选 OpenCode 发送放在一个极简流程里。
+This repo ships two things in one place:
 
-Public repo: https://github.com/grapeot/voiceflow
+1. **VoiceFlowKit** — a Swift Package that wraps real-time audio capture + transcription (PCM16 24 kHz mono → WebSocket → partial transcripts → final text). Drop it into any iOS 17+ / visionOS 1+ app and add voice input in ~50 lines.
+2. **VoiceFlow** — an iPhone / iPad / Apple Vision Pro app built on top of VoiceFlowKit. A minimal voice-memo recorder with auto-clipboard, history, save/resend, and optional OpenCode push.
 
-## 产品边界
+Public repo: <https://github.com/grapeot/voiceflow>
 
-V0 只有两个 tab：Record 和 Settings。
+### Designed as a generative kernel for AI integrators
 
-Record：开始/停止录音、转写显示、自动复制、左右历史、保存/重发录音、手动复制；OpenCode 配置且连接测试通过后可发送。
+VoiceFlowKit is built around the [generative kernel](https://yage.ai/ai-software-engineering.html) idea: the package itself is the **core kit** (mic capture + WS transport + transcription pipeline), `skills/adding_voice_input_with_voiceflowkit.md` is the **guiding knowledge** written for AI agents reading it in another host's codebase, and `VoiceFlowClient.makeStub(...)` / `VoiceFlowAudioMetering` / the typed `VoiceFlowError` cases are **leverage tools** the AI can compose without going to the raw WebSocket layer.
 
-Settings：AI Builder token（Keychain）、固定 endpoint 说明、可选 OpenCode（URL/username 保留在本机，password 在 Keychain）、语言偏好（System / English / 简体中文）。
+Concretely that means:
 
-外观仍跟随系统；Settings 手动 Light/Dark 尚未实现。
+- Errors come back as typed `VoiceFlowError` cases (`.httpError(statusCode:)`, `.connectionLost(detail)`, `.websocketError(detail)`, …) — not a wrapped "something went wrong." Agents can pattern-match and react instead of guessing.
+- The facade is small and stable, but every primitive an integrator might need (offline stub client, audio metering helper, two-layer caption store) is exposed. No "hidden for your own good" knobs.
+- The skill file is treated as a first-class deliverable, not an afterthought. Read it before writing client code.
 
-## Deep Link
+> AI agents who want to add voice input to their host's iOS / visionOS app should read `skills/adding_voice_input_with_voiceflowkit.md` end-to-end before touching the kit.
+
+## VoiceFlowKit (the library)
+
+### Quick start
+
+In Xcode: File → Add Package Dependencies → URL `https://github.com/grapeot/voiceflow.git`. Pick `branch: master` for now (no SemVer tag yet — we're still iterating). Add the `VoiceFlowKit` product to your app target.
+
+Add `NSMicrophoneUsageDescription` to your Info.plist (a sentence explaining the mic is used for voice-to-text).
+
+Five lines to start streaming:
+
+```swift
+import VoiceFlowKit
+
+let config = VoiceFlowConfig(tokenProvider: { yourToken })
+let client = VoiceFlowClient(config: config)
+let session = try await client.startSession()
+// → push PCM16 chunks via session.sendAudioChunk(_:)
+// → drain partial transcripts from session.events
+// → finalize with try await session.commitAndStop()
+```
+
+### Public surface
+
+| Type | What it does |
+|---|---|
+| `VoiceFlowConfig` | endpoint + token closure + optional prompt/terms |
+| `VoiceFlowClient` (actor) | factory for sessions + bulk transcribe + connection test |
+| `VoiceFlowSession` (actor) | one live recording session — send audio, ping, commit, cancel; exposes `events: AsyncStream<VoiceFlowEvent>` |
+| `VoiceFlowMicrophone` (`@MainActor`) | mic capture; permission + PCM16/24kHz/mono `start(onPCMChunk:)` + `stop()` |
+| `VoiceFlowEvent` | enum: `partialTranscript / phaseChanged / recoveryStarted / recoveryFailed` |
+| `VoiceFlowConnectionPhase` | enum: `connecting / connected / recovering / generating / disconnected` |
+| `VoiceFlowError` | enum: `missingToken / invalidEndpoint / httpError / sessionUnavailable / websocketError / connectionLost / emptyTranscript / microphoneUnavailable / audioConversionFailed / underlying(String)` |
+| `VoiceFlowClient.makeStub(...)` | offline stub client for UI test launch modes + SwiftUI previews — no WebSocket, canned final transcript |
+| `StreamCaption` / `StreamCaptionStore` | optional two-layer caption helper (persistent + transient flash) if you want "Reconnecting…" / "Stream restored." prompts |
+
+Two work modes: **live streaming** (`startSession` → push chunks → `commitAndStop`) or **bulk** (`transcribe(audioFile:)` for one-shot WAV files — used by VoiceFlow's resend path).
+
+### Integration guide for AI agents
+
+Full integration walkthrough (with reference implementations, traps, and acceptance criteria) is in `skills/adding_voice_input_with_voiceflowkit.md`. Read that before writing client code.
+
+### Reference implementations
+
+- **VoiceFlow** in this repo (`src/VoiceFlow/`) — voice-memo recorder. See `AppState+LiveSession.swift` for the canonical session bridge.
+- **OpenCode iOS Client** (`grapeot/opencode_ios_client`, private but PR #52 is the integration commit) — chat app with mic input on the composer.
+
+### Platform support
+
+- iOS 17+, visionOS 1+
+- macOS host build works for `swift test` (mic capture is conditional-compiled out) — VoiceFlowKit is mic-less on macOS
+
+### Backend
+
+Default endpoint is AI Builder Space (`https://space.ai-builders.com/backend`). Wire protocol: POST `/v1/audio/realtime/sessions` to get a ticket, then `wss://.../v1/audio/realtime/ws?ticket=...` for PCM16 streaming. Model is `gpt-realtime`. You can swap the endpoint via `VoiceFlowConfig.endpoint` if you have a compatible backend.
+
+## VoiceFlow (the app)
+
+V0 has two tabs: **Record** and **Settings**.
+
+**Record**: start/stop recording with live partial transcript, auto-copy on stop, history navigation (prev/next), save WAV to Files, resend last recording, manual copy, optional push to OpenCode when configured.
+
+**Settings**: AI Builder Space token (Keychain), default endpoint, optional OpenCode (server URL + username in UserDefaults, password in Keychain), language preference (System / English / 简体中文), transcription prompt + terms inputs for shaping recognizer output.
+
+### Deep link
 
 ```text
 voiceflow://record
 ```
 
-Shortcuts 中「打开 URL」→ 绑定 Action Button 或主屏幕。详见 README 与 `docs/rfc.md`。
+Bind via Shortcuts → "Open URL" → Action Button or Home Screen icon. See `docs/rfc.md`.
 
-## 开发状态（2026-05-26）
-
-V0 核心功能已在 `master` 交付：录完上传转写、诊断日志、OpenCode gating、privacy review、deep link 等。剩余主要项：Settings 外观偏好；UI test suite 发版前需完整跑通。
-
-## 仓库结构
-
-```text
-docs/                         # PRD、RFC、测试说明、变更记录
-scripts/                      # test_unit.sh、test_all.sh、pin_simulator.sh
-src/VoiceFlow/
-  VoiceFlow.xcodeproj
-  VoiceFlow/                  # App 源码
-  VoiceFlowTests/             # 单元测试（Swift Testing）
-  VoiceFlowUITests/           # UI 测试（XCUITest）
-```
-
-测试在 Xcode target 里，不在仓库根目录。日常与发版前：
+### Build / test
 
 ```bash
-./scripts/test_unit.sh    # 日常
-./scripts/test_all.sh     # 发版前
+./scripts/test_unit.sh           # daily — fast unit tests
+./scripts/test_ui_smoke.sh       # smoke UI tests (~45s)
+./scripts/test_ui_full.sh        # full UI suite (~3-5min)
+./scripts/test_live_integration.sh   # opt-in live backend WS tests (needs .env)
+./scripts/test_all.sh            # everything before release
 ```
 
-## 隐私与凭据
+`swift test` (at the repo root) runs the Kit's own tests independently of the app.
 
-仓库只保留 fake 示例。真实 token 存本机 Keychain；见 `.env.example`。
+## Repository layout
 
-## 文档
+```text
+Package.swift                          # VoiceFlowKit SPM manifest
+Sources/VoiceFlowKit/                  # Library source
+  VoiceFlow{Client,Session,Microphone,Config,Error}.swift  # Public facade
+  Internal/                            # WebSocket transport, audio recorder,
+                                       #  message parser — module-internal
+  Resources/PrivacyInfo.xcprivacy      # Privacy manifest shipped with the kit
+Tests/VoiceFlowKitTests/               # Library tests (swift-testing)
 
-- `docs/prd.md`：产品与 V0 交付状态
-- `docs/rfc.md`：技术设计与模块结构
-- `docs/test.md`：测试命令与覆盖范围
-- `docs/working.md`：变更记录
+src/VoiceFlow/                         # The VoiceFlow app
+  VoiceFlow.xcodeproj
+  VoiceFlow/                           # App sources (AppState + extensions, Views)
+  VoiceFlowTests/                      # Unit tests
+  VoiceFlowUITests/                    # UI tests
+
+skills/                                # Integration skill files for AI agents
+docs/                                  # PRD, RFC, design notes, working log
+scripts/                               # test_*.sh, pin_simulator.sh
+```
+
+## Privacy & credentials
+
+The repo only contains fake examples. Real tokens go to the device Keychain; see `.env.example` for the live-integration test env-var format.
+
+## Documentation
+
+- `docs/prd.md` — product scope (covers both the library and the app)
+- `docs/rfc.md` — module structure, facade contract, wire protocol
+- `docs/working.md` — daily change log
+- `docs/design.md` — visual system
+- `docs/test.md` — test commands and coverage
+- `skills/adding_voice_input_with_voiceflowkit.md` — integration walkthrough for AI agents

@@ -20,6 +20,18 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-28 (AppState 拆分到同型 extension + docs/README/RFC/PRD/skill 重整)
+
+跟随 PR #38 facade 收紧 + PR #40 AppState 拆分之后，再做两件事：
+
+**PR #40 续：AppState 拆到 7 个同型 extension**。主文件 1098 → 493 行。按职责切：LiveSession（session bridge 主体）、OpenCode（设置 + 发送）、Diagnostics（错误格式化）、AIBuilderToken、RecordingFiles、StreamCaption、RecordingTimer、TranscriptHistory。State 字段留在主类（SwiftUI 视图直接 bind），extension 只搬行为。同步把 `Package.resolved` 的 gitignore 从全局 `Package.resolved` 改成 `/Package.resolved`，留出空间将来加远程 SPM 依赖给 Xcode Cloud 用。
+
+**PR #41：skill + README + PRD + RFC（这条 changelog 所在的 PR）**。把 VoiceFlowKit 正式 framing 成给 AI 集成方的"[生成内核](https://yage.ai/ai-software-engineering.html)"。新增 `skills/adding_voice_input_with_voiceflowkit.md` —— 一份给 host AI 看的完整集成指南，包含 5 步流程、验收标准、9 条已知陷阱、reference impl 路径。
+
+- `README.md`：完全重写，开头明确 "library + app" 双产品定位，加 Generative Kernel framing 段，把 facade 表面、reference implementations、Xcode Cloud SPM 注意事项都列出来。
+- `docs/prd.md`：拆"VoiceFlow app 的目标"和"VoiceFlowKit 作为生成内核的目标"两节。后者按"核心套件 / 引导知识 / 杠杆工具集"三分法对应到具体模块。Skill 文件被 PRD 显式确认为一等公民交付物。加 PR #38/#40 的工程变更段。
+- `docs/rfc.md`：模块划分章节列出 7 个 AppState extension；facade-only 表面在 RFC 里被明确化；删除对已删 `docs/Library.md` 的所有引用，换成 skill 路径或保留在 commit message / working.md 里。
+
 ### 2026-05-28 (AppState 切到 facade + Internal 可见性收紧)
 
 **PR — `feat/facade-migration`**

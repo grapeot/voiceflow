@@ -2,9 +2,36 @@
 
 ## 目标
 
+这个 repo 是两个产品并存：
+
+1. **VoiceFlowKit**（Swift Package）——一个面向 AI 集成方的语音输入"生成内核"。让任何 iOS 17+ / visionOS 1+ app 的 host AI agent 通过读一份 skill 文件就能给宿主 app 加上"按一下录音 → 出文字"的能力。
+2. **VoiceFlow**（iPhone / iPad / Apple Vision Pro app）——基于 VoiceFlowKit 的第一方语音输入工具。
+
+下面所有 "目标 / V0 / V1 / 功能范围" 章节描述的是 **VoiceFlow app**。**VoiceFlowKit 的设计哲学和产品边界**单独在下一节展开，因为它是另一类产品（library / generative kernel），衡量标准和成功标准不一样。
+
+### VoiceFlow app 的目标
+
 VoiceFlow 是一个纯粹的语音输入工具。它要解决的是现有语音输入工具控制感不足的问题：用户只是想把话准确、快速地变成文字，产品就应该只做转写，不主动回答、不润色、不改写用户意图。
 
 V0 的核心目标有两层。第一，语音识别准确率高、速度快，输出尽量贴近用户原话。第二，转写完成后自动把文本放进系统剪贴板，让用户可以立刻粘贴到任何 app。OpenCode 是可选增强配置，不配置也不影响 VoiceFlow 作为语音输入工具使用。
+
+### VoiceFlowKit 作为生成内核的目标
+
+VoiceFlowKit 按 [generative kernel](https://yage.ai/ai-software-engineering.html) 的思路设计：交付物不是一个隐藏底层细节的"开箱即用 SDK"，而是一套让宿主 AI 在用户 app 里高质量"自己组装"语音输入能力的内核。
+
+按那篇文章里的三分法对应：
+
+- **核心套件**：`Sources/VoiceFlowKit/` 里的 facade（`VoiceFlowClient` / `VoiceFlowSession` / `VoiceFlowMicrophone` / `VoiceFlowConfig` / `VoiceFlowError` 等）。这是宿主 AI 没办法在 prompt 里"现编"出来的底层 —— WebSocket ticket flow、PCM16 编码、partial transcript 合并、recover 重连。
+- **引导知识**：`skills/adding_voice_input_with_voiceflowkit.md`。这是给 host AI 看的、不是给人看的集成手册。内容覆盖 5 步集成流程、验收标准、9 条已知陷阱、reference implementations 在哪里读。Skill 是一等公民，跟代码一起 ship、一起 review、一起更新。
+- **杠杆工具集**：`VoiceFlowClient.makeStub(...)`（offline stub client，让 host 的 UI test launch mode 不依赖网络也能跑通）、`VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE:)`（如果 host 想自己接 AVAudioEngine 而不用我们的 mic，也能算出一致的 0..1 level）、`StreamCaption` / `StreamCaptionStore`（双层 caption 状态机给 host 做 "reconnecting…" / "stream restored." 这种 UX）。这些都是"AI 在概念上能想到，但自己实现繁琐易错"的部分。
+
+为了让 host AI 能可靠组装，设计上有几条硬约束：
+
+- **错误透传，不包装**：`VoiceFlowError` 把 HTTP status code、WebSocket detail、底层 reason string 都直接 surface 出来。Host AI 看到 `.httpError(statusCode: 401)` 立刻知道是 token 问题，看到 `.connectionLost("ticket POST timed out")` 立刻知道是 ticket 阶段就挂了 —— 不是抛一个 `.apiFailure`。
+- **暴露细粒度控制**：actor `VoiceFlowSession` 把 `sendAudioChunk` / `ping` / `commitAndStop` / `cancel` / `connectionPhase` / `events` 全部公开。Host 如果想用自己的 mic 不用 `VoiceFlowMicrophone`、想做自定义心跳 cadence、想消费 partial transcript 同时还想自己监听 phase change，都不需要 hack。
+- **skill 文件覆盖真实陷阱**：已知陷阱必须来自实际踩过的坑（OpenCode pilot + VoiceFlow 自身开发的迭代教训），不靠想象凑数。每条陷阱配具体表现 + 应对。
+
+成功标准：一个完全没看过 VoiceFlow 这个 repo 的 host AI agent，读完 `skills/adding_voice_input_with_voiceflowkit.md` 之后，能在 host 的 SwiftUI app 里加完整可用的语音输入 button，单次 prompt 内完成（不需要回头查 kit 源码、不需要 trial-and-error）。如果做不到，skill 还不够好。
 
 ## V0 交付状态（2026-05-26）
 
@@ -43,9 +70,17 @@ PR #36 一并完成的清理：
 - 拿掉原 PR #35 引入的 `language` 字段——后端把语言提示作为 prompt 拼接，单独 language 字段是冗余。如果用户想指定语言，自己在 prompt 里写。
 - Swift 6 concurrency warnings 全清。
 
-**产品意义**：未来 OpenCode iOS Client 等其他客户可以通过远程 SPM 依赖（GitHub repo `grapeot/voiceflow`）拿同一份 pipeline，避免两边各自实现各自修 bug。架构细节见 `docs/rfc.md` 的"模块划分"章节，库化整体路线和剩余工作见 `docs/Library.md`。
+**产品意义**：未来 OpenCode iOS Client 等其他客户可以通过远程 SPM 依赖（GitHub repo `grapeot/voiceflow`）拿同一份 pipeline，避免两边各自实现各自修 bug。架构细节见 `docs/rfc.md` 的"模块划分"章节；面向 AI 集成方的完整集成指南见 `skills/adding_voice_input_with_voiceflowkit.md`。
 
 **用户使用提示**（prompt 写法）：模型对**短指令** prompt（如 "Output in all caps"）响应弱；要让 prompt 真的改写输出格式，需要带**示例**——比如 `Transcribe every word in ALL CAPS. Example: THIS IS A TEST.`。Settings 的 placeholder 已经体现这种 instruction+example 形态。这不是 library 的 bug，是 `gpt-realtime` 模型的 prompt-following 行为特征。
+
+## 工程变更（2026-05-28 续）：facade 收紧 + AppState 拆分
+
+两个连续 PR（#38、#40）落地，对**产品行为零影响**。
+
+**PR #38（facade 迁移 + Internal 可见性收紧）**：PR #35 抽包时为了让 VoiceFlow app 自己不大改，把 services 层 protocol（`RealtimeTranscribing` / `RealtimeConnectionPhase` / `AudioChunkEncoder` 等）都留成 public。这次把 VoiceFlow app 也切到 facade（`VoiceFlowClient` / `VoiceFlowSession` / `VoiceFlowEvent`），并把那些只为 app 兼容而 public 的 Internal 类型改回 internal。kit 现在对外只暴露一套表面（facade），OpenCode 没动。同时新增 `VoiceFlowClient.makeStub(...)` public factory，让宿主在 UI test launch mode 下用 offline stub。
+
+**PR #40（AppState 同型 extension 拆分）**：`AppState.swift` 从 1098 行降到 493 行（-55%）。按职责切到 7 个 extension 文件：LiveSession（live bridge 主体）/ OpenCode / Diagnostics / AIBuilderToken / RecordingFiles / StreamCaption / RecordingTimer / TranscriptHistory。State 字段留在主 AppState（SwiftUI 视图直接 bind），只搬行为。同时把 `Package.resolved` gitignore 从全局忽略改成只忽略根目录 —— 为将来加远程 SPM 依赖后 Xcode Cloud 能正确 resolve 做准备。
 
 ## V1 规划：实时流式转写（原规划，已实现）
 
