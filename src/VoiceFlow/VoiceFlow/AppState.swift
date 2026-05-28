@@ -100,7 +100,7 @@ final class AppState: ObservableObject {
     }
     var transientStreamCaptionTask: Task<Void, Never>?
     let transientStreamCaptionDuration: Duration = .seconds(3)
-    @Published private(set) var recordingTimerText = "00:00"
+    @Published internal(set) var recordingTimerText = "00:00"
     /// Smoothed 0…1 microphone level. Driven by the mic PCM tap while
     /// recording; falls back to 0 when idle/transcribing/error so the
     /// waveform reads as quiet rather than frozen.
@@ -141,8 +141,8 @@ final class AppState: ObservableObject {
     private static let transcriptionTermsDefaultsKey = "transcriptionTerms"
     private static let streamHeartbeatIntervalSeconds: UInt64 = 12
     private var lastRecordingURL: URL?
-    private var recordingTimerStartDate: Date?
-    private var recordingTimer: Timer?
+    var recordingTimerStartDate: Date?
+    var recordingTimer: Timer?
     private var liveTranscriptionSession: VoiceFlowSession?
     private var liveEventConsumerTask: Task<Void, Never>?
     private var streamHeartbeatTask: Task<Void, Never>?
@@ -544,34 +544,6 @@ final class AppState: ObservableObject {
         recordErrorAlertKey = key
         recordingStatus = .idle
         stopRecordingTimer()
-    }
-
-    private func resetRecordingTimer() {
-        stopRecordingTimer()
-        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
-    }
-
-    private func startRecordingTimer() {
-        recordingTimerStartDate = Date()
-        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                self.updateRecordingTimerText()
-            }
-        }
-    }
-
-    private func stopRecordingTimer() {
-        recordingTimer?.invalidate()
-        recordingTimer = nil
-        recordingTimerStartDate = nil
-    }
-
-    private func updateRecordingTimerText() {
-        guard let recordingTimerStartDate else { return }
-        let elapsed = Int(Date().timeIntervalSince(recordingTimerStartDate))
-        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: elapsed)
     }
 
     func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
