@@ -75,36 +75,36 @@ final class AppState: ObservableObject {
     @Published var openCodeSendStatus: OpenCodeSendStatus = .idle
     @Published var openCodeConnectionStatus: ConnectionStatus = .untested
     @Published var lastClipboardStatusKey: String?
-    @Published private(set) var lastSavedRecording: SavedRecordingInfo?
+    @Published internal(set) var lastSavedRecording: SavedRecordingInfo?
     @Published var shouldPresentSavedRecordingAlert = false
     @Published var connectionStatus: ConnectionStatus = .untested
-    @Published private(set) var streamConnectionPhase: VoiceFlowConnectionPhase = .disconnected
+    @Published internal(set) var streamConnectionPhase: VoiceFlowConnectionPhase = .disconnected
     /// Long-lived status the user should keep seeing — currently
     /// "Reconnecting…" while the stream is auto-recovering and
     /// "Stream disconnected." after recovery fails. Set this directly only
     /// for states that genuinely persist; transient confirmations like
     /// "Stream restored." go through `flashTransientStreamCaption(_:)`.
-    @Published private(set) var persistentStreamCaptionKey: String?
+    @Published internal(set) var persistentStreamCaptionKey: String?
     /// Briefly overlaid on top of `persistentStreamCaptionKey`. Currently
     /// used for "Stream restored.": we want to acknowledge the recovery but
     /// not leave that confirmation on screen indefinitely. After
     /// `transientStreamCaptionDuration` seconds it clears itself, revealing
     /// whatever `persistentStreamCaptionKey` currently is (which, by then,
     /// is usually nil — i.e. silent normal operation).
-    @Published private(set) var transientStreamCaptionKey: String?
+    @Published internal(set) var transientStreamCaptionKey: String?
     /// What RecordView reads. Transient layer wins so a flash confirmation
     /// hides the underlying state; once the flash clears, the persistent
     /// layer (which may itself be nil) shows through.
     var streamStatusCaptionKey: String? {
         transientStreamCaptionKey ?? persistentStreamCaptionKey
     }
-    private var transientStreamCaptionTask: Task<Void, Never>?
-    private let transientStreamCaptionDuration: Duration = .seconds(3)
-    @Published private(set) var recordingTimerText = "00:00"
+    var transientStreamCaptionTask: Task<Void, Never>?
+    let transientStreamCaptionDuration: Duration = .seconds(3)
+    @Published internal(set) var recordingTimerText = "00:00"
     /// Smoothed 0…1 microphone level. Driven by the mic PCM tap while
     /// recording; falls back to 0 when idle/transcribing/error so the
     /// waveform reads as quiet rather than frozen.
-    @Published private(set) var audioLevel: Float = 0
+    @Published internal(set) var audioLevel: Float = 0
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }
@@ -124,32 +124,32 @@ final class AppState: ObservableObject {
     }
 
     let aiBuilderEndpoint = "https://space.ai-builders.com/backend"
-    private let keychainStore: KeychainStoring
-    private let aiBuilderClient: AIBuilderConnectionTesting
-    private let audioRecorder: AudioRecording
-    private let transcriptionClient: AIBuilderTranscribing
-    private let voiceFlowClient: VoiceFlowClient
-    private let clipboardWriter: ClipboardWriting
-    private let openCodeClient: OpenCodeSending
-    private let diagnostics: RecordingDiagnosticsReporting
-    private let tokenKey = "aiBuilderToken"
-    private let openCodePasswordKey = "openCodePassword"
+    let keychainStore: KeychainStoring
+    let aiBuilderClient: AIBuilderConnectionTesting
+    let audioRecorder: AudioRecording
+    let transcriptionClient: AIBuilderTranscribing
+    let voiceFlowClient: VoiceFlowClient
+    let clipboardWriter: ClipboardWriting
+    let openCodeClient: OpenCodeSending
+    let diagnostics: RecordingDiagnosticsReporting
+    let tokenKey = "aiBuilderToken"
+    let openCodePasswordKey = "openCodePassword"
     private static let openCodeServerURLDefaultsKey = "openCodeServerURL"
     private static let openCodeUsernameDefaultsKey = "openCodeUsername"
     private static let appLanguageDefaultsKey = "appLanguage"
     private static let transcriptionPromptDefaultsKey = "transcriptionPrompt"
     private static let transcriptionTermsDefaultsKey = "transcriptionTerms"
-    private static let streamHeartbeatIntervalSeconds: UInt64 = 12
-    private var lastRecordingURL: URL?
-    private var recordingTimerStartDate: Date?
-    private var recordingTimer: Timer?
-    private var liveTranscriptionSession: VoiceFlowSession?
-    private var liveEventConsumerTask: Task<Void, Never>?
-    private var streamHeartbeatTask: Task<Void, Never>?
-    private var lastStreamClipboardHash: Int?
-    private var lastStreamClipboardUpdate: Date?
-    private var userEditedTranscriptDuringStream = false
-    private var isTranscriptionTeardown = false
+    static let streamHeartbeatIntervalSeconds: UInt64 = 12
+    var lastRecordingURL: URL?
+    var recordingTimerStartDate: Date?
+    var recordingTimer: Timer?
+    var liveTranscriptionSession: VoiceFlowSession?
+    var liveEventConsumerTask: Task<Void, Never>?
+    var streamHeartbeatTask: Task<Void, Never>?
+    var lastStreamClipboardHash: Int?
+    var lastStreamClipboardUpdate: Date?
+    var userEditedTranscriptDuringStream = false
+    var isTranscriptionTeardown = false
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -323,20 +323,6 @@ final class AppState: ObservableObject {
         !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    var canSendToOpenCode: Bool {
-        canCopyTranscript && isOpenCodeConfigured && openCodeConnectionStatus == .success
-    }
-
-    var isOpenCodeConfigured: Bool {
-        hasSavedOpenCodePassword
-            && !openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var openCodePasswordDisplayValue: String {
-        hasSavedOpenCodePassword ? "••••••••" : ""
-    }
-
     var canStartRecording: Bool {
         recordingStatus == .idle || recordingStatus == .ready
     }
@@ -368,48 +354,6 @@ final class AppState: ObservableObject {
     private var lastRecordingFileExists: Bool {
         guard let lastRecordingURL else { return false }
         return FileManager.default.fileExists(atPath: lastRecordingURL.path)
-    }
-
-    var tokenDisplayValue: String {
-        hasSavedAIBuilderToken ? "••••••••" : ""
-    }
-
-    func saveAIBuilderToken(_ token: String) {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try keychainStore.saveString(trimmed, for: tokenKey)
-            hasSavedAIBuilderToken = true
-            connectionStatus = .untested
-        } catch {
-            connectionStatus = .failed("settings.connection.saveFailed", nil)
-        }
-    }
-
-    func clearAIBuilderToken() {
-        do {
-            try keychainStore.deleteString(for: tokenKey)
-        } catch {
-            connectionStatus = .failed("settings.connection.clearFailed", nil)
-            return
-        }
-        hasSavedAIBuilderToken = false
-        connectionStatus = .untested
-    }
-
-    func testAIBuilderConnection() async {
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-            connectionStatus = .failed("settings.connection.missingToken", nil)
-            return
-        }
-
-        connectionStatus = .testing
-        do {
-            try await aiBuilderClient.testConnection(baseURL: aiBuilderEndpoint, token: token)
-            connectionStatus = .success
-        } catch {
-            connectionStatus = .failed("settings.connection.failed", userFacingErrorDetail(for: error))
-        }
     }
 
     func startRecording() async {
@@ -526,62 +470,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    func copyTranscript() {
-        guard canCopyTranscript else {
-            recordDiagnostic("clipboard_copy_skipped", metadata: ["hasTranscript": "false"])
-            return
-        }
-        do {
-            try clipboardWriter.write(transcript)
-            recordDiagnostic("clipboard_copy_succeeded", metadata: ["characterCount": "\(transcript.count)"])
-            lastClipboardStatusKey = "record.clipboard.copied"
-        } catch {
-            recordDiagnostic("clipboard_copy_failed", metadata: diagnosticMetadata(for: error))
-            lastClipboardStatusKey = "record.clipboard.failed"
-        }
-    }
-
-    func navigatePreviousTranscript() {
-        guard let previousText = transcriptHistory.navigatePrevious() else { return }
-        transcript = previousText
-        openCodeSendStatus = .idle
-        lastClipboardStatusKey = nil
-    }
-
-    func navigateNextTranscript() {
-        guard let nextText = transcriptHistory.navigateNext() else { return }
-        transcript = nextText
-        openCodeSendStatus = .idle
-        lastClipboardStatusKey = nil
-    }
-
-    func saveCurrentRecording() {
-        guard canSaveRecording, let sourceURL = lastRecordingURL else { return }
-
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let destinationURL = RecordingFileSaver.makeDestinationURL(in: documentsPath)
-
-        do {
-            try RecordingFileSaver.saveRecording(from: sourceURL, to: destinationURL)
-            let savedRecording = SavedRecordingInfo(
-                fileName: destinationURL.lastPathComponent,
-                fileURL: destinationURL
-            )
-            lastSavedRecording = savedRecording
-            shouldPresentSavedRecordingAlert = true
-            recordDiagnostic("recording_saved", metadata: ["fileName": savedRecording.fileName])
-        } catch {
-            recordDiagnostic("recording_save_failed", metadata: diagnosticMetadata(for: error))
-            lastSavedRecording = nil
-            shouldPresentSavedRecordingAlert = false
-            lastClipboardStatusKey = "record.save.failed"
-        }
-    }
-
-    func acknowledgeSavedRecordingAlert() {
-        shouldPresentSavedRecordingAlert = false
-    }
-
     func resendLastRecording() async {
         guard canResendRecording else { return }
         recordingStatus = .transcribing
@@ -596,503 +484,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    func saveOpenCodePassword(_ password: String) {
-        let trimmed = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try keychainStore.saveString(trimmed, for: openCodePasswordKey)
-            hasSavedOpenCodePassword = true
-            openCodeSendStatus = .idle
-            openCodeConnectionStatus = .untested
-        } catch {
-            openCodeSendStatus = .failed("settings.openCode.saveFailed")
-        }
-    }
-
-    func clearOpenCodePassword() {
-        do {
-            try keychainStore.deleteString(for: openCodePasswordKey)
-        } catch {
-            openCodeSendStatus = .failed("settings.openCode.clearFailed")
-            return
-        }
-        hasSavedOpenCodePassword = false
-        openCodeSendStatus = .idle
-        openCodeConnectionStatus = .untested
-    }
-
-    func testOpenCodeConnection() async {
-        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
-            openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig", nil)
-            return
-        }
-
-        openCodeConnectionStatus = .testing
-        do {
-            try await openCodeClient.testConnection(
-                serverURL: openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
-            )
-            openCodeConnectionStatus = .success
-        } catch {
-            openCodeConnectionStatus = .failed("settings.openCode.connection.failed", userFacingErrorDetail(for: error))
-        }
-    }
-
-    private func presentRecordError(_ key: String) {
+    func presentRecordError(_ key: String) {
         recordErrorAlertKey = key
         recordingStatus = .idle
         stopRecordingTimer()
     }
 
-    /// Set the long-lived stream caption. Pass `nil` to clear only the
-    /// persistent layer (transient overlay stays visible if active).
-    private func setPersistentStreamCaption(_ key: String?) {
-        persistentStreamCaptionKey = key
-    }
-
-    /// Flash a short confirmation for `transientStreamCaptionDuration`.
-    /// After the delay, the transient layer clears itself, exposing the
-    /// current persistent caption (which may have changed in the meantime).
-    /// Multiple flashes restart the timer rather than overlap.
-    private func flashTransientStreamCaption(_ key: String) {
-        transientStreamCaptionTask?.cancel()
-        transientStreamCaptionKey = key
-        transientStreamCaptionTask = Task { [weak self, duration = transientStreamCaptionDuration] in
-            try? await Task.sleep(for: duration)
-            guard !Task.isCancelled, let self else { return }
-            await MainActor.run { self.transientStreamCaptionKey = nil }
-        }
-    }
-
-    /// Clear both caption layers (used by teardown / reset paths).
-    private func clearStreamCaptions() {
-        transientStreamCaptionTask?.cancel()
-        transientStreamCaptionTask = nil
-        transientStreamCaptionKey = nil
-        persistentStreamCaptionKey = nil
-    }
-
-    private func resetRecordingTimer() {
-        stopRecordingTimer()
-        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
-    }
-
-    private func startRecordingTimer() {
-        recordingTimerStartDate = Date()
-        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: 0)
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                self.updateRecordingTimerText()
-            }
-        }
-    }
-
-    private func stopRecordingTimer() {
-        recordingTimer?.invalidate()
-        recordingTimer = nil
-        recordingTimerStartDate = nil
-    }
-
-    private func updateRecordingTimerText() {
-        guard let recordingTimerStartDate else { return }
-        let elapsed = Int(Date().timeIntervalSince(recordingTimerStartDate))
-        recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: elapsed)
-    }
-
-    private func recordDiagnostic(_ name: String, metadata: [String: String] = [:]) {
-        diagnostics.record(RecordingDiagnosticEvent(name, metadata: metadata))
-    }
-
-    /// Refresh the kit-side config with the current token + prompt + terms
-    /// from Settings. `tokenProvider` is rebuilt to close over the token
-    /// value (rather than re-reading Keychain on every call) so the
-    /// session sees a consistent token even if the user clears it
-    /// mid-session.
-    private func applyCurrentTranscriptionConfig(token: String) async {
-        let trimmedPrompt = transcriptionPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parsedTerms = transcriptionTerms
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let endpoint = URL(string: aiBuilderEndpoint)!
-        let config = VoiceFlowConfig(
-            endpoint: endpoint,
-            tokenProvider: { token },
-            prompt: trimmedPrompt.isEmpty ? nil : trimmedPrompt,
-            terms: parsedTerms
-        )
-        await voiceFlowClient.updateConfig(config)
-    }
-
-    /// Drain the session's event stream onto the main actor. The stream
-    /// is cold; iteration starts here and runs until the session is
-    /// torn down (commit / cancel / error). Cancelling
-    /// `liveEventConsumerTask` is how we unsubscribe.
-    private func startLiveEventConsumer(for session: VoiceFlowSession) {
-        liveEventConsumerTask?.cancel()
-        liveEventConsumerTask = Task { [weak self] in
-            let events = await session.events
-            for await event in events {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    self?.handleStreamEvent(event)
-                }
-            }
-        }
-    }
-
-    private func diagnosticMetadata(for error: Error) -> [String: String] {
-        DiagnosticErrorMetadata.metadata(for: error)
-    }
-
-    private func userFacingErrorDetail(for error: Error) -> String {
-        if let localizedError = error as? LocalizedError,
-           let description = localizedError.errorDescription,
-           !description.isEmpty {
-            return description
-        }
-        let description = error.localizedDescription
-        return description.isEmpty ? String(describing: error) : description
-    }
-
-    private func audioFileMetadata(for url: URL) -> [String: String] {
-        let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
-        return ["byteCount": byteCount.map(String.init) ?? "unknown"]
-    }
-
-    private func persistLastRecording(from temporaryURL: URL) throws -> URL {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("VoiceFlow", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let destinationURL = directory.appendingPathComponent("last-recording.wav")
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
-        try FileManager.default.copyItem(at: temporaryURL, to: destinationURL)
-        return destinationURL
-    }
-
-    private func finishTranscriptionFromLastRecording(presentErrorOnFailure: Bool = true) async -> String? {
-        guard let audioURL = lastRecordingURL else {
-            if presentErrorOnFailure {
-                presentRecordError("record.error.transcriptionFailed")
-            }
-            return nil
-        }
-
-        guard let token = try? keychainStore.readString(for: tokenKey), !token.isEmpty else {
-            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            if presentErrorOnFailure {
-                presentRecordError("record.error.missingToken")
-            }
-            return nil
-        }
-
-        do {
-            recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "bulk"])
-            await applyCurrentTranscriptionConfig(token: token)
-            let result = try await voiceFlowClient.transcribe(audioFile: audioURL) { [weak self] partial in
-                Task { @MainActor in
-                    self?.transcript = partial
-                }
-            }
-            let transcribedText = result.text
-            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)", "mode": "bulk"])
-            return transcribedText
-        } catch {
-            recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
-            if presentErrorOnFailure {
-                presentRecordError("record.error.transcriptionFailed")
-            }
-            return nil
-        }
-    }
-
-    private func handleStreamEvent(_ event: VoiceFlowEvent) {
-        switch event {
-        case .partialTranscript(let content):
-            guard recordingStatus != .recording else { return }
-            if !userEditedTranscriptDuringStream {
-                transcript = content
-                throttledStreamClipboardWrite(transcript)
-            }
-        case .phaseChanged(let phase):
-            streamConnectionPhase = phase
-            switch phase {
-            case .connected, .connecting:
-                if recordingStatus == .recording,
-                   persistentStreamCaptionKey == "record.status.reconnecting" {
-                    setPersistentStreamCaption(nil)
-                    flashTransientStreamCaption("record.status.reconnected")
-                }
-            case .recovering:
-                if recordingStatus == .recording {
-                    setPersistentStreamCaption("record.status.reconnecting")
-                }
-            case .disconnected, .generating:
-                break
-            }
-        case .recoveryStarted:
-            streamConnectionPhase = .recovering
-            if recordingStatus == .recording {
-                setPersistentStreamCaption("record.status.reconnecting")
-            }
-        case .recoveryFailed(let message):
-            if isTranscriptionTeardown {
-                return
-            }
-            recordDiagnostic("transcription_stream_recovery_failed", metadata: ["reason": message])
-            streamConnectionPhase = .disconnected
-            if recordingStatus == .recording {
-                setPersistentStreamCaption("record.error.streamDisconnected")
-            } else if recordingStatus == .transcribing {
-                setPersistentStreamCaption("record.error.streamDisconnected")
-            } else if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                setPersistentStreamCaption("record.error.streamDisconnected")
-            } else {
-                presentRecordError("record.error.transcriptionFailed")
-            }
-        }
-    }
-
-    private func handleCapturedPCMChunk(_ chunk: Data) async {
-        updateAudioLevel(from: chunk)
-        await liveTranscriptionSession?.sendAudioChunk(chunk)
-    }
-
-    /// Compute RMS of a PCM16 little-endian chunk, normalize to 0…1 with a
-    /// gentle perceptual curve, and feed it into an exponential moving
-    /// average so the waveform never jitters on short silences mid-syllable.
-    private func updateAudioLevel(from chunk: Data) {
-        let normalized = Self.normalizedLevel(fromPCM16LE: chunk)
-        // 30 % new sample, 70 % carried — short attack, slow release.
-        let smoothed = audioLevel * 0.7 + normalized * 0.3
-        audioLevel = smoothed
-    }
-
-    private static func normalizedLevel(fromPCM16LE data: Data) -> Float {
-        let sampleCount = data.count / 2
-        guard sampleCount > 0 else { return 0 }
-
-        let sumSquares: Double = data.withUnsafeBytes { raw -> Double in
-            guard let base = raw.baseAddress else { return 0 }
-            var accumulator: Double = 0
-            // Read little-endian Int16 samples without assuming alignment.
-            for i in 0..<sampleCount {
-                let lo = Int16(base.load(fromByteOffset: i * 2,     as: UInt8.self))
-                let hi = Int16(base.load(fromByteOffset: i * 2 + 1, as: UInt8.self))
-                let raw = (hi << 8) | (lo & 0xFF)
-                let sample = Double(raw) / 32768.0
-                accumulator += sample * sample
-            }
-            return accumulator
-        }
-
-        let rms = sqrt(sumSquares / Double(sampleCount))
-
-        // dB-based mapping. Typical phone-mic speech RMS sits around 0.03–0.15
-        // (−30…−16 dB FS). Mapping [−50, −10] dB → [0, 1] makes quiet rooms
-        // settle near 0 and a normal talking voice reach ~0.7–0.9 — closer to
-        // what a user expects when watching a meter. A 0.9× tail keeps loud
-        // syllables from pinning the visual ceiling so headroom stays visible.
-        let dB = 20.0 * log10(max(rms, 1e-7))
-        let minDB = -50.0
-        let maxDB = -10.0
-        let normalized = (dB - minDB) / (maxDB - minDB)
-        let scaled = normalized * 0.9
-        return Float(min(max(scaled, 0), 1))
-    }
-
-    private func updateTranscriptDuringFinalize(_ partial: String) {
-        transcript = partial
-        throttledStreamClipboardWrite(partial)
-    }
-
-    private func makeFinalizePartialHandler() -> @Sendable (String) -> Void {
-        { [weak self] partial in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                updateTranscriptDuringFinalize(partial)
-            }
-        }
-    }
-
-    private func finishLiveTranscriptionSession() async {
-        stopStreamHeartbeat()
-        isTranscriptionTeardown = true
-        defer { isTranscriptionTeardown = false }
-
-        guard let session = liveTranscriptionSession else {
-            recordDiagnostic("transcription_finalize_failed", metadata: ["reason": "noSession"])
-            completeStopTranscriptionFailure(reason: "noSession")
-            return
-        }
-
-        recordDiagnostic("transcription_finalize_started", metadata: ["hasToken": "true", "mode": "stream"])
-        var streamText = ""
-        do {
-            streamText = try await session.commitAndStop(onPartialTranscript: makeFinalizePartialHandler())
-            recordDiagnostic(
-                "transcription_finalize_stream_done",
-                metadata: ["characterCount": "\(streamText.count)"]
-            )
-        } catch {
-            recordDiagnostic(
-                "transcription_finalize_stream_failed",
-                metadata: diagnosticMetadata(for: error).merging(["reason": String(describing: error)]) { _, new in new }
-            )
-        }
-
-        await cancelLiveTranscriptionSession()
-
-        if isUsableTranscript(streamText) {
-            completeStopTranscriptionSuccess(text: streamText, mode: "stream")
-            return
-        }
-
-        let fallbackReason = streamText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "emptyStream" : "tooShort"
-        recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": fallbackReason])
-        if let bulkText = await finishTranscriptionFromLastRecording(presentErrorOnFailure: false),
-           isUsableTranscript(bulkText) {
-            completeStopTranscriptionSuccess(text: bulkText, mode: "bulk")
-            return
-        }
-
-        completeStopTranscriptionFailure(reason: "allPathsFailed")
-    }
-
-    private func isUsableTranscript(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).count > 3
-    }
-
-    private func completeStopTranscriptionSuccess(text: String, mode: String) {
-        recordErrorAlertKey = nil
-        transcript = text
-        openCodeSendStatus = .idle
-        streamConnectionPhase = .disconnected
-        clearStreamCaptions()
-        recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(text.count)", "mode": mode])
-        transcriptHistory.add(text)
-        copyTranscript()
-        recordingStatus = .ready
-    }
-
-    private func completeStopTranscriptionFailure(reason: String) {
-        recordDiagnostic("transcription_stop_failed", metadata: ["reason": reason])
-        if isUsableTranscript(transcript) {
-            transcriptHistory.add(transcript)
-            copyTranscript()
-            recordingStatus = .ready
-            setPersistentStreamCaption("record.error.streamDisconnected")
-            return
-        }
-        presentRecordError("record.error.transcriptionFailed")
-    }
-
-    private func cancelLiveTranscriptionSession() async {
-        stopStreamHeartbeat()
-        liveEventConsumerTask?.cancel()
-        liveEventConsumerTask = nil
-        if let session = liveTranscriptionSession {
-            await session.cancel()
-        }
-        liveTranscriptionSession = nil
-        streamConnectionPhase = .disconnected
-        clearStreamCaptions()
-        audioLevel = 0
-    }
-
-    private func startStreamHeartbeat() {
-        stopStreamHeartbeat()
-        streamHeartbeatTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.streamHeartbeatIntervalSeconds))
-                guard !Task.isCancelled, let self else { return }
-                await self.liveTranscriptionSession?.ping()
-            }
-        }
-    }
-
-    private func stopStreamHeartbeat() {
-        streamHeartbeatTask?.cancel()
-        streamHeartbeatTask = nil
-    }
-
-    private func throttledStreamClipboardWrite(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 3 else { return }
-
-        let hash = trimmed.hashValue
-        let now = Date()
-        if hash == lastStreamClipboardHash,
-           let lastStreamClipboardUpdate,
-           now.timeIntervalSince(lastStreamClipboardUpdate) < 1 {
-            return
-        }
-
-        lastStreamClipboardHash = hash
-        lastStreamClipboardUpdate = now
-        do {
-            try clipboardWriter.write(trimmed)
-            lastClipboardStatusKey = "record.clipboard.copied"
-        } catch {
-            lastClipboardStatusKey = "record.clipboard.failed"
-        }
-    }
-
-    private func transcriptionFailureEventName(for error: Error) -> String {
-        if let transcriptionError = error as? AIBuilderTranscriptionError {
-            switch transcriptionError {
-            case .invalidBaseURL, .requestFailed:
-                return "transcription_upload_failed"
-            case .invalidResponse, .emptyTranscript:
-                return "transcription_response_failed"
-            }
-        }
-        if let kitError = error as? VoiceFlowError {
-            switch kitError {
-            case .invalidEndpoint, .missingToken, .connectionLost, .sessionUnavailable, .httpError:
-                return "transcription_upload_failed"
-            case .websocketError, .emptyTranscript, .audioConversionFailed, .microphoneUnavailable, .underlying:
-                return "transcription_response_failed"
-            }
-        }
-        if error is DecodingError {
-            return "transcription_response_failed"
-        }
-        return "transcription_upload_failed"
-    }
-
-    func sendTranscriptToOpenCode() async {
-        guard canCopyTranscript else { return }
-        guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: openCodePasswordKey), !password.isEmpty else {
-            recordDiagnostic("opencode_send_failed", metadata: ["reason": "notConfigured"])
-            openCodeSendStatus = .failed("record.openCode.error.notConfigured")
-            return
-        }
-        guard openCodeConnectionStatus == .success else {
-            recordDiagnostic("opencode_send_failed", metadata: ["reason": "connectionNotVerified"])
-            openCodeSendStatus = .failed("record.openCode.error.connectionNotVerified")
-            return
-        }
-
-        openCodeSendStatus = .sending
-        recordDiagnostic("opencode_send_started", metadata: ["characterCount": "\(transcript.count)"])
-        do {
-            try await openCodeClient.sendTranscript(
-                transcript,
-                serverURL: openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
-            )
-            recordDiagnostic("opencode_send_succeeded", metadata: ["characterCount": "\(transcript.count)"])
-            openCodeSendStatus = .success
-        } catch {
-            recordDiagnostic("opencode_send_failed", metadata: diagnosticMetadata(for: error))
-            openCodeSendStatus = .failed("record.openCode.error.sendFailed")
-        }
-    }
 }

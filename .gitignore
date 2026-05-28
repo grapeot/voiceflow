@@ -18,7 +18,10 @@ DerivedData/
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
+# Ignore SPM lockfile at the repo root (we're a library; downstream xcodeprojs
+# pin versions). Allow the Xcode workspace's lockfile through — Xcode Cloud
+# requires a committed Package.resolved to resolve SPM deps in CI.
+/Package.resolved
 
 # Secrets and local config
 .env
