@@ -369,11 +369,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             Text(localized(localizedKey(status)))
                 .font(DesignTokens.Typography.captionSub)
-                .foregroundStyle(
-                    status.detail == nil
-                    ? DesignTokens.Palette.textSecondary
-                    : DesignTokens.Palette.accent
-                )
+                .modifier(StatusForegroundStyle(useAccent: status.detail != nil))
                 .accessibilityIdentifier(identifier)
 
             if let detail = status.detail {
@@ -415,5 +411,21 @@ struct InputCardSurface: ViewModifier {
 extension View {
     func inputCardSurface() -> some View {
         modifier(InputCardSurface())
+    }
+}
+
+/// Switches a status line between `textSecondary` (token, dark-mode aware)
+/// and `accent` (flat amber). Needed instead of a ternary because the two
+/// token types (`DynamicColor`, `Color`) don't share a concrete result
+/// type that `foregroundStyle` can accept directly.
+private struct StatusForegroundStyle: ViewModifier {
+    let useAccent: Bool
+
+    func body(content: Content) -> some View {
+        if useAccent {
+            content.foregroundStyle(DesignTokens.Palette.accent)
+        } else {
+            content.foregroundStyle(DesignTokens.Palette.textSecondary)
+        }
     }
 }

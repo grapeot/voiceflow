@@ -27,6 +27,15 @@ struct VoiceFlowApp: App {
         WindowGroup {
             localizedRootView
         }
+        #if os(visionOS)
+        // Portrait-ish phone-sized window. Avoids the very wide default that
+        // makes the long Settings list and the single-column Record view
+        // look awkward on Vision Pro.
+        .defaultSize(width: 480, height: 900)
+        // `.contentSize` removes the Window-style resize handles entirely
+        // (no maximize, no manual stretch).
+        .windowResizability(.contentSize)
+        #endif
     }
 
     @ViewBuilder
