@@ -666,20 +666,24 @@ public struct RealtimeTranscriptionClient: RealtimeTranscribing {
             payload["terms"] = context.terms
         }
 
-        // Log which optional context fields actually went on the wire
-        // (just the keys + character counts — never log the values
-        // themselves; they may contain user-sensitive context).
-        let promptLen = (payload["prompt"] as? String)?.count ?? 0
-        let termsCount = (payload["terms"] as? [String])?.count ?? 0
-        sessionLogger.notice("session.create payload model=\(model, privacy: .public) hasPrompt=\(promptLen > 0, privacy: .public) promptChars=\(promptLen, privacy: .public) termsCount=\(termsCount, privacy: .public)")
-
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let bodyData = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = bodyData
+
+        // Dump the full payload (prompt + terms included). The body is
+        // the user's own context, not credentials — and we explicitly
+        // never log the bearer token. Stop guessing what reached the
+        // wire and read it.
+        let bodyString = String(data: bodyData, encoding: .utf8) ?? "<non-utf8>"
+        sessionLogger.notice("session.create POST \(url.absoluteString, privacy: .public) body=\(bodyString, privacy: .public)")
 
         let (data, response) = try await URLSession.shared.data(for: request)
+        let responsePreview = String(data: data.prefix(500), encoding: .utf8) ?? "<non-utf8>"
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        sessionLogger.notice("session.create response status=\(statusCode, privacy: .public) body=\(responsePreview, privacy: .public)")
         guard let http = response as? HTTPURLResponse else {
             throw RealtimeTranscriptionError.invalidMessage
         }
