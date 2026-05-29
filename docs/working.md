@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-28 (Stop 按钮 hit-test 修复)
+
+- **Root cause**: `CapsuleButton` 已用 `.contentShape(.hoverEffect, Capsule())` 限制 visionOS gaze hover，但没有给普通 SwiftUI hit-test 显式设置 capsule 区域。Stop 是 secondary outline 胶囊，视觉中间区域透明；在真机/visionOS 交互里，点到文字或描边外的空白区域时容易表现为第一次 stop 没被接受。
+- **Fix**: `CapsuleButton` 增加 `.contentShape(Capsule())`，让 primary / secondary / ghost 三种胶囊角色的整个视觉 pill 都能接收 tap，同时保留原有 hoverEffect shape + lift。
+- **Regression**: 新增 `testStopButtonRespondsAcrossCapsuleHitArea`，用 XCUITest 点击 Stop 胶囊右侧区域（不是按钮文字中心）并验证录音进入 ready / copied 状态。
+- **验收**: `./scripts/test_unit.sh` 通过；`VOICEFLOW_TEST_REBUILD=1 ./scripts/test_ui_full.sh` 通过（12 / 12 UI tests）。
+
 ### 2026-05-28 (AppState 拆分到同型 extension + docs/README/RFC/PRD/skill 重整)
 
 跟随 PR #38 facade 收紧 + PR #40 AppState 拆分之后，再做两件事：

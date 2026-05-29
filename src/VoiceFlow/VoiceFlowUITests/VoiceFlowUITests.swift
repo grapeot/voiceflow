@@ -246,6 +246,23 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Copied to clipboard."].exists)
     }
 
+    func testStopButtonRespondsAcrossCapsuleHitArea() throws {
+        let app = launchVoiceFlowApp(
+            language: "en",
+            locale: "en_US",
+            extraArguments: ["-uiTestMode", "-uiTestSavedToken"]
+        )
+
+        app.buttons["record.startButton"].tap()
+        XCTAssertTrue(waitForRecordingState(.recording, in: app, timeout: 8))
+
+        let stopButton = app.buttons["record.stopButton"]
+        XCTAssertTrue(stopButton.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        stopButton.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+
+        XCTAssertTrue(waitForRecordingState(.ready, in: app, timeout: 8))
+    }
+
     func testTranscriptionSettingsFieldsAcceptInputAndPersistInForm() throws {
         let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
