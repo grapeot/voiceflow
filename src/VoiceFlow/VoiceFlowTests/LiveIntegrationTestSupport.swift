@@ -12,6 +12,13 @@ enum LiveIntegrationTestSupport {
         let endpoint: String
     }
 
+    /// OpenCode server credentials for the opt-in live "send transcript" test.
+    struct OpenCodeCredentials: Sendable {
+        let baseURL: String
+        let username: String
+        let password: String
+    }
+
     static var isEnabled: Bool {
         if ProcessInfo.processInfo.environment["VOICEFLOW_LIVE_WS"] == "1" {
             return true
@@ -19,6 +26,56 @@ enum LiveIntegrationTestSupport {
         guard let root = repositoryRoot() else { return false }
         let marker = root.appendingPathComponent(".voiceflow/live-ws-opt-in")
         return FileManager.default.fileExists(atPath: marker.path)
+    }
+
+    /// Opt-in flag for the live OpenCode "send transcript" test. Independent of the
+    /// WebSocket flag so each suite can be enabled on its own.
+    static var isOpenCodeEnabled: Bool {
+        if ProcessInfo.processInfo.environment["OPENCODE_LIVE"] == "1" {
+            return true
+        }
+        guard let root = repositoryRoot() else { return false }
+        let marker = root.appendingPathComponent(".voiceflow/opencode-live-opt-in")
+        return FileManager.default.fileExists(atPath: marker.path)
+    }
+
+    /// Resolve OpenCode credentials from the process environment, then `.env`.
+    /// Returns nil when the opt-in flag is off or required values are missing,
+    /// so the test no-ops in the default suite.
+    static func resolveOpenCodeCredentials() -> OpenCodeCredentials? {
+        guard isOpenCodeEnabled else { return nil }
+
+        let environment = ProcessInfo.processInfo.environment
+        if let credentials = openCodeCredentials(from: { environment[$0] }) {
+            return credentials
+        }
+
+        if let root = repositoryRoot() {
+            let dotEnvURL = root.appendingPathComponent(".env")
+            if let contents = try? String(contentsOf: dotEnvURL, encoding: .utf8) {
+                let values = parseDotEnv(contents)
+                if let credentials = openCodeCredentials(from: { values[$0] }) {
+                    return credentials
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func openCodeCredentials(from lookup: (String) -> String?) -> OpenCodeCredentials? {
+        func nonEmpty(_ key: String) -> String? {
+            guard let trimmed = lookup(key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+
+        guard let username = nonEmpty("OPENCODE_USERNAME"),
+              let password = nonEmpty("OPENCODE_PASSWORD") else {
+            return nil
+        }
+        let baseURL = nonEmpty("OPENCODE_BASE_URL") ?? defaultOpenCodeBaseURL
+        return OpenCodeCredentials(baseURL: baseURL, username: username, password: password)
     }
 
     static func resolveCredentials() throws -> Credentials? {
@@ -163,6 +220,7 @@ enum LiveIntegrationTestSupport {
 
     private static let defaultEndpoint = "https://space.ai-builders.com/backend"
     private static let placeholderToken = "replace-with-your-real-token"
+    private static let defaultOpenCodeBaseURL = "http://localhost:4096"
 }
 
 enum LiveIntegrationTestError: Error, CustomStringConvertible {

@@ -19,6 +19,8 @@ Concretely that means:
 
 > AI agents who want to add voice input to their host's iOS / visionOS app should read `skills/adding_voice_input_with_voiceflowkit.md` end-to-end before touching the kit.
 
+This is not a toy. VoiceFlowKit is not just demoed by the small reference app in this repo — it backs voice input in a real, separately-maintained product: the **OpenCode iOS Client** ([grapeot/opencode_ios_client](https://github.com/grapeot/opencode_ios_client)) uses the same kit to put push-to-talk transcription on its chat composer. The kit is sized and shaped by that real consumer, not by the demo.
+
 ## VoiceFlowKit (the library)
 
 ### Quick start
