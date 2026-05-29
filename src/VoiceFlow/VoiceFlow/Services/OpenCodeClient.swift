@@ -11,6 +11,7 @@ enum OpenCodeClientError: Error, Equatable {
     case invalidResponse
     case sessionCreationFailed
     case promptSendFailed
+    case messageNotPersisted
 }
 
 extension OpenCodeClientError: LocalizedError {
@@ -26,6 +27,8 @@ extension OpenCodeClientError: LocalizedError {
             "Could not reach the OpenCode server or authentication failed."
         case .promptSendFailed:
             "The server rejected the transcript prompt."
+        case .messageNotPersisted:
+            "The server accepted the prompt but the message never appeared in the session."
         }
     }
 }
@@ -35,7 +38,11 @@ struct OpenCodeClient: OpenCodeSending {
     static let defaultUsername = "opencode"
     static let defaultModelID = "gpt-5.5"
     static let defaultProviderID = "openai"
-    static let defaultAgent = "Sisyphus - Ultraworker"
+    // Must match an agent the OpenCode server actually exposes (GET /agent):
+    // build, plan, explore, general, ... "build" is the default coding agent.
+    // The previous "Sisyphus - Ultraworker" does not exist on the server, so
+    // prompt_async returned 2xx but the job silently never ran.
+    static let defaultAgent = "build"
 
     private let session: URLSession
 
@@ -47,6 +54,16 @@ struct OpenCodeClient: OpenCodeSending {
         let baseURL = try validatedBaseURL(serverURL)
         let sessionID = try await createSession(baseURL: baseURL, username: username, password: password)
         try await sendPrompt(sessionID: sessionID, text: text, baseURL: baseURL, username: username, password: password)
+        // A 204 from prompt_async only means the request was accepted, not that the
+        // agent exists or the job actually landed. Read the session back until the
+        // user message we just sent shows up, matching the official iOS client.
+        try await verifyPersistedUserMessage(
+            sessionID: sessionID,
+            text: text,
+            baseURL: baseURL,
+            username: username,
+            password: password
+        )
     }
 
     func testConnection(serverURL: String, username: String, password: String) async throws {
@@ -157,6 +174,71 @@ struct OpenCodeClient: OpenCodeSending {
         guard http.statusCode == 204 else {
             throw OpenCodeClientError.promptSendFailed
         }
+    }
+
+    private func verifyPersistedUserMessage(
+        sessionID: String,
+        text: String,
+        baseURL: URL,
+        username: String,
+        password: String,
+        maxAttempts: Int = 10,
+        retryDelay: Duration = .milliseconds(500)
+    ) async throws {
+        for attempt in 0..<maxAttempts {
+            if try await sessionContainsUserMessage(
+                sessionID: sessionID,
+                text: text,
+                baseURL: baseURL,
+                username: username,
+                password: password
+            ) {
+                return
+            }
+            if attempt < maxAttempts - 1 {
+                try? await Task.sleep(for: retryDelay)
+            }
+        }
+        throw OpenCodeClientError.messageNotPersisted
+    }
+
+    private func sessionContainsUserMessage(
+        sessionID: String,
+        text: String,
+        baseURL: URL,
+        username: String,
+        password: String
+    ) async throws -> Bool {
+        let url = baseURL.appending(path: "session").appending(path: sessionID).appending(path: "message")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(authHeaderValue(username: username, password: password), forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw OpenCodeClientError.invalidResponse
+        }
+        guard http.statusCode == 200 else {
+            throw OpenCodeClientError.invalidResponse
+        }
+        guard let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            throw OpenCodeClientError.invalidResponse
+        }
+        return messages.contains { item in
+            let role = (item["info"] as? [String: Any])?["role"] as? String
+            guard role == "user" else { return false }
+            return Self.messageText(in: item) == text
+        }
+    }
+
+    private static func messageText(in item: [String: Any]) -> String? {
+        guard let parts = item["parts"] as? [[String: Any]] else { return nil }
+        let textParts = parts.compactMap { part in
+            part["text"] as? String ?? part["content"] as? String
+        }
+        return textParts.isEmpty ? nil : textParts.joined()
     }
 }
 

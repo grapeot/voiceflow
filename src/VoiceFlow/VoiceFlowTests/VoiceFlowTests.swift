@@ -177,6 +177,13 @@ struct VoiceFlowTests {
                 return (response, Data("{\"id\":\"session-1\"}".utf8))
             }
 
+            if request.url?.path == "/session/session-1/message" {
+                #expect(request.httpMethod == "GET")
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let body = "[{\"info\":{\"role\":\"user\"},\"parts\":[{\"type\":\"text\",\"text\":\"hello opencode\"}]}]"
+                return (response, Data(body.utf8))
+            }
+
             #expect(request.url?.path == "/session/session-1/prompt_async")
             #expect(request.httpMethod == "POST")
             let body = try requestBodyData(for: request)
@@ -184,7 +191,7 @@ struct VoiceFlowTests {
             let model = json?["model"] as? [String: String]
             #expect(model?["modelID"] == "gpt-5.5")
             #expect(model?["providerID"] == "openai")
-            #expect(json?["agent"] as? String == "Sisyphus - Ultraworker")
+            #expect(json?["agent"] as? String == "build")
             let parts = json?["parts"] as? [[String: String]]
             #expect(parts?.first?["text"] == "hello opencode")
             let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
@@ -217,6 +224,11 @@ struct VoiceFlowTests {
             if request.url?.path == "/session", request.httpMethod == "POST" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (response, Data("{\"id\":\"session-1\"}".utf8))
+            }
+            if request.url?.path == "/session/session-1/message" {
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let body = "[{\"info\":{\"role\":\"user\"},\"parts\":[{\"type\":\"text\",\"text\":\"hello tailscale\"}]}]"
+                return (response, Data(body.utf8))
             }
             #expect(request.url?.path == "/session/session-1/prompt_async")
             let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
