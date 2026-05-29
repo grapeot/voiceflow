@@ -33,6 +33,9 @@ struct CapsuleButton: View {
             .foregroundStyle(foregroundColor)
             .background(backgroundView)
             .opacity(isEnabled ? 1.0 : 0.4)
+            // Keep outlined roles tappable across the whole visual pill, not
+            // only around the label or stroked edge.
+            .contentShape(Capsule())
             // Constrain visionOS gaze-hover highlight to the capsule shape
             // and let `.lift` give a clear focused affordance — otherwise
             // outlined / ghost roles read as "no focus" even when they are
