@@ -343,13 +343,23 @@ final class AppState: ObservableObject {
         canNavigateTranscriptHistory && transcriptHistory.hasNext
     }
 
+    // Rescue affordance: saving the already-recorded audio must stay available
+    // whenever an audio file exists, including while transcription is stuck in
+    // `.transcribing`. We deliberately do NOT gate this on
+    // `canNavigateTranscriptHistory` (which is false during `.transcribing`),
+    // because that would lock the user out of recovering their audio exactly
+    // when the live session hangs.
     var canSaveRecording: Bool {
-        canNavigateTranscriptHistory && lastRecordingFileExists
+        lastRecordingFileExists
     }
 
+    // Replay = close the current (possibly hung) WebSocket session and re-run
+    // transcription from the saved audio. It must be available in the stuck
+    // `.transcribing` case, so it is also no longer gated on
+    // `canNavigateTranscriptHistory`.
     var canResendRecording: Bool {
         hasSavedAIBuilderToken
-            && (recordingStatus == .recording || (canNavigateTranscriptHistory && lastRecordingFileExists))
+            && (recordingStatus == .recording || lastRecordingFileExists)
     }
 
     private var lastRecordingFileExists: Bool {
@@ -510,6 +520,12 @@ final class AppState: ObservableObject {
                 return
             }
             try? FileManager.default.removeItem(at: audioURL)
+            await cancelLiveTranscriptionSession()
+        } else {
+            // Rescue path: transcription is stuck (e.g. a hung live WebSocket
+            // session that never returned). Force-close any active session so we
+            // start the re-transcription from a clean state instead of layering
+            // on top of the stalled one.
             await cancelLiveTranscriptionSession()
         }
 
