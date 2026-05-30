@@ -348,7 +348,8 @@ final class AppState: ObservableObject {
     }
 
     var canResendRecording: Bool {
-        canNavigateTranscriptHistory && lastRecordingFileExists && hasSavedAIBuilderToken
+        hasSavedAIBuilderToken
+            && (recordingStatus == .recording || (canNavigateTranscriptHistory && lastRecordingFileExists))
     }
 
     private var lastRecordingFileExists: Bool {
@@ -472,10 +473,46 @@ final class AppState: ObservableObject {
 
     func resendLastRecording() async {
         guard canResendRecording else { return }
+        let shouldStopActiveRecording = recordingStatus == .recording
         recordingStatus = .transcribing
         openCodeSendStatus = .idle
         lastClipboardStatusKey = nil
         recordDiagnostic("recording_resend_requested")
+
+        if shouldStopActiveRecording {
+            let audioURL: URL
+            do {
+                stopRecordingTimer()
+                audioURL = try await audioRecorder.stopRecording()
+            } catch {
+                await cancelLiveTranscriptionSession()
+                recordDiagnostic("recording_resend_stop_failed", metadata: diagnosticMetadata(for: error))
+                presentRecordError("record.error.transcriptionFailed")
+                return
+            }
+
+            let audioMetadata = audioFileMetadata(for: audioURL)
+            if audioMetadata["byteCount"] == "0" {
+                try? FileManager.default.removeItem(at: audioURL)
+                await cancelLiveTranscriptionSession()
+                recordDiagnostic("recording_resend_audio_file_empty")
+                presentRecordError("record.error.transcriptionFailed")
+                return
+            }
+
+            do {
+                lastRecordingURL = try persistLastRecording(from: audioURL)
+            } catch {
+                try? FileManager.default.removeItem(at: audioURL)
+                await cancelLiveTranscriptionSession()
+                recordDiagnostic("recording_resend_persist_failed", metadata: diagnosticMetadata(for: error))
+                presentRecordError("record.error.transcriptionFailed")
+                return
+            }
+            try? FileManager.default.removeItem(at: audioURL)
+            await cancelLiveTranscriptionSession()
+        }
+
         if let bulkText = await finishTranscriptionFromLastRecording(presentErrorOnFailure: true) {
             transcript = bulkText
             transcriptHistory.add(bulkText)

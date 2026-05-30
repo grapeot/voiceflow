@@ -573,6 +573,38 @@ struct VoiceFlowTests {
         #expect(state.transcriptHistory.entries.first?.text == "resent transcript")
     }
 
+    @Test func resendWhileRecordingStopsLiveSessionAndUsesBulkTranscription() async throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-recording-resend-test.wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL, outputPCMData: Data("active-audio".utf8))
+        let (client, mock) = makeStubVoiceFlowClient(
+            liveResult: .success("stuck stream transcript"),
+            bulkResult: .success("bulk retry transcript")
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+
+        #expect(state.recordingStatus == .recording)
+        #expect(state.canResendRecording == true)
+
+        await state.resendLastRecording()
+
+        #expect(recorder.didStop == true)
+        #expect(await mock.didCancel == true)
+        #expect(await mock.didFinalize == false)
+        #expect(state.transcript == "bulk retry transcript")
+        #expect(state.recordingStatus == .ready)
+    }
+
     @Test func recordingFileSaverCreatesTimestampedDestinationAndCopiesFile() async throws {
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-source.wav")
         let destinationDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-dest", isDirectory: true)
