@@ -20,6 +20,12 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-30 (VoiceFlowKit preserved audio retry API)
+
+- **改动**：VoiceFlowKit facade 新增 `VoiceFlowPreservedAudio`、`VoiceFlowSession.abortPreservingAudio()`、`VoiceFlowClient.transcribe(preservedAudio:onPartialTranscript:)` 和 `discardPreservedAudio(_:)`。旧 `cancel()` 继续表示取消并清理缓存；新 abort 路径只关闭当前 WebSocket，保留 session 内部 `AudioChunkCache` 的 PCM 文件，供 host 在 UI 上提供"终止识别 / 重试上一段录音"。
+- **兼容性**：纯新增 API，不改 `startSession()` / `commitAndStop()` / `cancel()` / `transcribe(audioFile:)` 语义。第一方 VoiceFlow app 仍走原路径，不需要同步改 UI。
+- **Regression**：新增 public client stub 测试，覆盖 live session append PCM 后 abort，随后用 preserved audio 走 bulk retry 并返回 canned bulk transcript。
+
 ### 2026-05-30 (App Intent 启动录音)
 
 - **改动**：新增 `StartRecordingIntent` / `VoiceFlowShortcutsProvider`，向 Shortcuts、Siri、Spotlight、Action Button 等系统入口暴露 Start Recording。Intent 只写入一个本地 pending flag 并打开 app，app 激活后复用现有 `AppState.startRecording()` 流程开始录音；`voiceflow://record` deep link 保持不变。

@@ -92,7 +92,7 @@ Swift Testing + mock。当前覆盖包括但不限于：
 - TranscriptHistory 双向导航、保存/重发录音
 - Deep link 解析、`voiceflow://record` 触发录音、未知 URL 忽略
 - Multipart 上传 body 格式
-- **V1 实时转写**：`RealtimeMessageParser`、`TranscriptDeltaReducer`、`TranscriptEpochMerger`、recovery caption（录音中无 modal）、`AudioChunkEncoder`、WAV PCM roundtrip、mock live session
+- **V1 实时转写**：`RealtimeMessageParser`、`TranscriptDeltaReducer`、`TranscriptEpochMerger`、recovery caption（录音中无 modal）、`AudioChunkEncoder`、WAV PCM roundtrip、mock live session、preserved audio abort + retry facade
 
 共享 HTTP mock 的 suite 使用 `@Suite(.serialized)`。
 

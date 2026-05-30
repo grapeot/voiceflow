@@ -78,6 +78,7 @@ protocol RealtimeLiveTranscriptionSession: Sendable {
     func heartbeat() async
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws -> String
     func cancel() async
+    func abortPreservingAudio() async throws -> VoiceFlowPreservedAudio?
     var connectionPhase: RealtimeConnectionPhase { get async }
 }
 
@@ -203,6 +204,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private var finalizeContinuation: CheckedContinuation<Void, Error>?
     private var finalizeText = FinalizeTranscriptAccumulator()
     private var finalizePartialCallback: (@Sendable (String) -> Void)?
+    private var hasPreservedAudio = false
 
     init(
         cache: AudioChunkCache,
@@ -237,6 +239,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func appendAudioChunk(_ chunk: Data) async {
+        guard !hasPreservedAudio else { return }
         do {
             try cache.append(chunk)
             guard !isRecovering, let session else { return }
@@ -387,8 +390,28 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             await session.close()
         }
         session = nil
-        cache.remove()
+        if !hasPreservedAudio {
+            cache.remove()
+        }
         phase = .disconnected
+    }
+
+    func abortPreservingAudio() async throws -> VoiceFlowPreservedAudio? {
+        if let session {
+            await session.close()
+        }
+        session = nil
+        isRecovering = false
+        phase = .disconnected
+        if isFinalizing {
+            completeFinalize(with: .failure(RealtimeTranscriptionError.connectionLost("Session aborted")))
+        }
+        guard let preserved = cache.preservedAudio() else {
+            cache.remove()
+            return nil
+        }
+        hasPreservedAudio = true
+        return preserved
     }
 
     func handleServerEvent(_ event: RealtimeTranscriptEvent) {
@@ -440,6 +463,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     private func recover(reason: Error) async {
+        guard !hasPreservedAudio else { return }
         guard !isRecovering else { return }
         isRecovering = true
         phase = .recovering
@@ -772,6 +796,7 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
     public var liveResult: Result<String, Error>
     public var bulkResult: Result<String, Error>
     private var appendedChunkCountValue = 0
+    private var appendedPCM = Data()
     private var didFinalizeValue = false
     private var didCancelValue = false
     private var liveEventHandler: (@Sendable (RealtimeTranscriptEvent) -> Void)?
@@ -853,8 +878,16 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         return text
     }
 
-    public func recordAppendedChunk() {
+    public func recordAppendedChunk(_ chunk: Data) {
         appendedChunkCountValue += 1
+        appendedPCM.append(chunk)
+    }
+
+    public func preservedAudioFromAppendedChunks() throws -> VoiceFlowPreservedAudio? {
+        guard !appendedPCM.isEmpty else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-stub-preserved-\(UUID().uuidString).pcm")
+        try appendedPCM.write(to: url)
+        return VoiceFlowPreservedAudio(fileURL: url, byteCount: appendedPCM.count)
     }
 
     public func markCancelled() {
@@ -900,7 +933,7 @@ private nonisolated struct MockLiveSessionProxy: RealtimeLiveTranscriptionSessio
     }
 
     func appendAudioChunk(_ chunk: Data) async {
-        await client.recordAppendedChunk()
+        await client.recordAppendedChunk(chunk)
     }
 
     func heartbeat() async {}
@@ -920,5 +953,11 @@ private nonisolated struct MockLiveSessionProxy: RealtimeLiveTranscriptionSessio
     func cancel() async {
         await client.markCancelled()
         await client.setLivePhase(.disconnected)
+    }
+
+    func abortPreservingAudio() async throws -> VoiceFlowPreservedAudio? {
+        await client.markCancelled()
+        await client.setLivePhase(.disconnected)
+        return try await client.preservedAudioFromAppendedChunks()
     }
 }

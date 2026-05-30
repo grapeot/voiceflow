@@ -185,6 +185,19 @@ struct RealtimeTranscriptionTests {
         #expect(events.contains(.textDelta(content: "streamed words", isNewResponse: true)))
         #expect(events.contains(.status(.idle)))
     }
+
+    @Test func publicClientTranscribesPreservedAudioAfterAbort() async throws {
+        let client = VoiceFlowClient.makeStub(liveTranscript: "live words", bulkTranscript: "retried words")
+        let session = try await client.startSession()
+
+        await session.sendAudioChunk(Data(repeating: 7, count: RealtimeTranscriptionConfig.minCommitAudioBytes))
+        let preserved = try #require(await session.abortPreservingAudio())
+
+        #expect(preserved.byteCount == RealtimeTranscriptionConfig.minCommitAudioBytes)
+        let result = try await client.transcribe(preservedAudio: preserved)
+        #expect(result.text == "retried words")
+        await client.discardPreservedAudio(preserved)
+    }
 }
 
 /// Opt-in live WebSocket tests against AI Builder Space.
