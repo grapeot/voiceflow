@@ -32,6 +32,34 @@ struct VoiceFlowTests {
         #expect(state.appLanguage == .system)
     }
 
+    @Test func applyStreamedTranscriptAppendsAndReplacesWithoutChurn() async throws {
+        let state = AppState()
+
+        // Streaming hands us the whole transcript each partial. When the new
+        // value extends the current one, we append only the delta (keeps the
+        // TextEditor's existing prefix stable → no UITextView reset → no flash).
+        state.applyStreamedTranscript("Hello")
+        #expect(state.transcript == "Hello")
+        state.applyStreamedTranscript("Hello world")
+        #expect(state.transcript == "Hello world")
+        state.applyStreamedTranscript("Hello world, how are you")
+        #expect(state.transcript == "Hello world, how are you")
+
+        // A no-op partial (same value) must not be re-assigned — even an
+        // identical assignment churns the @Published binding.
+        state.applyStreamedTranscript("Hello world, how are you")
+        #expect(state.transcript == "Hello world, how are you")
+
+        // A divergent value (e.g. a corrected re-transcription that is not a
+        // superset) replaces wholesale.
+        state.applyStreamedTranscript("Completely different text")
+        #expect(state.transcript == "Completely different text")
+
+        // Empty / shorter divergent value still replaces correctly.
+        state.applyStreamedTranscript("")
+        #expect(state.transcript.isEmpty)
+    }
+
     @Test func recordingStatusIndicatorAccessibilityValues() async throws {
         #expect(AppState.RecordingStatus.idle.indicatorAccessibilityValue == "idle")
         #expect(AppState.RecordingStatus.requestingPermission.indicatorAccessibilityValue == "requestingPermission")
