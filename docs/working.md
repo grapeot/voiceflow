@@ -20,6 +20,20 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-30 (实时转写体验定调：录音静默 + Stop 后逐 delta 打字机)
+
+把"录音不输出转写、Stop 后逐 delta 打字机"这个一直在代码里、但没在文档里明确写过的设计决策记录下来。iOS 当前实现已经是正确状态，这次只补文档（`docs/design.md` 新增"实时转写体验：录音静默 + Stop 后打字机"小节，并修正"动效"里那条还在描述整段 fade-in 的过时表述）。
+
+**决策本身**：
+
+- **录音中转写区静默**——音频边录边实时发远端，但明确不让远端在录音期间输出转写。这是质量权衡：实时输出时远端每次只看到非常零散的语音片段、缺后文语境，识别质量下降。宁可录音期留白，把质量留到 Stop 后一次拿满，也不让用户看反复跳变又被回改的低质量文字。
+- **Stop 触发输出**——用户点 Stop 时发明确的 finalize 指令（flush + `commit` + `stop`），远端这时才基于完整音频回 delta。
+- **真打字机，不是假打字机**——远端来一个 delta 就显示一个 delta，逐段长出来；不是后台静默 accumulate 完所有字再一把替换显示。后者只是把等待藏起来，前者才有"正在被听写"的实时感。
+
+**实现机制（与闪烁修复同源）**：录音期静默由 VoiceFlowKit `shouldNotifyUI` 对 `textDelta` 返回 `false` 保证；Stop 后 finalize callback 是 transcript 唯一写入源，每个 delta 回调一次写进 `FinalizeTranscriptAccumulator.resolvedText`，app 层 `applyStreamedTranscript` append-only。逐 delta 渲染靠 actor 串行（不乱序）+ `@Published` 不 conflate（每次 append 都渲染、不被合帧吞掉）。
+
+这正是之前修 finalize 双写闪烁 bug 用的同一套机制——把 `shouldNotifyUI` 改成 `return false` 消除了录音期那个多余的第二个 writer，让 finalize callback 成为唯一写入源，闪烁随之消失（见下方 `2026-05-27 (finalize race + double alert)` 及 `2026-05-27 (structured compare + MainActor + append merge)` 两条）。**后续维护提示**：任何把这条路径改成"等 accumulate 完再发一次大更新"的改动，都会同时打破打字机观感、并可能让多写入源回潮，改动前先回到这条决策。
+
 ### 2026-05-29 (录音中 Resend 作为 websocket 卡死逃生口)
 
 - **Root cause**: `canResendRecording` 只允许 idle / ready 且已有 `lastRecordingURL` 时启用。录音中如果 websocket 不再返回事件，Stop 仍会走 live finalize；用户无法通过菜单主动断开 live session 并重放本地音频。

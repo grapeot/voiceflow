@@ -245,7 +245,7 @@ Services/
 
 #### UI
 
-- 转写区 `TextEditor` 仅在 Stop 后 transcribing/finalize 阶段随 text delta 更新；录音与 recover 期间不消费 WS 转写（`RealtimeLiveSessionHandle.shouldNotifyUI` + `AppState` 双门闩）。
+- 转写区 `TextEditor` 仅在 Stop 后 transcribing/finalize 阶段随 text delta 更新；录音与 recover 期间不消费 WS 转写（`RealtimeLiveSessionHandle.shouldNotifyUI` + `AppState` 双门闩）。finalize 阶段为逐 delta 打字机：finalize callback 是 transcript 唯一写入源，每个 delta 回调一次写进 `FinalizeTranscriptAccumulator.resolvedText`，app 层 `applyStreamedTranscript` append-only；actor 串行 + `@Published` 不 conflate 保证每个 delta 即到即渲染，而非 accumulate 完整段再一把显示。`shouldNotifyUI` 返回 `false` 既实现录音静默，也消除了 finalize 双写闪烁（唯一写入源），二者同源。
 - 状态灯：connected=绿、recovering/connecting/generating=橙、disconnected=红。
 - 录音中 transient 问题：caption `record.status.reconnecting` 或 `record.error.streamDisconnected`（非 modal）。
 

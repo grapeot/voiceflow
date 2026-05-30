@@ -233,6 +233,20 @@ struct StatusText: View {
 
 字符计数 "0 characters" 右下角小标 — **删掉**。这是工程师 debug 时加的，产品上没有意义。
 
+### 实时转写体验：录音静默 + Stop 后打字机
+
+转写区的"什么时候出字、怎么出字"是一个有意的设计决策，不是实现副作用，这里记录清楚。
+
+**录音过程中转写区保持静默。** 音频是边录边实时发到远端的，但 app 明确不让远端在录音期间输出转写结果。原因是质量权衡：实时输出时远端每次只能看到非常零散的语音片段，缺少后文语境，语音识别质量明显下降。与其让用户看着一段会反复跳变、回头还要被修正的低质量文字，不如在录音期间让转写区留白（或保留用户已有草稿），把识别质量留到 Stop 之后一次性拿满。
+
+**Stop 之后才让远端开始输出。** 用户点 Stop 时，app 发一个明确的 finalize 指令（flush 剩余音频 + `commit` + `stop`），远端这时才基于完整音频开始回 transcript delta。Stop 到首个可见文本的目标是亚秒级。
+
+**输出阶段是真打字机，不是假打字机。** 远端来一个 delta 就显示一个 delta，文字逐段长出来。这里要明确区分两种实现：不是在后台静默 accumulate 完所有 delta、等拿到完整文本再一把替换显示（那是"假打字机"，用户只会看到一次性闪现）；而是每个 delta 一到就 append 到转写区、立刻渲染出来。前者只是把等待藏起来，后者才有"文字正在被听写出来"的实时感。
+
+**实现要点（iOS 当前已是正确状态）。** 录音期的静默由 VoiceFlowKit 里 `shouldNotifyUI` 对 `textDelta` 返回 `false` 保证——录音时根本不把 delta 抛给 UI。Stop 之后，finalize callback 是 transcript 的**唯一写入源**：每个 delta 回调一次，写进 `FinalizeTranscriptAccumulator.resolvedText`，app 层 `applyStreamedTranscript` 做 append-only 追加。逐 delta 的打字机观感靠两点维持：actor 串行保证 delta 按序到达不乱序，`@Published` 不做 conflate 保证每次 append 都触发一次 SwiftUI 渲染、不被合帧吞掉。任何"等 accumulate 完再发一次大更新"的改动都会破坏这个效果，改这条路径时要留意。
+
+这套"录音静默 + 单一写入源"机制也正是之前修 finalize 双写闪烁 bug 的同一套东西：把 `shouldNotifyUI` 改成 `return false` 消除了录音期那个多余的 writer，让 finalize callback 成为唯一写入源，闪烁随之消失。详见 `docs/working.md` 对应 changelog。
+
 ## 按钮和入口的重新分布
 
 ### Record 屏当前底部"Copy + Send to OpenCode + info"三件套 → 全部移走
@@ -271,7 +285,7 @@ struct StatusText: View {
 - 录音状态切换：250ms ease-in-out crossfade，无 scale
 - 波形音量更新：60Hz，无 explicit animation（已经是连续值，硬上 animation 会拖延滞后感）
 - 按钮按下：opacity 0.85，duration 100ms ease-out（按下反馈快，松开缓和）
-- 转写文字流式追加：每次 partial 更新无动画（避免文字跳动），final commit 时整段 fade-in 350ms
+- 转写文字流式追加：Stop 之后逐 delta append，每个 delta 到达即渲染，不做整段 fade-in、不静默 accumulate 完再一把显示（理由见下文"实时转写体验：录音静默 + Stop 后打字机"）。单个 delta 的 append 本身无动画，避免文字跳动
 
 ## 落地步骤
 
