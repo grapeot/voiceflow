@@ -97,8 +97,9 @@ UI test 路径走 `VoiceFlowClient.makeStub(...)`（PR #38 新增的 public fact
 
 下面是 `VoiceFlowKit` 暴露给 host（VoiceFlow app 和未来的 OpenCode iOS Client）的 surface：
 
-- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession()` / `transcribe(audioFile:onPartialTranscript:)` / `testConnection()` / `updateConfig(_:)`。
-- `VoiceFlowSession`（actor）：实时会话句柄。`sendAudioChunk(_:)` 推 PCM，`ping()` 心跳，`commitAndStop(onPartialTranscript:)` 收口，`cancel()` 取消，`connectionPhase`（VoiceFlowConnectionPhase）读相位，`events`（AsyncStream<VoiceFlowEvent>）订阅事件。
+- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession()` / `transcribe(audioFile:onPartialTranscript:)` / `transcribe(preservedAudio:onPartialTranscript:)` / `discardPreservedAudio(_:)` / `testConnection()` / `updateConfig(_:)`。
+- `VoiceFlowSession`（actor）：实时会话句柄。`sendAudioChunk(_:)` 推 PCM，`ping()` 心跳，`commitAndStop(onPartialTranscript:)` 收口，`cancel()` 取消并清理缓存，`abortPreservingAudio()` 关闭连接但保留已录 PCM 供后续重试，`connectionPhase`（VoiceFlowConnectionPhase）读相位，`events`（AsyncStream<VoiceFlowEvent>）订阅事件。
+- `VoiceFlowPreservedAudio`（struct）：`abortPreservingAudio()` 返回的轻量句柄，公开 `id` / `byteCount`，底层临时 PCM 文件只由 Kit 管理。
 - `VoiceFlowMicrophone`（class，iOS/visionOS only）：mic 封装。`requestPermission()` / `start(onPCMChunk:)` / `stop()` / `discard()`，`audioLevel`（AsyncStream<Float>）暴露 0..1 RMS。
 - `VoiceFlowConfig`（struct）：`endpoint` / `tokenProvider` / `model` / `prompt` / `terms` / `loggerSubsystem`。注意：**没有** `language` 字段——backend 把语言提示当 prompt 拼接，用户自己在 prompt 里写。
 - `VoiceFlowError`（enum）：`invalidEndpoint` / `missingToken` / `httpError(statusCode:)` / `sessionUnavailable` / `websocketError(_)` / `connectionLost(_)` / `audioConversionFailed` / `emptyTranscript` / `microphoneUnavailable` / `underlying(_)`。
@@ -218,6 +219,7 @@ Services/
    - `recover()`：cancel 旧 session → 新建 ticket session → `start` → `replayCache` bulk 发送（20ms 轮询等待新数据，不按时序 sleep 模拟麦克风）。
    - `heartbeat()`：WebSocket ping；失败触发 recover。
    - `finalize()`：flush send 队列 → `commit` + `stop` → 等待 `session_stopped`（映射为 `status: idle`，30s 超时）；失败时 recover 后重试。
+   - `abortPreservingAudio()`：关闭当前 WebSocket、停止 recovery、保留 `AudioChunkCache` 的 PCM 文件并返回 `VoiceFlowPreservedAudio`。旧 `cancel()` 语义保持不变，仍会删除缓存。
 3. **isRecovering 门闩**：恢复期间暂停 live send，避免与 replay 交错。
 
 `AppState` 集成（转写 UI 对齐 OpenCode iOS）：

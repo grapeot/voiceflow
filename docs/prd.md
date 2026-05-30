@@ -23,12 +23,12 @@ VoiceFlowKit 按 [generative kernel](https://yage.ai/ai-software-engineering.htm
 
 - **核心套件**：`Sources/VoiceFlowKit/` 里的 facade（`VoiceFlowClient` / `VoiceFlowSession` / `VoiceFlowMicrophone` / `VoiceFlowConfig` / `VoiceFlowError` 等）。这是宿主 AI 没办法在 prompt 里"现编"出来的底层 —— WebSocket ticket flow、PCM16 编码、partial transcript 合并、recover 重连。
 - **引导知识**：`skills/adding_voice_input_with_voiceflowkit.md`。这是给 host AI 看的、不是给人看的集成手册。内容覆盖 5 步集成流程、验收标准、9 条已知陷阱、reference implementations 在哪里读。Skill 是一等公民，跟代码一起 ship、一起 review、一起更新。
-- **杠杆工具集**：`VoiceFlowClient.makeStub(...)`（offline stub client，让 host 的 UI test launch mode 不依赖网络也能跑通）、`VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE:)`（如果 host 想自己接 AVAudioEngine 而不用我们的 mic，也能算出一致的 0..1 level）、`StreamCaption` / `StreamCaptionStore`（双层 caption 状态机给 host 做 "reconnecting…" / "stream restored." 这种 UX）。这些都是"AI 在概念上能想到，但自己实现繁琐易错"的部分。
+- **杠杆工具集**：`VoiceFlowClient.makeStub(...)`（offline stub client，让 host 的 UI test launch mode 不依赖网络也能跑通）、`VoiceFlowPreservedAudio` + `abortPreservingAudio()` + `transcribe(preservedAudio:)`（WebSocket 卡住时关闭 live session、保留已录 PCM、随后重试识别）、`VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE:)`（如果 host 想自己接 AVAudioEngine 而不用我们的 mic，也能算出一致的 0..1 level）、`StreamCaption` / `StreamCaptionStore`（双层 caption 状态机给 host 做 "reconnecting…" / "stream restored." 这种 UX）。这些都是"AI 在概念上能想到，但自己实现繁琐易错"的部分。
 
 为了让 host AI 能可靠组装，设计上有几条硬约束：
 
 - **错误透传，不包装**：`VoiceFlowError` 把 HTTP status code、WebSocket detail、底层 reason string 都直接 surface 出来。Host AI 看到 `.httpError(statusCode: 401)` 立刻知道是 token 问题，看到 `.connectionLost("ticket POST timed out")` 立刻知道是 ticket 阶段就挂了 —— 不是抛一个 `.apiFailure`。
-- **暴露细粒度控制**：actor `VoiceFlowSession` 把 `sendAudioChunk` / `ping` / `commitAndStop` / `cancel` / `connectionPhase` / `events` 全部公开。Host 如果想用自己的 mic 不用 `VoiceFlowMicrophone`、想做自定义心跳 cadence、想消费 partial transcript 同时还想自己监听 phase change，都不需要 hack。
+- **暴露细粒度控制**：actor `VoiceFlowSession` 把 `sendAudioChunk` / `ping` / `commitAndStop` / `cancel` / `abortPreservingAudio` / `connectionPhase` / `events` 全部公开。Host 如果想用自己的 mic 不用 `VoiceFlowMicrophone`、想做自定义心跳 cadence、想消费 partial transcript 同时还想自己监听 phase change，或想给卡住的 WebSocket 做强制终止 + 重试，都不需要 hack。
 - **skill 文件覆盖真实陷阱**：已知陷阱必须来自实际踩过的坑（OpenCode pilot + VoiceFlow 自身开发的迭代教训），不靠想象凑数。每条陷阱配具体表现 + 应对。
 
 成功标准：一个完全没看过 VoiceFlow 这个 repo 的 host AI agent，读完 `skills/adding_voice_input_with_voiceflowkit.md` 之后，能在 host 的 SwiftUI app 里加完整可用的语音输入 button，单次 prompt 内完成（不需要回头查 kit 源码、不需要 trial-and-error）。如果做不到，skill 还不够好。

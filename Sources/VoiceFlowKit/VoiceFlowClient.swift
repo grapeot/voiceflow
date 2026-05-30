@@ -100,6 +100,41 @@ public actor VoiceFlowClient {
         }
     }
 
+    /// Transcribe audio preserved from an aborted realtime session.
+    /// The preserved handle remains valid until `discardPreservedAudio` is
+    /// called or the OS clears the temporary directory.
+    public func transcribe(
+        preservedAudio: VoiceFlowPreservedAudio,
+        onPartialTranscript: (@Sendable (String) -> Void)? = nil
+    ) async throws -> TranscriptionResult {
+        let token = try await currentToken()
+        let pcmData: Data
+        do {
+            pcmData = try Data(contentsOf: preservedAudio.fileURL)
+        } catch {
+            throw VoiceFlowError.audioConversionFailed
+        }
+        guard !pcmData.isEmpty else { throw VoiceFlowError.emptyTranscript }
+        do {
+            let text = try await transcriber.transcribeBulkPCM(
+                pcmData: pcmData,
+                baseURL: config.endpoint.absoluteString,
+                token: token,
+                model: config.model,
+                context: RealtimeSessionContext(prompt: config.prompt, terms: config.terms),
+                onPartialTranscript: onPartialTranscript
+            )
+            return TranscriptionResult(text: text, requestID: preservedAudio.id.uuidString)
+        } catch let realtime as RealtimeTranscriptionError {
+            throw VoiceFlowError(realtime)
+        }
+    }
+
+    /// Delete the temporary file behind a preserved audio handle.
+    public func discardPreservedAudio(_ preservedAudio: VoiceFlowPreservedAudio) {
+        try? FileManager.default.removeItem(at: preservedAudio.fileURL)
+    }
+
     /// Start a realtime session. Host then pumps PCM chunks in,
     /// optionally pings, and finalizes with `commitAndStop`.
     public func startSession() async throws -> VoiceFlowSession {

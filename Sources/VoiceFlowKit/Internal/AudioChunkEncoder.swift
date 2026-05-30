@@ -67,4 +67,11 @@ final class AudioChunkCache: @unchecked Sendable {
             byteCountValue = 0
         }
     }
+
+    nonisolated func preservedAudio() -> VoiceFlowPreservedAudio? {
+        queue.sync {
+            guard byteCountValue > 0 else { return nil }
+            return VoiceFlowPreservedAudio(fileURL: fileURL, byteCount: byteCountValue)
+        }
+    }
 }

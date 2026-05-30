@@ -28,7 +28,8 @@ VoiceFlowKit 是一个 Swift Package，把"麦克风录音 + 实时转写"封装
 |---|---|
 | `VoiceFlowConfig` | endpoint + token 闭包 + 可选 prompt/terms。一个 config = 一次 session 的参数 |
 | `VoiceFlowClient` | actor。`config` 给它 → 它给你 `VoiceFlowSession` 或一次性 `transcribe(audioFile:)` 调用 |
-| `VoiceFlowSession` | actor。一次 live 录音会话。`sendAudioChunk` 喂 PCM、`ping` 保活、`commitAndStop` 拿 final 文本、`cancel` 中止；`events` 是 AsyncStream 拿 partial transcript 和连接相位 |
+| `VoiceFlowSession` | actor。一次 live 录音会话。`sendAudioChunk` 喂 PCM、`ping` 保活、`commitAndStop` 拿 final 文本、`cancel` 中止并清理缓存、`abortPreservingAudio` 中止但保留已录 PCM；`events` 是 AsyncStream 拿 partial transcript 和连接相位 |
+| `VoiceFlowPreservedAudio` | `abortPreservingAudio()` 返回的轻量句柄。公开 `id` / `byteCount`，可交给 `VoiceFlowClient.transcribe(preservedAudio:)` 重试识别，完成后用 `discardPreservedAudio` 清理 |
 | `VoiceFlowMicrophone` | `@MainActor` final class。录音入口：`requestPermission` → `start(onPCMChunk:)` → `stop()`。给你的 onPCMChunk 闭包推 PCM16 24kHz mono chunk，你直接转给 session |
 | `VoiceFlowEvent` | enum：`.partialTranscript(String)` / `.phaseChanged(VoiceFlowConnectionPhase)` / `.recoveryStarted` / `.recoveryFailed(message:)` |
 | `VoiceFlowConnectionPhase` | enum：`.connecting / .connected / .recovering / .generating / .disconnected` |
@@ -39,6 +40,7 @@ VoiceFlowKit 是一个 Swift Package，把"麦克风录音 + 实时转写"封装
 
 - **Live streaming**（推荐，默认）：`client.startSession()` → 边录音边收 partial → `session.commitAndStop()` 拿 final。Latency 低，体验好。
 - **Bulk**：`client.transcribe(audioFile: someWAV)` 一次性传一个 WAV 文件。VoiceFlow app 内部用它做"resend" —— 网络断了之后拿持久化的录音重传。
+- **Preserved retry**：live session 卡住或用户主动终止时，`session.abortPreservingAudio()` 关闭 WebSocket 但保留 session 内部磁盘 PCM；之后 `client.transcribe(preservedAudio:)` 用同一段 PCM 重新识别，host 不需要自己复制 mic chunk。
 
 ## 集成步骤
 
@@ -146,6 +148,31 @@ func stopRecording() async -> String? {
 ```
 
 这 ~50 行就是核心。Session 的 `events` 是冷 AsyncStream —— 必须在 mic 开始前 / 开始时起一个 Task 去消费，否则 partial transcript 会被丢。
+
+如果你的 host UI 需要一个"强制终止语音识别 / 重试上一段录音"按钮，使用 preserved retry，不要在 app 侧重复缓存音频 chunk：
+
+```swift
+@State private var preservedAudio: VoiceFlowPreservedAudio?
+
+func abortSpeechRecognition() async {
+    heartbeatTask?.cancel(); heartbeatTask = nil
+    _ = try? await microphone.stop()
+    guard let session else { return }
+    self.session = nil
+    preservedAudio = try? await session.abortPreservingAudio()
+}
+
+func retryPreservedAudio() async -> String? {
+    guard let preservedAudio else { return nil }
+    let client = try! makeVoiceFlowClient()
+    defer {
+        Task { await client.discardPreservedAudio(preservedAudio) }
+        self.preservedAudio = nil
+    }
+    let result = try? await client.transcribe(preservedAudio: preservedAudio)
+    return result?.text
+}
+```
 
 ### 5. UI test mode 用 stub client
 

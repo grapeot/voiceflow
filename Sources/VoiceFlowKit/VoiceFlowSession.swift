@@ -29,6 +29,21 @@ public enum VoiceFlowEvent: Sendable, Equatable {
     case recoveryFailed(message: String)
 }
 
+/// A captured PCM stream preserved after aborting a realtime session.
+/// Hosts can keep this lightweight handle and ask `VoiceFlowClient` to
+/// transcribe or discard it later. The backing file stays private to the kit.
+public struct VoiceFlowPreservedAudio: Sendable, Equatable {
+    public let id: UUID
+    public let byteCount: Int
+    let fileURL: URL
+
+    init(fileURL: URL, byteCount: Int, id: UUID = UUID()) {
+        self.id = id
+        self.fileURL = fileURL
+        self.byteCount = byteCount
+    }
+}
+
 /// A realtime transcription session. Push PCM chunks, optionally ping,
 /// then `commitAndStop` to finalize. The session takes care of WS
 /// reconnect + cache replay internally — `sendAudioChunk` never throws
@@ -73,6 +88,16 @@ public actor VoiceFlowSession {
     /// Cancel without committing. Idempotent.
     public func cancel() async {
         await underlying.cancel()
+    }
+
+    /// Abort the current WebSocket session but keep captured audio for a
+    /// later retry. Returns `nil` when no audio was captured.
+    public func abortPreservingAudio() async throws -> VoiceFlowPreservedAudio? {
+        do {
+            return try await underlying.abortPreservingAudio()
+        } catch let realtime as RealtimeTranscriptionError {
+            throw VoiceFlowError(realtime)
+        }
     }
 
     /// Current connection phase (host uses this to drive UI).
