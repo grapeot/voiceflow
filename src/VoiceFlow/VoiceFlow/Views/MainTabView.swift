@@ -13,9 +13,11 @@ struct MainTabView: View {
                     Label {
                         Text(localized("tab.record"))
                     } icon: {
-                        // Pixel-grid mic glyph. Template image: amber when the
-                        // tab is selected, gray otherwise — driven by `.tint`.
-                        Image.pixelTab(.mic)
+                        // Standard SF Symbol mic. The TabView fills the symbol
+                        // when its tab is selected, so the plain "mic" reads as
+                        // "mic.fill" selected and outline otherwise — amber when
+                        // selected, gray otherwise via `.tint`.
+                        Image(systemName: appState.selectedTab == .record ? "mic.fill" : "mic")
                     }
                         .accessibilityIdentifier("tab.record")
                 }
@@ -28,9 +30,9 @@ struct MainTabView: View {
                     Label {
                         Text(localized("tab.settings"))
                     } icon: {
-                        // Pixel-grid gear glyph — matches the mic tab's
-                        // template-image treatment (amber selected, gray not).
-                        Image.pixelTab(.gear)
+                        // Standard SF Symbol gear — matches the mic tab's
+                        // selected-fill treatment (amber selected, gray not).
+                        Image(systemName: appState.selectedTab == .settings ? "gearshape.fill" : "gearshape")
                     }
                         .accessibilityIdentifier("tab.settings")
                 }

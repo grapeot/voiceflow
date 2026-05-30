@@ -92,10 +92,11 @@ struct RecordView: View {
 
     private var timerHeader: some View {
         VStack(spacing: DesignTokens.Spacing.s) {
-            // Timer is pure digits — always the Silkscreen pixel face, the
-            // headline of the Pixelate look.
+            // Timer uses the regular system face (56pt thin) — the Pixelate
+            // look is dialed back to a hint, so the big timer stays neutral.
+            // monospacedDigit keeps the digits from jittering as they tick.
             Text(appState.recordingTimerText)
-                .font(DesignTokens.PixelType.timer)
+                .font(DesignTokens.Typography.timer)
                 .foregroundStyle(DesignTokens.Palette.textPrimary)
                 .monospacedDigit()
                 .accessibilityIdentifier("record.recordingTimer")
