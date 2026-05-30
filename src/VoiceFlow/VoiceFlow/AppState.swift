@@ -246,6 +246,7 @@ final class AppState: ObservableObject {
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestDeepLinkRecord") {
             handleIncomingURL(URL(string: "voiceflow://record")!)
         }
+        consumePendingStartRecordingIntentRequest()
     }
 
     func handleIncomingURL(_ url: URL) {
@@ -254,6 +255,13 @@ final class AppState: ObservableObject {
             recordDiagnostic("deeplink_ignored", metadata: DeepLink.diagnosticMetadata(for: url))
             return
         }
+        selectedTab = .record
+        pendingDeepLinkStartRecording = true
+    }
+
+    func consumePendingStartRecordingIntentRequest() {
+        guard StartRecordingIntentRequest.consumePending() else { return }
+        recordDiagnostic("app_intent_start_recording_received")
         selectedTab = .record
         pendingDeepLinkStartRecording = true
     }

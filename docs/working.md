@@ -20,6 +20,11 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-30 (App Intent 启动录音)
+
+- **改动**：新增 `StartRecordingIntent` / `VoiceFlowShortcutsProvider`，向 Shortcuts、Siri、Spotlight、Action Button 等系统入口暴露 Start Recording。Intent 只写入一个本地 pending flag 并打开 app，app 激活后复用现有 `AppState.startRecording()` 流程开始录音；`voiceflow://record` deep link 保持不变。
+- **Regression**：新增单元测试覆盖 intent pending flag 被消费后切到 Record tab 并启动 mock 录音。
+
 ### 2026-05-30 (OpenCode connection test 持久化)
 
 - **问题**：OpenCode 连接测试成功只保存在 `AppState.openCodeConnectionStatus` 内存状态里。App 重启后状态回到 `.untested`，即使 URL、用户名和 Keychain 密码都还在，Record 页也会因为 `canSendToOpenCode` 为 false 而要求用户重新点 Test。
