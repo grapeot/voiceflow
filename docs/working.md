@@ -292,3 +292,10 @@ Agent 默认仍只跑 `test_unit.sh`；发版前 `test_all.sh` 或 `test_ui_full
 - 测试代码在 `src/VoiceFlow/VoiceFlowTests/`，不是根目录 `tests/`
 - 共享 HTTP mock 的 Swift Testing suite 需 `@Suite(.serialized)`
 - 日常只跑 `./scripts/test_unit.sh`；UI tests 发版前或用户明确要求再跑
+
+## Pixelate 视觉升级
+- 引入 Silkscreen 像素字（OFL，`Resources/Fonts/`），经 `URLScheme.plist` 的 `UIAppFonts` 注册——注意本项目 `GENERATE_INFOPLIST_FILE=YES` + `INFOPLIST_FILE=URLScheme.plist`（部分 plist 合并），字体要加进这个 plist 的 `UIAppFonts`，不是 build settings 的 `INFOPLIST_KEY_UIAppFonts`。
+- 混合字体：像素字只给计时器/英文状态/英文按钮；正文+中文走系统字（`String.containsCJK` 路由）。
+- `WaveformView` 15 个像素方块（双向对称、中线留缝）；`CapsuleButton` 像素阶梯角 + 纯文字录音按钮；`PixelTabIcons` 7×7 像素 mic/gear（与 Android 同图案）。
+- app icon / logo 换成像素语音气泡+波形。
+- 详见 `docs/design.md` 的 "Pixelate 升级" 章节。两端（iOS/Android）严格对齐。

@@ -92,8 +92,10 @@ struct RecordView: View {
 
     private var timerHeader: some View {
         VStack(spacing: DesignTokens.Spacing.s) {
+            // Timer is pure digits — always the Silkscreen pixel face, the
+            // headline of the Pixelate look.
             Text(appState.recordingTimerText)
-                .font(DesignTokens.Typography.timer)
+                .font(DesignTokens.PixelType.timer)
                 .foregroundStyle(DesignTokens.Palette.textPrimary)
                 .monospacedDigit()
                 .accessibilityIdentifier("record.recordingTimer")
@@ -132,7 +134,6 @@ struct RecordView: View {
             title: LocalizedStringKey(appState.canStopRecording ? "record.stop" : "record.start"),
             role: appState.canStopRecording ? .secondary : .primary,
             action: toggleRecording,
-            icon: appState.canStopRecording ? "stop.fill" : "mic.fill",
             isEnabled: appState.canStartRecording || appState.canStopRecording
         )
         .accessibilityIdentifier(appState.canStopRecording ? "record.stopButton" : "record.startButton")
