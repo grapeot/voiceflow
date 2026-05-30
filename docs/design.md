@@ -334,3 +334,19 @@ struct StatusText: View {
 - Tab bar 选中态琥珀色，背景 `.ultraThinMaterial`，图标用 outline 版本（`mic` / `gearshape`，选中态由系统填色）。
 
 之前的初版会把"Speak." placeholder 贴左屏边，是因为 SwiftUI `TextEditor` 内部 inset 与外层 padding 没对齐。最终方案是 placeholder 与 TextEditor 共用 ZStack 但分别布局，placeholder 居中、TextEditor 仍按左对齐排版——这样空状态视觉居中，有内容后自然走阅读流。
+
+---
+
+## Pixelate 升级（像素即纪律）
+
+在上面"暖琥珀双模式"语言之上叠加一层 **Pixelate**——参考 OP-1 / Playdate / 《Obra Dinn》的"像素即纪律"高级路线，不是廉价 8-bit 怀旧。色板、单色约束、双模式、波形为主角全部不变；变的是框架元素的"绘制方式"。Android 仓库有逐字对应的同名 spec，两端严格一致。
+
+**混合字体（硬约束）**：像素字（Silkscreen，OFL 1.1，放在 `Resources/Fonts/`，经 `URLScheme.plist` 的 `UIAppFonts` 注册）只用于计时器 / 英文状态 / 英文按钮标签。转写正文 + 所有中文走系统字体——像素字不含 CJK，长文可读性也差；`StatusText` / `CapsuleButton` 用 `String.containsCJK` 把含中文的串路由到系统字体。`DesignTokens.PixelType` 暴露 timer/caption/button 像素样式。
+
+**波形（`WaveformView`）**：bar 36→15、去圆角；每个 bar 不再是一个 `Path(rect)`，而是一列小像素格（cell ~5.5pt + gap ~1.8pt），双向对称、中线留缝，横向取 bar 宽能容纳的整数列居中。Idle/Active/Generating 三态动画不变。
+
+**录音按钮（`CapsuleButton`）**：形状从 `Capsule()` 换成 `PixelRoundedRectangle`（3 级方块阶梯角）。**只留文字标签，不放图标**（试过像素 mic/stop，精细度不统一、突兀，去掉更干净）。
+
+**Tab 图标（`PixelTabIcons`）**：mic / gear 都是 7×7 像素网格栅格化成 template `UIImage`（SwiftUI `tabItem` 走 UIKit，需要 `UIImage`），图案与 Android 完全一致。`MainTabView` 两个 tab 都用 `Image.pixelTab(_:)`。
+
+**App icon / logo**：换成像素语音气泡 + 内含波形的标记（琥珀单色近黑底），同时传达"语音"和"AI 理解"，取代早期多色像素脑子。`logo.imageset`（@1x/2x/3x）+ `AppIcon.appiconset`（1024 三态）。

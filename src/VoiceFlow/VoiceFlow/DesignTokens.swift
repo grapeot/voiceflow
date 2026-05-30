@@ -32,6 +32,45 @@ enum DesignTokens {
         static let buttonLabel = Font.system(size: 15, weight: .medium,  design: .default)
     }
 
+    /// Pixel ("Silkscreen") type — the OP-1 / Playdate "pixel as discipline"
+    /// voice. Applied ONLY to Latin glyph contexts: the numeric timer, English
+    /// status captions, and English button labels (STOP / Record). Silkscreen
+    /// has no CJK coverage, so any Chinese string must keep `Typography.*`;
+    /// SwiftUI silently falls back to the system font for missing glyphs, but we
+    /// avoid leaning on that and gate pixel fonts behind a language check at the
+    /// call site instead.
+    ///
+    /// PostScript family name registered via `UIAppFonts` is "Silkscreen" with
+    /// styles "Regular" / "Bold". `Font.custom("Silkscreen", ...)` resolves the
+    /// regular face; the bold face is reached with `.bold()` or by naming
+    /// "Silkscreen-Bold" explicitly. Silkscreen is a fixed bitmap-style face, so
+    /// sizes are chosen smaller than their system counterparts to stay legible.
+    enum PixelType {
+        /// Regular Silkscreen face name; use when an explicit name is needed.
+        static let familyRegular = "Silkscreen-Regular"
+        static let familyBold    = "Silkscreen-Bold"
+
+        /// Big numeric timer (e.g. "00:42"). Pixel digits are the headline of
+        /// the Pixelate look; smaller than the 56pt system timer because the
+        /// bitmap face reads larger at equal point size.
+        static let timer   = Font.custom(familyRegular, size: 44)
+        /// English status captions ("Listening", "Generating").
+        static let caption = Font.custom(familyRegular, size: 12)
+        /// English button labels (STOP / Record). Bold face for weight parity
+        /// with the system `buttonLabel`.
+        static let button  = Font.custom(familyBold, size: 15)
+
+        /// Returns the pixel font for `text` only when it is safe to render in
+        /// Silkscreen (no CJK glyphs); otherwise returns the supplied system
+        /// fallback. This keeps Chinese strings on the system face per the
+        /// mixed-font rule, while English/numeric strings get the pixel look —
+        /// and it works regardless of whether the user picked English, Chinese,
+        /// or "system" language, because it inspects the resolved string.
+        static func font(for text: String, pixel: Font, fallback: Font) -> Font {
+            text.containsCJK ? fallback : pixel
+        }
+    }
+
     enum Spacing {
         static let xs: CGFloat = 4
         static let s:  CGFloat = 8
@@ -46,6 +85,26 @@ enum DesignTokens {
         static let ghostButton:  CGFloat = 36
         static let ghostIcon:    CGFloat = 18
         static let waveformHeight: CGFloat = 80
+    }
+}
+
+// MARK: - Script detection
+
+extension String {
+    /// True if the string contains any CJK ideograph (or common CJK
+    /// punctuation/kana ranges). Used to decide whether a label can be rendered
+    /// in the Latin-only Silkscreen pixel font or must fall back to the system
+    /// font. Conservative on purpose: any CJK presence routes to the fallback.
+    var containsCJK: Bool {
+        unicodeScalars.contains { scalar in
+            let v = scalar.value
+            return (0x4E00...0x9FFF).contains(v)   // CJK Unified Ideographs
+                || (0x3400...0x4DBF).contains(v)   // CJK Extension A
+                || (0x3040...0x30FF).contains(v)   // Hiragana + Katakana
+                || (0x3000...0x303F).contains(v)   // CJK symbols & punctuation
+                || (0xFF00...0xFFEF).contains(v)   // Fullwidth forms
+                || (0xAC00...0xD7AF).contains(v)   // Hangul syllables
+        }
     }
 }
 

@@ -13,9 +13,9 @@ struct MainTabView: View {
                     Label {
                         Text(localized("tab.record"))
                     } icon: {
-                        // Outline by default; system fills it for the selected
-                        // state, which is the only visual confirmation needed.
-                        Image(systemName: "mic")
+                        // Pixel-grid mic glyph. Template image: amber when the
+                        // tab is selected, gray otherwise — driven by `.tint`.
+                        Image.pixelTab(.mic)
                     }
                         .accessibilityIdentifier("tab.record")
                 }
@@ -28,7 +28,9 @@ struct MainTabView: View {
                     Label {
                         Text(localized("tab.settings"))
                     } icon: {
-                        Image(systemName: "gearshape")
+                        // Pixel-grid gear glyph — matches the mic tab's
+                        // template-image treatment (amber selected, gray not).
+                        Image.pixelTab(.gear)
                     }
                         .accessibilityIdentifier("tab.settings")
                 }
