@@ -26,6 +26,7 @@ extension AppState {
             try keychainStore.saveString(trimmed, for: Self.openCodePasswordKey)
             hasSavedOpenCodePassword = true
             openCodeSendStatus = .idle
+            UserDefaults.standard.set(false, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
             openCodeConnectionStatus = .untested
         } catch {
             openCodeSendStatus = .failed("settings.openCode.saveFailed")
@@ -41,11 +42,13 @@ extension AppState {
         }
         hasSavedOpenCodePassword = false
         openCodeSendStatus = .idle
+        UserDefaults.standard.set(false, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
         openCodeConnectionStatus = .untested
     }
 
     func testOpenCodeConnection() async {
         guard isOpenCodeConfigured, let password = try? keychainStore.readString(for: Self.openCodePasswordKey), !password.isEmpty else {
+            UserDefaults.standard.set(false, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
             openCodeConnectionStatus = .failed("settings.openCode.connection.missingConfig", nil)
             return
         }
@@ -57,8 +60,10 @@ extension AppState {
                 username: openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines),
                 password: password
             )
+            UserDefaults.standard.set(true, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
             openCodeConnectionStatus = .success
         } catch {
+            UserDefaults.standard.set(false, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
             openCodeConnectionStatus = .failed("settings.openCode.connection.failed", userFacingErrorDetail(for: error))
         }
     }
