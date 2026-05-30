@@ -90,7 +90,7 @@ V0 采用「录完再上传」：Stop 之后才开始 multipart 上传整段 WAV
 
 用户按下 Start 后，app 通过 Bearer token 创建 realtime session 并建立 ticket WebSocket，边录边以固定时长分片（约 0.5s、24 kHz PCM）发送音频。录音与断线恢复期间转写区保持空白（或用户已有草稿），不随服务端 push 变化。用户按下 Stop 时，flush 剩余 buffer 并发送 `commit` + `stop`，此后在 transcribing 阶段消费 `transcript_delta` / `transcript_completed`，增量更新转写区直至 `session_stopped`。
 
-转写区仅在 Stop 之后的 finalize 阶段随服务端 push 更新；录音与 recover 期间忽略 WS 转写事件（对齐 OpenCode iOS `commitAndStop` 才读 recognition 的模式）。
+转写区仅在 Stop 之后的 finalize 阶段随服务端 push 更新；录音与 recover 期间忽略 WS 转写事件（对齐 OpenCode iOS `commitAndStop` 才读 recognition 的模式）。录音期不输出是有意的质量权衡——实时输出时远端每次只看到零散语音片段、缺后文语境，识别质量下降，所以把识别质量留到 Stop 后一次拿满。finalize 阶段的更新是逐 delta 打字机：远端来一个 delta 就显示一个 delta，文字逐段长出，而不是后台静默 accumulate 完整段再一把显示。
 
 Stop 到首个可见文本的目标体验：亚秒级（取决于网络与服务端），而不是 V0 的「整文件上传 + 等待完整 JSON」。
 
