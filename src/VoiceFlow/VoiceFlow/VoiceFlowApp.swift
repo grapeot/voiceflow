@@ -67,6 +67,10 @@ struct VoiceFlowApp: App {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 Task {
+                    if newPhase == .active {
+                        appState.consumePendingStartRecordingIntentRequest()
+                        await appState.consumePendingDeepLinkStartRecordingIfNeeded()
+                    }
                     await appState.handleScenePhaseChange(to: newPhase)
                 }
             }

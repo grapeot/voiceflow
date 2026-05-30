@@ -1118,6 +1118,29 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .recording)
     }
 
+    @Test func startRecordingIntentRequestStartsRecordingAndSwitchesToRecordTab() async throws {
+        StartRecordingIntentRequest.clearPendingForTests()
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+
+        StartRecordingIntentRequest.markPending()
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder
+        )
+
+        #expect(state.selectedTab == .record)
+        #expect(state.pendingDeepLinkStartRecording == true)
+        #expect(StartRecordingIntentRequest.consumePending() == false)
+
+        state.saveAIBuilderToken("fake-token")
+        await state.consumePendingDeepLinkStartRecordingIfNeeded()
+
+        #expect(state.pendingDeepLinkStartRecording == false)
+        #expect(state.recordingStatus == .recording)
+        StartRecordingIntentRequest.clearPendingForTests()
+    }
+
     @Test func deepLinkIgnoresUnknownURLsAndDoesNotLogQueryValues() async throws {
         let diagnostics = InMemoryRecordingDiagnostics()
         let state = AppState(
@@ -1143,6 +1166,7 @@ private func resetOpenCodeDefaults() {
 
 private func resetPreferenceDefaults() {
     UserDefaults.standard.removeObject(forKey: "appLanguage")
+    StartRecordingIntentRequest.clearPendingForTests()
 }
 
 private func requestBodyData(for request: URLRequest) throws -> Data {
