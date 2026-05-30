@@ -241,6 +241,7 @@ Services/
 | finalize 超时/失败 | 30s 无 idle / 错误 | 若有 partial：ready + caption（无 modal）+ history/clipboard | 保留 |
 | 正常 idle | status idle | history + auto copy（>3 字符） | 最终文本 |
 | Resend | bulk 完成 idle | 同 V0 历史/clipboard | 替换为 bulk 结果 |
+| transcribing 卡死 | finalize 长时间不返回 | 救援：Save/Replay 始终可用（仅看本地音频文件存在）；Replay = `cancelLiveTranscriptionSession`（关 WS/heartbeat/consumer）+ bulk 重转 | 替换为 bulk 结果 |
 | Background | scenePhase | cancel session；回前台需重新录音 | 保留 |
 
 #### UI

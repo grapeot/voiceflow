@@ -102,6 +102,7 @@ Stop 到首个可见文本的目标体验：亚秒级（取决于网络与服务
 - Stop / finalize：等待 recover 完成后再 commit；finalize 失败但已有 partial 时进入 ready 并保留文本（caption 提示，无 modal）。
 - 会话正常结束（connected/generating → idle）：最终 transcript 写入历史并自动复制，与 V0 一致。
 - 「重发录音」仍走 bulk 发送逻辑，不按录音时长做实时重放。
+- 救援保证：只要已录过音（本地音频文件存在），「保存音频」与「重放音频」就始终可用，不被 `transcribing`/转写卡死状态锁死。这是转写卡住时的抢救手段——「重放音频」会关闭当前（可能已挂死的）WebSocket 会话，用已落盘的音频重新转写一遍。
 
 ### V1 明确不做
 

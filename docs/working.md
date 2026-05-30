@@ -34,6 +34,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 这正是之前修 finalize 双写闪烁 bug 用的同一套机制——把 `shouldNotifyUI` 改成 `return false` 消除了录音期那个多余的第二个 writer，让 finalize callback 成为唯一写入源，闪烁随之消失（见下方 `2026-05-27 (finalize race + double alert)` 及 `2026-05-27 (structured compare + MainActor + append merge)` 两条）。**后续维护提示**：任何把这条路径改成"等 accumulate 完再发一次大更新"的改动，都会同时打破打字机观感、并可能让多写入源回潮，改动前先回到这条决策。
 
+### 2026-05-30 (transcribing 卡死时 Save/Replay 始终可用 — 抢救)
+
+- **Root cause**: `canSaveRecording = canNavigateTranscriptHistory && lastRecordingFileExists`，而 `canNavigateTranscriptHistory` 只在 `.idle` / `.ready` 为 true（`recordingStatus == .idle || recordingStatus == .ready`）。Stop 后转写卡在 `.transcribing` 时它为 false，把「保存音频」灰掉；`canResendRecording` 复用了 `canNavigateTranscriptHistory && lastRecordingFileExists` 这一段被连累，加上 RecordView 上还额外有 `recordingStatus == .transcribing` 的 disable 守卫，导致用户连保存录好的音频都做不到。
+- **`canNavigateTranscriptHistory` 隐含什么**: 它只表示「转写历史前后翻页可用」，定义就是 `.idle || .ready`，即「既不在录音中、也不在转写中」。对 save/resend 而言，这里唯一可能有用的隐含前提是「非录音中」，但该前提对 save 并非必要（录音中音频文件本就不存在、`lastRecordingFileExists` 自然为 false），且 resend 的 `.recording` 分支已单独处理。因此去掉对 save/resend 的 `canNavigateTranscriptHistory` 依赖是安全的，不会破坏历史导航本身（`canNavigatePreviousTranscript` / `canNavigateNextTranscript` 仍各自保留该依赖）。
+- **Fix**: `canSaveRecording` 改为只看 `lastRecordingFileExists`；`canResendRecording` 改为 `hasSavedAIBuilderToken && (recordingStatus == .recording || lastRecordingFileExists)`，不再被 `canNavigateTranscriptHistory` 卡。RecordView 去掉 resend 按钮上多余的 `|| recordingStatus == .transcribing` 守卫。`resendLastRecording` 在「非录音中」分支补一次 `cancelLiveTranscriptionSession()`，确保卡死的 live 会话被强制断开后再 bulk 重转（重转核心逻辑不变）。
+- **Regression**: 新增 `saveAndResendStayEnabledWhileTranscribingIsStuck`（录完后强制 `.transcribing` + 音频文件存在 → save/resend 均为 true）与 `saveStaysDisabledWhenNoAudioFileExists`（`.transcribing` 但无音频文件 → save 为 false）。
+
 ### 2026-05-29 (录音中 Resend 作为 websocket 卡死逃生口)
 
 - **Root cause**: `canResendRecording` 只允许 idle / ready 且已有 `lastRecordingURL` 时启用。录音中如果 websocket 不再返回事件，Stop 仍会走 live finalize；用户无法通过菜单主动断开 live session 并重放本地音频。

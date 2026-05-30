@@ -638,6 +638,50 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .ready)
     }
 
+    // Rescue: when transcription hangs in `.transcribing`, the user must still be
+    // able to save and replay the already-recorded audio.
+    @Test func saveAndResendStayEnabledWhileTranscribingIsStuck() async throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-stuck-transcribing-test.wav")
+        try Data("audio-bytes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        let (client, _) = makeStubVoiceFlowClient(
+            liveResult: .success("first transcript"),
+            bulkResult: .success("first transcript")
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        await state.stopRecording()
+
+        // Simulate the live session hanging: status stays in `.transcribing`
+        // while a persisted audio file already exists on disk.
+        state.recordingStatus = .transcribing
+        #expect(state.lastRecordingURL != nil)
+
+        #expect(state.canSaveRecording == true)
+        #expect(state.canResendRecording == true)
+    }
+
+    // Without an audio file, save must remain disabled even in `.transcribing`.
+    @Test func saveStaysDisabledWhenNoAudioFileExists() async throws {
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain, clipboardWriter: MockClipboardWriter())
+        state.saveAIBuilderToken("fake-token")
+
+        state.recordingStatus = .transcribing
+        #expect(state.lastRecordingURL == nil)
+        #expect(state.canSaveRecording == false)
+    }
+
     @Test func recordingFileSaverCreatesTimestampedDestinationAndCopiesFile() async throws {
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-source.wav")
         let destinationDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-saver-dest", isDirectory: true)

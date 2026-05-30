@@ -177,7 +177,7 @@ struct RecordView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                 }
-                .disabled(!appState.canResendRecording || appState.recordingStatus == .transcribing)
+                .disabled(!appState.canResendRecording)
                 .accessibilityIdentifier("record.resendRecordingButton")
             } label: {
                 Image(systemName: "ellipsis")
