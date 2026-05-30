@@ -350,3 +350,12 @@ struct StatusText: View {
 **Tab 图标（`PixelTabIcons`）**：mic / gear 都是 7×7 像素网格栅格化成 template `UIImage`（SwiftUI `tabItem` 走 UIKit，需要 `UIImage`），图案与 Android 完全一致。`MainTabView` 两个 tab 都用 `Image.pixelTab(_:)`。
 
 **App icon / logo**：换成像素语音气泡 + 内含波形的标记（琥珀单色近黑底），同时传达"语音"和"AI 理解"，取代早期多色像素脑子。`logo.imageset`（@1x/2x/3x）+ `AppIcon.appiconset`（1024 三态）。
+
+
+## Pixelate 收缩为 hint（修订）
+
+实际使用后整套像素"用力过猛"，收缩为"一点 hint"：
+- **计时器 00:00** 和 **STOP/RECORD 按钮标签** 改回常规系统字体（`Typography.timer` / `Typography.buttonLabel`）——大号粗体元素用像素显得吵。
+- **保留像素**的只剩轻量元素：状态字（Listening）、波形像素方块、Tab mic/gear、logo/AppIcon。
+- 波形 bar 15 → **23**（更细腻），bar 宽 14 → 9pt 以排得下。
+- 规律：像素只作 hint，落在小号/轻量元素上。两端（iOS/Android）一致。

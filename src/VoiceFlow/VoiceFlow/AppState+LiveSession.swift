@@ -69,7 +69,7 @@ extension AppState {
             await applyCurrentTranscriptionConfig(token: token)
             let result = try await voiceFlowClient.transcribe(audioFile: audioURL) { [weak self] partial in
                 Task { @MainActor in
-                    self?.transcript = partial
+                    self?.applyStreamedTranscript(partial)
                 }
             }
             let transcribedText = result.text
@@ -84,12 +84,33 @@ extension AppState {
         }
     }
 
+    /// Apply a streamed transcript value to `transcript` in a way that avoids
+    /// the per-partial flash the public app used to show.
+    ///
+    /// Streaming hands us the *whole* transcript so far on every partial.
+    /// Assigning a brand-new String to the `@Published` that `TextEditor` binds
+    /// to makes UITextView treat it as a fresh value and reset its contents
+    /// (and selection/scroll) — that reset is the flicker. The private app
+    /// avoids it by appending, which keeps the existing prefix identical.
+    ///
+    /// So: if the new value just extends what's already there, only append the
+    /// delta; if it diverges, replace; if it's unchanged, skip the write
+    /// entirely (a no-op assignment still churns the binding).
+    func applyStreamedTranscript(_ content: String) {
+        if content == transcript { return }
+        if content.hasPrefix(transcript) {
+            transcript.append(contentsOf: content.dropFirst(transcript.count))
+        } else {
+            transcript = content
+        }
+    }
+
     func handleStreamEvent(_ event: VoiceFlowEvent) {
         switch event {
         case .partialTranscript(let content):
             guard recordingStatus != .recording else { return }
             if !userEditedTranscriptDuringStream {
-                transcript = content
+                applyStreamedTranscript(content)
                 throttledStreamClipboardWrite(transcript)
             }
         case .phaseChanged(let phase):
@@ -146,7 +167,7 @@ extension AppState {
     }
 
     private func updateTranscriptDuringFinalize(_ partial: String) {
-        transcript = partial
+        applyStreamedTranscript(partial)
         throttledStreamClipboardWrite(partial)
     }
 

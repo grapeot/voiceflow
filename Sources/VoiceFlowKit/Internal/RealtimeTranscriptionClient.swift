@@ -353,7 +353,17 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     func shouldNotifyUI(for event: RealtimeTranscriptEvent) -> Bool {
         switch event {
         case .textDelta:
-            return isFinalizing
+            // During finalize the transcript is already delivered to the host
+            // via `finalizePartialCallback` with the full *resolved* text.
+            // Also forwarding raw per-event textDeltas through the event stream
+            // here created a SECOND, competing writer that carries only the
+            // single event's content — the two writers produce values that are
+            // not prefixes of each other, which breaks the host's append-only
+            // invariant and forces a full UITextView reset (the flicker / the
+            // "clears to one or two chars then jumps back to full" behavior).
+            // The finalize callback is the single authoritative source, so
+            // never forward textDeltas through the event stream.
+            return false
         case .error(let message):
             return isFinalizing || !RealtimeTranscriptionSupport.isRecoverableBufferTooSmallError(message)
         default:

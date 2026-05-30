@@ -92,10 +92,11 @@ struct RecordView: View {
 
     private var timerHeader: some View {
         VStack(spacing: DesignTokens.Spacing.s) {
-            // Timer is pure digits — always the Silkscreen pixel face, the
-            // headline of the Pixelate look.
+            // Timer uses the regular system face (56pt thin) — the Pixelate
+            // look is dialed back to a hint, so the big timer stays neutral.
+            // monospacedDigit keeps the digits from jittering as they tick.
             Text(appState.recordingTimerText)
-                .font(DesignTokens.PixelType.timer)
+                .font(DesignTokens.Typography.timer)
                 .foregroundStyle(DesignTokens.Palette.textPrimary)
                 .monospacedDigit()
                 .accessibilityIdentifier("record.recordingTimer")
@@ -106,26 +107,15 @@ struct RecordView: View {
     }
 
     private var transcriptArea: some View {
-        ZStack {
-            TextEditor(text: $appState.transcript)
-                .font(DesignTokens.Typography.body)
-                .foregroundStyle(DesignTokens.Palette.textPrimary)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
-                .padding(.horizontal, DesignTokens.Spacing.xl - 5)
-                .accessibilityIdentifier("record.transcript")
-                .accessibilityValue(appState.transcript)
-
-            if appState.transcript.isEmpty {
-                // The hint is symmetric to the timer and waveform above it —
-                // every element on the screen is centered. A lone left-aligned
-                // placeholder reads as orphaned, especially in dark mode.
-                Text(localized("record.transcript.placeholder"))
-                    .font(DesignTokens.Typography.body)
-                    .foregroundStyle(DesignTokens.Palette.textTertiary)
-                    .allowsHitTesting(false)
-            }
-        }
+        // The editor is its own view bound to `$appState.transcript`, so a
+        // streamed transcript update invalidates only this subview — not the
+        // whole RecordView body (which also reads audioLevel, timer text,
+        // recordingStatus, button states…). That body-wide invalidation was
+        // what made the *whole UI* flash on every partial.
+        TranscriptEditor(
+            text: $appState.transcript,
+            placeholder: localized("record.transcript.placeholder")
+        )
         .frame(maxHeight: .infinity)
     }
 
@@ -323,6 +313,36 @@ struct RecordView: View {
 
     private func localized(_ key: String) -> String {
         String(localized: String.LocalizationValue(key), bundle: localizationBundle)
+    }
+}
+
+/// The transcript text editor as its own view. Bound to the transcript string,
+/// so a streamed update re-evaluates only this view rather than the entire
+/// RecordView body — which is what stops the whole screen flashing per partial.
+private struct TranscriptEditor: View {
+    @Binding var text: String
+    let placeholder: String
+
+    var body: some View {
+        ZStack {
+            TextEditor(text: $text)
+                .font(DesignTokens.Typography.body)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .padding(.horizontal, DesignTokens.Spacing.xl - 5)
+                .accessibilityIdentifier("record.transcript")
+
+            if text.isEmpty {
+                // The hint is symmetric to the timer and waveform above it —
+                // every element on the screen is centered. A lone left-aligned
+                // placeholder reads as orphaned, especially in dark mode.
+                Text(placeholder)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(DesignTokens.Palette.textTertiary)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 

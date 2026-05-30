@@ -33,8 +33,9 @@ struct CapsuleButton: View {
                         .font(.system(size: 15, weight: .medium))
                 }
                 Text(title)
-                    // English labels (STOP / Record) render in the Silkscreen
-                    // pixel font; Chinese labels keep the system face.
+                    // Button labels (STOP / Record) use the regular system face
+                    // — the Pixelate look is dialed back to a hint, so the label
+                    // is no longer the chunky pixel font.
                     .font(labelFont)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -62,12 +63,7 @@ struct CapsuleButton: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var labelFont: Font {
-        let resolved = StatusText.resolvedString(from: title, bundle: localizationBundle)
-        return DesignTokens.PixelType.font(
-            for: resolved,
-            pixel: DesignTokens.PixelType.button,
-            fallback: DesignTokens.Typography.buttonLabel
-        )
+        DesignTokens.Typography.buttonLabel
     }
 
     private var foregroundColor: Color {
