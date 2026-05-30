@@ -20,6 +20,12 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-29 (录音中 Resend 作为 websocket 卡死逃生口)
+
+- **Root cause**: `canResendRecording` 只允许 idle / ready 且已有 `lastRecordingURL` 时启用。录音中如果 websocket 不再返回事件，Stop 仍会走 live finalize；用户无法通过菜单主动断开 live session 并重放本地音频。
+- **Fix**: `Resend` 在 `.recording` 时启用。触发后先停止本地录音并落 WAV，取消 live session / heartbeat / event consumer，然后复用 bulk transcription 读取刚落盘的音频。已有录音的 resend 语义保持不变。
+- **Regression**: 新增 `resendWhileRecordingStopsLiveSessionAndUsesBulkTranscription`，覆盖 active recording 下 Resend 会 stop recorder、cancel live session、跳过 finalize，并产出 bulk transcript。
+
 ### 2026-05-28 (Stop 按钮 hit-test 修复)
 
 - **Root cause**: `CapsuleButton` 已用 `.contentShape(.hoverEffect, Capsule())` 限制 visionOS gaze hover，但没有给普通 SwiftUI hit-test 显式设置 capsule 区域。Stop 是 secondary outline 胶囊，视觉中间区域透明；在真机/visionOS 交互里，点到文字或描边外的空白区域时容易表现为第一次 stop 没被接受。
