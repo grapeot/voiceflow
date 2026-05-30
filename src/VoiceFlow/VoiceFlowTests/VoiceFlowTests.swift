@@ -152,6 +152,32 @@ struct VoiceFlowTests {
         #expect(state.canSendToOpenCode == true)
     }
 
+    @Test func openCodeConnectionVerificationPersistsAcrossAppStateInstances() async throws {
+        resetOpenCodeDefaults()
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(
+            keychainStore: keychain,
+            openCodeClient: MockOpenCodeClient(result: .success(()))
+        )
+
+        state.transcript = "hello"
+        state.saveOpenCodePassword("fake-password")
+        await state.testOpenCodeConnection()
+
+        let relaunched = AppState(
+            keychainStore: keychain,
+            openCodeClient: MockOpenCodeClient(result: .success(()))
+        )
+        relaunched.transcript = "hello"
+
+        #expect(relaunched.openCodeConnectionStatus == .success)
+        #expect(relaunched.canSendToOpenCode == true)
+
+        relaunched.openCodeUsername = "other-user"
+        #expect(relaunched.openCodeConnectionStatus == .untested)
+        #expect(UserDefaults.standard.bool(forKey: "openCodeConnectionVerified") == false)
+    }
+
     @Test func openCodePasswordUsesKeychainAndClearRemovesPasswordOnly() async throws {
         resetOpenCodeDefaults()
         let keychain = InMemoryKeychainStore()
@@ -1112,6 +1138,7 @@ struct VoiceFlowTests {
 private func resetOpenCodeDefaults() {
     UserDefaults.standard.removeObject(forKey: "openCodeServerURL")
     UserDefaults.standard.removeObject(forKey: "openCodeUsername")
+    UserDefaults.standard.removeObject(forKey: "openCodeConnectionVerified")
 }
 
 private func resetPreferenceDefaults() {

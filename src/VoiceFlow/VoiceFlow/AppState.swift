@@ -59,6 +59,7 @@ final class AppState: ObservableObject {
         didSet {
             UserDefaults.standard.set(openCodeServerURL, forKey: Self.openCodeServerURLDefaultsKey)
             if oldValue != openCodeServerURL {
+                UserDefaults.standard.set(false, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
                 openCodeConnectionStatus = .untested
             }
         }
@@ -67,6 +68,7 @@ final class AppState: ObservableObject {
         didSet {
             UserDefaults.standard.set(openCodeUsername, forKey: Self.openCodeUsernameDefaultsKey)
             if oldValue != openCodeUsername {
+                UserDefaults.standard.set(false, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
                 openCodeConnectionStatus = .untested
             }
         }
@@ -136,6 +138,7 @@ final class AppState: ObservableObject {
     static let openCodePasswordKey = "openCodePassword"  // Keychain
     static let openCodeServerURLDefaultsKey = "openCodeServerURL"      // UserDefaults
     static let openCodeUsernameDefaultsKey = "openCodeUsername"        // UserDefaults
+    static let openCodeConnectionVerifiedDefaultsKey = "openCodeConnectionVerified"  // UserDefaults
     static let appLanguageDefaultsKey = "appLanguage"                  // UserDefaults
     static let transcriptionPromptDefaultsKey = "transcriptionPrompt"  // UserDefaults
     static let transcriptionTermsDefaultsKey = "transcriptionTerms"    // UserDefaults
@@ -178,6 +181,7 @@ final class AppState: ObservableObject {
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestResetPreferences") {
             UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.openCodeConnectionVerifiedDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
@@ -233,6 +237,12 @@ final class AppState: ObservableObject {
         }
         self.hasSavedAIBuilderToken = (try? self.keychainStore.readString(for: Self.tokenKey)) != nil
         self.hasSavedOpenCodePassword = (try? self.keychainStore.readString(for: Self.openCodePasswordKey)) != nil
+        if self.hasSavedOpenCodePassword,
+           !self.openCodeServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !self.openCodeUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           UserDefaults.standard.bool(forKey: Self.openCodeConnectionVerifiedDefaultsKey) {
+            self.openCodeConnectionStatus = .success
+        }
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestDeepLinkRecord") {
             handleIncomingURL(URL(string: "voiceflow://record")!)
         }
@@ -284,6 +294,7 @@ final class AppState: ObservableObject {
 
         UserDefaults.standard.removeObject(forKey: Self.openCodeServerURLDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.openCodeUsernameDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.openCodeConnectionVerifiedDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
@@ -312,6 +323,7 @@ final class AppState: ObservableObject {
             openCodeUsername = OpenCodeClient.defaultUsername
             try? keychainStore.saveString("fake-opencode-password", for: Self.openCodePasswordKey)
             hasSavedOpenCodePassword = true
+            UserDefaults.standard.set(true, forKey: Self.openCodeConnectionVerifiedDefaultsKey)
             openCodeConnectionStatus = .success
         }
         if arguments.contains("-uiTestOpenCodeConnectionFailure") {

@@ -20,6 +20,12 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-30 (OpenCode connection test 持久化)
+
+- **问题**：OpenCode 连接测试成功只保存在 `AppState.openCodeConnectionStatus` 内存状态里。App 重启后状态回到 `.untested`，即使 URL、用户名和 Keychain 密码都还在，Record 页也会因为 `canSendToOpenCode` 为 false 而要求用户重新点 Test。
+- **Fix**：新增 `openCodeConnectionVerified` UserDefaults 标记。`testOpenCodeConnection()` 成功后写 true；连接失败、保存/清除密码、修改 URL 或用户名时写 false 并回到 `.untested`。`AppState` 初始化时如果密码存在、URL/用户名非空且该标记为 true，就直接恢复 `.success`。
+- **Regression**：新增 `openCodeConnectionVerificationPersistsAcrossAppStateInstances`，覆盖一次测试成功后新 `AppState` 可直接发送，以及修改用户名会失效。
+
 ### 2026-05-30 (实时转写体验定调：录音静默 + Stop 后逐 delta 打字机)
 
 把"录音不输出转写、Stop 后逐 delta 打字机"这个一直在代码里、但没在文档里明确写过的设计决策记录下来。iOS 当前实现已经是正确状态，这次只补文档（`docs/design.md` 新增"实时转写体验：录音静默 + Stop 后打字机"小节，并修正"动效"里那条还在描述整段 fade-in 的过时表述）。
