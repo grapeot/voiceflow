@@ -170,9 +170,13 @@ struct VoiceFlowTests {
     @Test func openCodeClientCreatesSessionAndSendsPromptAsync() async throws {
         MockURLProtocol.requestHandler = { request in
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Basic dXNlcjpwYXNz")
-            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+            // Content-Type is asserted per-request below: only the body-carrying
+            // POSTs set it. A GET (e.g. fetching messages) carries no body and so
+            // no Content-Type — asserting it on *every* request made this test
+            // fail whenever the GET message fetch ran (flaky across the suite).
             if request.url?.path == "/session" {
                 #expect(request.httpMethod == "POST")
+                #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (response, Data("{\"id\":\"session-1\"}".utf8))
             }
@@ -186,6 +190,7 @@ struct VoiceFlowTests {
 
             #expect(request.url?.path == "/session/session-1/prompt_async")
             #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
             let body = try requestBodyData(for: request)
             let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let model = json?["model"] as? [String: String]
