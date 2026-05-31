@@ -817,6 +817,7 @@ struct VoiceFlowTests {
         #expect(state.transcript == "voice text")
         #expect(state.transcriptHistory.entries.map(\.text) == ["voice text"])
         #expect(clipboard.writtenText == "voice text")
+        #expect(clipboard.writeCount == 1)
     }
 
     @Test func transcriptionPromptAndTermsPropagateIntoLiveSessionContext() async throws {

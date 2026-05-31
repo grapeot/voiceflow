@@ -149,8 +149,6 @@ final class AppState: ObservableObject {
     var liveTranscriptionSession: VoiceFlowSession?
     var liveEventConsumerTask: Task<Void, Never>?
     var streamHeartbeatTask: Task<Void, Never>?
-    var lastStreamClipboardHash: Int?
-    var lastStreamClipboardUpdate: Date?
     var userEditedTranscriptDuringStream = false
     var isTranscriptionTeardown = false
 
@@ -295,8 +293,6 @@ final class AppState: ObservableObject {
         recordingTimerText = "00:00"
         audioLevel = 0
         lastRecordingURL = nil
-        lastStreamClipboardHash = nil
-        lastStreamClipboardUpdate = nil
         isTranscriptionTeardown = false
         selectedTab = .record
 
