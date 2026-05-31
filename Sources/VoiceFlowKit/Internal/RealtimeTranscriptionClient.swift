@@ -205,6 +205,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private var finalizeText = FinalizeTranscriptAccumulator()
     private var finalizePartialCallback: (@Sendable (String) -> Void)?
     private var hasPreservedAudio = false
+    private var isTerminated = false
 
     init(
         cache: AudioChunkCache,
@@ -221,6 +222,10 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func attachInitialSession(_ newSession: RealtimeTranscriptionSession) async throws {
+        guard !isTerminated else {
+            await newSession.close()
+            return
+        }
         guard session == nil, !isRecovering else {
             await newSession.close()
             return
@@ -239,7 +244,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func appendAudioChunk(_ chunk: Data) async {
-        guard !hasPreservedAudio else { return }
+        guard !hasPreservedAudio, !isTerminated else { return }
         do {
             try cache.append(chunk)
             guard !isRecovering, let session else { return }
@@ -250,6 +255,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func heartbeat() async {
+        guard !isTerminated else { return }
         guard !isRecovering, let session else { return }
         do {
             try await session.ping()
@@ -294,7 +300,9 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 }
                 let resolved = finalizeText.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !resolved.isEmpty {
-                    return finalizeText.resolvedText
+                    let finalText = finalizeText.resolvedText
+                    await terminate(removeCache: true)
+                    return finalText
                 }
                 lastError = RealtimeTranscriptionError.emptyTranscript
             } catch {
@@ -386,6 +394,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func cancel() async {
+        isTerminated = true
         if let session {
             await session.close()
         }
@@ -397,6 +406,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     func abortPreservingAudio() async throws -> VoiceFlowPreservedAudio? {
+        isTerminated = true
         if let session {
             await session.close()
         }
@@ -412,6 +422,19 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         }
         hasPreservedAudio = true
         return preserved
+    }
+
+    private func terminate(removeCache: Bool) async {
+        isTerminated = true
+        if let session {
+            await session.close()
+        }
+        session = nil
+        isRecovering = false
+        phase = .disconnected
+        if removeCache {
+            cache.remove()
+        }
     }
 
     func handleServerEvent(_ event: RealtimeTranscriptEvent) {
@@ -463,6 +486,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     private func recover(reason: Error) async {
+        guard !isTerminated else { return }
         guard !hasPreservedAudio else { return }
         guard !isRecovering else { return }
         isRecovering = true
