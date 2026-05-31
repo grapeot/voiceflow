@@ -111,7 +111,6 @@ extension AppState {
             guard recordingStatus != .recording else { return }
             if !userEditedTranscriptDuringStream {
                 applyStreamedTranscript(content)
-                throttledStreamClipboardWrite(transcript)
             }
         case .phaseChanged(let phase):
             streamConnectionPhase = phase
@@ -168,7 +167,6 @@ extension AppState {
 
     private func updateTranscriptDuringFinalize(_ partial: String) {
         applyStreamedTranscript(partial)
-        throttledStreamClipboardWrite(partial)
     }
 
     private func makeFinalizePartialHandler() -> @Sendable (String) -> Void {
@@ -279,30 +277,5 @@ extension AppState {
     func stopStreamHeartbeat() {
         streamHeartbeatTask?.cancel()
         streamHeartbeatTask = nil
-    }
-
-    /// Stream-mode clipboard write. Throttled so we don't pin clipboard
-    /// updates for tiny per-token deltas; the throttle window is 1 s,
-    /// and we only write when the hash actually changed.
-    func throttledStreamClipboardWrite(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 3 else { return }
-
-        let hash = trimmed.hashValue
-        let now = Date()
-        if hash == lastStreamClipboardHash,
-           let lastStreamClipboardUpdate,
-           now.timeIntervalSince(lastStreamClipboardUpdate) < 1 {
-            return
-        }
-
-        lastStreamClipboardHash = hash
-        lastStreamClipboardUpdate = now
-        do {
-            try clipboardWriter.write(trimmed)
-            lastClipboardStatusKey = "record.clipboard.copied"
-        } catch {
-            lastClipboardStatusKey = "record.clipboard.failed"
-        }
     }
 }
