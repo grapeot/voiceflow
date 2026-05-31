@@ -20,6 +20,12 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-05-30 (VoiceFlowKit realtime session terminal teardown)
+
+- **问题**：`RealtimeLiveSessionHandle.finalize()` 成功返回 transcript 后没有把 live session 标成终止态，也没有主动关闭当前 WebSocket。服务端随后正常关闭连接时，`disconnected` 事件可能在 `isFinalizing = false` 后到达，旧逻辑会把它当作录音中断线并触发 `recover()`，导致已经完成的语音 session 重新打开连接。
+- **Fix**：新增 `isTerminated` 状态。`finalize()` 成功拿到可用文本后执行 terminal teardown：关闭 socket、清空 session、清理 cache、置 phase 为 disconnected。`cancel()` / `abortPreservingAudio()` 同样置 terminal；延迟到达的 initial attach、audio append、heartbeat、recover 都尊重 terminal guard。
+- **App 层影响**：第一方 app 原本在 stop 完成和 background 时会 cancel session，这层保留；kit 自身现在也能保证完成态不会被后续 close 事件复活。
+
 ### 2026-05-30 (VoiceFlowKit preserved audio retry API)
 
 - **改动**：VoiceFlowKit facade 新增 `VoiceFlowPreservedAudio`、`VoiceFlowSession.abortPreservingAudio()`、`VoiceFlowClient.transcribe(preservedAudio:onPartialTranscript:)` 和 `discardPreservedAudio(_:)`。旧 `cancel()` 继续表示取消并清理缓存；新 abort 路径只关闭当前 WebSocket，保留 session 内部 `AudioChunkCache` 的 PCM 文件，供 host 在 UI 上提供"终止识别 / 重试上一段录音"。
