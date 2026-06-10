@@ -20,6 +20,12 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-06-09 (长转写自动跟随底部)
+
+- **问题**：Stop 后逐 delta 打字机输出长文本时，转写区内部可滚动，但 `TextEditor` 不会在程序化 append 时自动跟到底部。用户听写较长内容时只能看到旧位置，不知道当前是否仍在生成。
+- **Fix**：`TranscriptEditor` 保持独立子 view，内部改为原生 `UITextView` bridge。只有外部 transcript binding 变化且 text view 需要同步时才写入文本，并立即 `scrollRangeToVisible` 到末尾；用户直接编辑导致的 delegate 更新不会触发重复重置。
+- **UI 取舍**：保留原来的可编辑 transcript 行为和 append-only 防闪烁路径，不把转写区改成只读 `Text`，避免为自动滚动牺牲现有编辑能力。
+
 ### 2026-05-30 (Stop 后完成态再写剪贴板)
 
 - **问题**：参考 app 在 stream partial / finalize partial 到来时会同步更新系统剪贴板。虽然已有 1 秒节流和去重，长文本 Stop 后仍可能多次覆盖用户剪贴板。

@@ -1,6 +1,10 @@
 import SwiftUI
 import VoiceFlowKit
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 struct RecordView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
@@ -325,11 +329,7 @@ private struct TranscriptEditor: View {
 
     var body: some View {
         ZStack {
-            TextEditor(text: $text)
-                .font(DesignTokens.Typography.body)
-                .foregroundStyle(DesignTokens.Palette.textPrimary)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
+            AutoScrollingTextEditor(text: $text)
                 .padding(.horizontal, DesignTokens.Spacing.xl - 5)
                 .accessibilityIdentifier("record.transcript")
 
@@ -345,6 +345,69 @@ private struct TranscriptEditor: View {
         }
     }
 }
+
+#if canImport(UIKit)
+private struct AutoScrollingTextEditor: UIViewRepresentable {
+    @Binding var text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.backgroundColor = .clear
+        textView.font = .systemFont(ofSize: 17, weight: .regular)
+        textView.textColor = .label
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.isScrollEnabled = true
+        textView.alwaysBounceVertical = true
+        textView.accessibilityIdentifier = "record.transcript"
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        guard textView.text != text else { return }
+        textView.text = text
+        scrollToBottom(textView)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    private func scrollToBottom(_ textView: UITextView) {
+        DispatchQueue.main.async {
+            guard !textView.text.isEmpty else { return }
+            let length = (textView.text as NSString).length
+            let endRange = NSRange(location: max(length - 1, 0), length: 1)
+            textView.scrollRangeToVisible(endRange)
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        private var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
+        }
+    }
+}
+#else
+private struct AutoScrollingTextEditor: View {
+    @Binding var text: String
+
+    var body: some View {
+        TextEditor(text: $text)
+            .font(DesignTokens.Typography.body)
+            .foregroundStyle(DesignTokens.Palette.textPrimary)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+    }
+}
+#endif
 
 #Preview {
     NavigationStack {
