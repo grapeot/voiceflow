@@ -129,7 +129,7 @@ final class AppState: ObservableObject {
     internal var signalBannerGraceTask: Task<Void, Never>?
 
     static let silenceFloor: Float = 0.002
-    static let speechThreshold: Float = 0.003
+    static let speechThreshold: Float = 0.008
     static let activeAudioShortMs: Double = 1500
     static let signalBannerGraceMs: Int = 300
 

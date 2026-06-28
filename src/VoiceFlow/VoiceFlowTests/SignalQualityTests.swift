@@ -26,6 +26,20 @@ struct SignalQualityTests {
         #expect(rms > AppState.speechThreshold)
     }
 
+    @Test func rmsLevelOfQuietToneBelowSpeechThreshold() {
+        // Very quiet tone — should be above silence floor but below speech threshold
+        var samples = [Int16]()
+        for i in 0..<4096 {
+            let sample = Int16(200.0 * sin(Double(i) * 0.1))
+            samples.append(sample)
+        }
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        let rms = VoiceFlowAudioMetering.rmsLevel(fromPCM16LE: data)
+        // 200/32768 ≈ 0.006 RMS for a sine — above silenceFloor, below speechThreshold(0.008)
+        #expect(rms > AppState.silenceFloor)
+        #expect(rms < AppState.speechThreshold)
+    }
+
     // MARK: - Tier evaluation
 
     @MainActor

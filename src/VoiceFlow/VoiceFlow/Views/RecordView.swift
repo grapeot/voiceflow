@@ -119,13 +119,10 @@ struct RecordView: View {
         VStack(spacing: DesignTokens.Spacing.s) {
             if appState.showTranscriptWarning {
                 Text(localized("record.signal.shortRecording"))
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Palette.accent)
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DesignTokens.Spacing.xl)
-                    .padding(.vertical, DesignTokens.Spacing.s)
-                    .background(DesignTokens.Palette.accentMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, DesignTokens.Spacing.xl - 5)
                     .accessibilityIdentifier("record.transcript.warning")
             }
             TranscriptEditor(
