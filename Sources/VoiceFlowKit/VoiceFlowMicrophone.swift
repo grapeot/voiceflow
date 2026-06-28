@@ -89,11 +89,11 @@ private actor LevelSmoother {
 /// VoiceFlowKit uses internally — e.g. when feeding the microphone
 /// from an existing AVAudioEngine instead of `VoiceFlowMicrophone`.
 public enum VoiceFlowAudioMetering: Sendable {
-    /// Compute a 0..1 smoothed level from a PCM16 little-endian chunk
-    /// using RMS → dB → linear remap → 0.9× tail. This matches what
-    /// `VoiceFlowMicrophone.audioLevel` publishes, minus the EMA
-    /// smoothing (the caller can apply that themselves if needed).
-    public static func normalizedLevel(fromPCM16LE data: Data) -> Float {
+    /// Compute raw RMS (0..1) from a PCM16 little-endian chunk.
+    /// Unlike `normalizedLevel`, this is the untransformed RMS —
+    /// useful for signal-quality detection where dB remapping would
+    /// compress the low end.
+    public static func rmsLevel(fromPCM16LE data: Data) -> Float {
         let sampleCount = data.count / 2
         guard sampleCount > 0 else { return 0 }
 
@@ -110,7 +110,18 @@ public enum VoiceFlowAudioMetering: Sendable {
             return accumulator
         }
 
-        let rms = sqrt(sumSquares / Double(sampleCount))
+        return Float(sqrt(sumSquares / Double(sampleCount)))
+    }
+
+    /// Compute a 0..1 smoothed level from a PCM16 little-endian chunk
+    /// using RMS → dB → linear remap → 0.9× tail. This matches what
+    /// `VoiceFlowMicrophone.audioLevel` publishes, minus the EMA
+    /// smoothing (the caller can apply that themselves if needed).
+    public static func normalizedLevel(fromPCM16LE data: Data) -> Float {
+        let sampleCount = data.count / 2
+        guard sampleCount > 0 else { return 0 }
+
+        let rms = Double(rmsLevel(fromPCM16LE: data))
         let dB = 20.0 * log10(max(rms, 1e-7))
         let minDB = -50.0
         let maxDB = -10.0

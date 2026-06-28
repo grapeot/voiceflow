@@ -160,13 +160,62 @@ extension AppState {
     /// helper, then feed it into an exponential moving average so the waveform
     /// never jitters on short silences mid-syllable. 30 % new sample,
     /// 70 % carried — short attack, slow release.
+    /// Also accumulates peakRms and activeAudioMs for signal-quality detection.
     private func updateAudioLevel(from chunk: Data) {
         let normalized = VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE: chunk)
         audioLevel = audioLevel * 0.7 + normalized * 0.3
+
+        guard recordingStatus == .recording || recordingStatus == .requestingPermission else { return }
+        let rawRms = VoiceFlowAudioMetering.rmsLevel(fromPCM16LE: chunk)
+        if rawRms > peakRms { peakRms = rawRms }
+        if rawRms >= Self.speechThreshold {
+            let sampleCount = chunk.count / 2
+            let sampleRate = 24000.0
+            activeAudioMs += Double(sampleCount) / sampleRate * 1000
+            if persistentStreamCaptionKey == SignalCaptionKey.noSignalLive {
+                setPersistentStreamCaption(nil)
+            }
+        }
     }
 
     private func updateTranscriptDuringFinalize(_ partial: String) {
         applyStreamedTranscript(partial)
+    }
+
+    // MARK: - Signal quality gate
+
+    /// Evaluate signal quality from peakRms and activeAudioMs accumulated
+    /// during recording. Called at Stop time before committing audio.
+    func evaluateSignalTier() -> SignalTier {
+        // Tier 1: no speech detected at all. We check activeAudioMs rather
+        // than peakRms alone, because iOS mic noise floor can push peakRms
+        // above silenceFloor even when the user never spoke. The real
+        // signal is whether any frame crossed the speech threshold.
+        if activeAudioMs < 100 {
+            return .tier1NoSignal
+        }
+        if activeAudioMs < Self.activeAudioShortMs {
+            return .tier2ShortAudio
+        }
+        return .tier3Normal
+    }
+
+    /// Start a grace timer; if no speech is detected after the grace window,
+    /// show a live "no signal" caption to warn the user mid-recording.
+    func startSignalBannerGraceTimer() {
+        signalBannerGraceTask?.cancel()
+        signalBannerGraceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.signalBannerGraceMs))
+            guard !Task.isCancelled, let self else { return }
+            guard self.recordingStatus == .recording else { return }
+            guard self.activeAudioMs < 1 else { return }
+            self.setPersistentStreamCaption(SignalCaptionKey.noSignalLive)
+        }
+    }
+
+    func cancelSignalBannerGraceTimer() {
+        signalBannerGraceTask?.cancel()
+        signalBannerGraceTask = nil
     }
 
     private func makeFinalizePartialHandler() -> @Sendable (String) -> Void {

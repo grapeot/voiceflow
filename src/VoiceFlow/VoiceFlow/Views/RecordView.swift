@@ -116,10 +116,20 @@ struct RecordView: View {
         // whole RecordView body (which also reads audioLevel, timer text,
         // recordingStatus, button states…). That body-wide invalidation was
         // what made the *whole UI* flash on every partial.
-        TranscriptEditor(
-            text: $appState.transcript,
-            placeholder: localized("record.transcript.placeholder")
-        )
+        VStack(spacing: DesignTokens.Spacing.s) {
+            if appState.showTranscriptWarning {
+                Text(localized("record.signal.shortRecording"))
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DesignTokens.Spacing.xl - 5)
+                    .accessibilityIdentifier("record.transcript.warning")
+            }
+            TranscriptEditor(
+                text: $appState.transcript,
+                placeholder: localized("record.transcript.placeholder")
+            )
+        }
         .frame(maxHeight: .infinity)
     }
 

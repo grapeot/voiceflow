@@ -14,6 +14,10 @@ extension AppState {
         static let reconnected = "record.status.reconnected"
         static let streamDisconnected = "record.error.streamDisconnected"
     }
+
+    enum SignalCaptionKey {
+        static let noSignalLive = "record.signal.noSignalLive"
+    }
 }
 
 extension AppState {
