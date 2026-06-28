@@ -31,6 +31,9 @@
 "record.error.streamDisconnected" = "Stream disconnected.";
 "record.error.alert.title" = "Recording Error";
 "record.error.alert.ok" = "OK";
+"record.signal.noSignal" = "Recording captured no audio at all. Please check your microphone access and try again.";
+"record.signal.noSignalLive" = "No audio input detected. Make sure your microphone is allowed, or wait for the waveform to move before speaking.";
+"record.signal.shortRecording" = "Recording was too short. The transcript may not be accurate.";
 "record.clipboard.copied" = "Copied to clipboard.";
 "record.clipboard.failed" = "Could not copy to clipboard.";
 "record.openCode.idle" = "OpenCode ready";

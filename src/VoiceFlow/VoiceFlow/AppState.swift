@@ -107,6 +107,39 @@ final class AppState: ObservableObject {
     /// recording; falls back to 0 when idle/transcribing/error so the
     /// waveform reads as quiet rather than frozen.
     @Published internal(set) var audioLevel: Float = 0
+
+    // MARK: - Signal quality detection
+
+    /// Raw RMS peak across the entire recording (0..1, untransformed).
+    /// Used to detect Tier 1 (zero signal) at Stop time.
+    @Published internal(set) var peakRms: Float = 0
+    /// Accumulated milliseconds of audio where RMS exceeded the speech
+    /// threshold. Used to distinguish Tier 2 (short) from Tier 3 (normal).
+    @Published internal(set) var activeAudioMs: Double = 0
+    /// Result of signal quality evaluation at Stop time. Nil while recording
+    /// or before first evaluation. Drives Tier 1 alert and Tier 2 warning.
+    @Published internal(set) var signalTier: SignalTier?
+
+    enum SignalTier: Equatable {
+        case tier1NoSignal
+        case tier2ShortAudio
+        case tier3Normal
+    }
+
+    internal var signalBannerGraceTask: Task<Void, Never>?
+
+    static let silenceFloor: Float = 0.002
+    static let speechThreshold: Float = 0.003
+    static let activeAudioShortMs: Double = 1500
+    static let signalBannerGraceMs: Int = 300
+
+    /// True when the last recording was Tier 2 (short audio) and the
+    /// transcript warning should be shown above the transcript text.
+    /// Cleared on next recording start.
+    var showTranscriptWarning: Bool {
+        signalTier == .tier2ShortAudio && recordingStatus == .ready
+    }
+
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }
@@ -413,6 +446,9 @@ final class AppState: ObservableObject {
             shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
             streamConnectionPhase = .connecting
+            peakRms = 0
+            activeAudioMs = 0
+            signalTier = nil
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": "stream"])
 
             await applyCurrentTranscriptionConfig(token: token)
@@ -428,6 +464,7 @@ final class AppState: ObservableObject {
             resetRecordingTimer()
             startRecordingTimer()
             recordingStatus = .recording
+            startSignalBannerGraceTimer()
         } catch {
             await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
@@ -443,6 +480,7 @@ final class AppState: ObservableObject {
     func stopRecording() async {
         guard recordingStatus == .recording else { return }
         stopRecordingTimer()
+        cancelSignalBannerGraceTimer()
         recordingStatus = .transcribing
         recordDiagnostic("recording_stop_requested")
 
@@ -463,6 +501,27 @@ final class AppState: ObservableObject {
             await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_audio_file_empty")
             presentRecordError("record.error.transcriptionFailed")
+            return
+        }
+
+        // Signal quality gate: evaluate before committing.
+        let tier = evaluateSignalTier()
+        signalTier = tier
+        recordDiagnostic("signal_tier_evaluated", metadata: [
+            "tier": "\(tier)",
+            "peakRms": "\(peakRms)",
+            "activeAudioMs": "\(activeAudioMs)"
+        ])
+
+        if tier == .tier1NoSignal {
+            // Don't commit — OpenAI would hallucinate on empty audio.
+            try? FileManager.default.removeItem(at: audioURL)
+            await cancelLiveTranscriptionSession()
+            clearStreamCaptions()
+            resetRecordingTimer()
+            recordingStatus = .idle
+            audioLevel = 0
+            presentRecordError("record.signal.noSignal")
             return
         }
 
