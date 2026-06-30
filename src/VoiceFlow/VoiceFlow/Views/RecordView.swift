@@ -122,7 +122,8 @@ struct RecordView: View {
                     .font(DesignTokens.Typography.caption)
                     .foregroundStyle(DesignTokens.Palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DesignTokens.Spacing.xl - 5)
+                    .padding(.horizontal, DesignTokens.Spacing.xl)
+                    .padding(.top, DesignTokens.Spacing.s)
                     .accessibilityIdentifier("record.transcript.warning")
             }
             TranscriptEditor(
@@ -340,7 +341,7 @@ private struct TranscriptEditor: View {
     var body: some View {
         ZStack {
             AutoScrollingTextEditor(text: $text)
-                .padding(.horizontal, DesignTokens.Spacing.xl - 5)
+                .padding(.horizontal, DesignTokens.Spacing.xl)
                 .accessibilityIdentifier("record.transcript")
 
             if text.isEmpty {
