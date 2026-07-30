@@ -205,7 +205,11 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
             do {
                 try aacWriter?.finish()
             } catch {
+                aacWriter?.discard()
                 aacWriter = nil
+                pcmBuffer.removeAll(keepingCapacity: false)
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                self.recordingURL = nil
                 throw AudioRecorderError.sessionSetupFailed(
                     phase: .finalizeRecording,
                     underlying: error as NSError
