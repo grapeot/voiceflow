@@ -217,7 +217,18 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
             }
             aacWriter = nil
         } else {
-            try PCM16WAVWriter.write(pcmData: pcmBuffer, to: recordingURL)
+            do {
+                try PCM16WAVWriter.write(pcmData: pcmBuffer, to: recordingURL)
+            } catch {
+                pcmBuffer.removeAll(keepingCapacity: false)
+                try? FileManager.default.removeItem(at: recordingURL)
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                self.recordingURL = nil
+                throw AudioRecorderError.sessionSetupFailed(
+                    phase: .finalizeRecording,
+                    underlying: error as NSError
+                )
+            }
         }
         pcmBuffer.removeAll(keepingCapacity: false)
 
