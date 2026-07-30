@@ -28,6 +28,11 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         tokenField.tap()
         tokenField.typeText("fake-ui-token")
+        app.buttons["settings.apiTokenVisibilityButton"].tap()
+        let visibleTokenField = app.textFields["settings.apiTokenField"]
+        XCTAssertTrue(visibleTokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertEqual(visibleTokenField.value as? String, "fake-ui-token")
+        app.buttons["settings.apiTokenVisibilityButton"].tap()
         app.buttons["settings.saveAndTestTokenButton"].tap()
 
         XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))

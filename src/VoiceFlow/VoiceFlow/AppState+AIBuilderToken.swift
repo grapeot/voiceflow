@@ -2,7 +2,7 @@ import Foundation
 import VoiceFlowKit
 
 /// AI Builder Space token management: save/clear via Keychain, test the
-/// configured token against the backend's usage endpoint. Token persistence
+/// configured token against the protected realtime-session endpoint. Token persistence
 /// is handled by `keychainStore`; UI views observe `hasSavedAIBuilderToken`
 /// and `connectionStatus` on the main `AppState`.
 extension AppState {

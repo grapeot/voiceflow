@@ -48,6 +48,8 @@
 "settings.apiToken.saved" = "Saved";
 "settings.apiToken.notSaved" = "Not saved";
 "settings.apiToken.saveAndTest" = "Save & Test";
+"settings.apiToken.show" = "Show API token";
+"settings.apiToken.hide" = "Hide API token";
 "settings.apiToken.clear" = "Clear";
 "settings.endpoint.title" = "Endpoint";
 "settings.testConnection" = "Test";

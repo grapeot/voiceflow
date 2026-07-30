@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
     @State private var tokenInput = ""
+    @State private var isTokenVisible = false
     @State private var openCodePasswordInput = ""
 
     var body: some View {
@@ -38,18 +39,35 @@ struct SettingsView: View {
                     .font(DesignTokens.Typography.bodyBold)
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
 
-                SecureField(
-                    appState.hasSavedAIBuilderToken
-                        ? appState.tokenDisplayValue
-                        : localized("settings.apiToken.placeholder"),
-                    text: $tokenInput
-                )
-                .textContentType(.password)
-                .textFieldStyle(.plain)
-                .font(DesignTokens.Typography.body)
-                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                HStack(spacing: DesignTokens.Spacing.s) {
+                    Group {
+                        if isTokenVisible {
+                            TextField(tokenPlaceholder, text: $tokenInput)
+                        } else {
+                            SecureField(tokenPlaceholder, text: $tokenInput)
+                        }
+                    }
+                    .textContentType(.password)
+                    .textFieldStyle(.plain)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(DesignTokens.Palette.textPrimary)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("settings.apiTokenField")
+
+                    Button {
+                        isTokenVisible.toggle()
+                    } label: {
+                        Image(systemName: isTokenVisible ? "eye.slash" : "eye")
+                            .foregroundStyle(DesignTokens.Palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(localized(isTokenVisible
+                                                   ? "settings.apiToken.hide"
+                                                   : "settings.apiToken.show"))
+                    .accessibilityIdentifier("settings.apiTokenVisibilityButton")
+                }
                 .inputCardSurface()
-                .accessibilityIdentifier("settings.apiTokenField")
             }
 
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
@@ -84,6 +102,7 @@ struct SettingsView: View {
                         if !candidate.isEmpty {
                             guard appState.saveAIBuilderToken(candidate) else { return }
                             tokenInput = ""
+                            isTokenVisible = false
                         }
                         await appState.testAIBuilderConnection()
                     }
@@ -100,6 +119,7 @@ struct SettingsView: View {
                 Button(localized("settings.apiToken.clear"), role: .destructive) {
                     appState.clearAIBuilderToken()
                     tokenInput = ""
+                    isTokenVisible = false
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(DesignTokens.Palette.textSecondary)
@@ -394,6 +414,12 @@ struct SettingsView: View {
 
     private func localized(_ key: String) -> String {
         String(localized: String.LocalizationValue(key), bundle: localizationBundle)
+    }
+
+    private var tokenPlaceholder: String {
+        appState.hasSavedAIBuilderToken
+            ? appState.tokenDisplayValue
+            : localized("settings.apiToken.placeholder")
     }
 }
 
