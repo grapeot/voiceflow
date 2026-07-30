@@ -39,16 +39,24 @@ public final class VoiceFlowMicrophone {
     /// each PCM16/24kHz/mono chunk. Optionally persist PCM to disk for
     /// later replay/export — VoiceFlow uses this for resend.
     public func start(onPCMChunk: @escaping @Sendable (Data) -> Void) async throws {
+        try await start(strategy: .openAIRealtime, onPCMChunk: onPCMChunk)
+    }
+
+    /// Start capture using the selected complete recording strategy.
+    public func start(
+        strategy: VoiceFlowRecordingStrategy,
+        onPCMChunk: (@Sendable (Data) -> Void)? = nil
+    ) async throws {
         let levelSmoother = LevelSmoother()
         let continuation = levelContinuation
-        try await recorder.startRecording { [weak self] chunk in
+        try await recorder.startRecording(strategy: strategy) { [weak self] chunk in
             guard self != nil else { return }
             let raw = VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE: chunk)
             Task {
                 let smoothed = await levelSmoother.advance(raw)
                 continuation.yield(smoothed)
             }
-            onPCMChunk(chunk)
+            onPCMChunk?(chunk)
         }
     }
 
@@ -60,9 +68,10 @@ public final class VoiceFlowMicrophone {
             let url = try await recorder.stopRecording()
             recordingFileURL = url
             return url
-        } catch {
-            // Stopping with no active recording is benign — return nil.
+        } catch AudioRecorderError.noActiveRecording {
             return nil
+        } catch {
+            throw error
         }
     }
 

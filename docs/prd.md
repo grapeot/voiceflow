@@ -52,6 +52,15 @@ VoiceFlowKit 按 [generative kernel](https://yage.ai/ai-software-engineering.htm
 - recover 带指数退避重试；Stop 等待 recover 后再 finalize。
 - 单元测试 51+ 项（含 epoch merger 与 recovery caption 测试）。
 
+## 双录音策略（2026-07-29）
+
+Settings → Transcription 提供两个持久化选项，并在用户按 Start 时锁定本次录音策略；录音中修改 Settings 只影响下一次录音。
+
+- **OpenAI Realtime**：保持现有 PCM16 / 24 kHz / mono、ticket WebSocket、heartbeat、断线恢复、Stop finalize 和 WAV 重发路径。
+- **Grok Batch**：Start 后只在本机录制 AAC-LC M4A（24 kHz、mono、32 kbps），不创建 ticket、不连接 WebSocket、不上传音频；Stop 后才把完整 M4A multipart 上传到 `/v1/audio/grok-transcription`。
+
+Grok 请求只使用 Terms，不发送 Context prompt。用户切回 OpenAI 后原 prompt 仍保留。保存和重发会保留录音产生时的策略与文件格式，避免 Settings 改动后把旧 M4A 当作 realtime WAV 处理。
+
 ## 工程变更（2026-05-28）：VoiceFlowKit 抽取 + 转写上下文 UI
 
 两个连续 PR（#35、#36）落地。

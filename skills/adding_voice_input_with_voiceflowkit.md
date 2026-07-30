@@ -1,14 +1,14 @@
 # Skill: 给 iOS / visionOS App 加语音输入（用 VoiceFlowKit）
 
-VoiceFlowKit 是一个 Swift Package，把"麦克风录音 + 实时转写"封装成几个 actor 类型。把它加进任何 iOS 17+ / visionOS 1+ app 后，你能在 ~50 行代码内得到一个能录音、能拿到逐字 partial transcript、能在停止时返回最终文本的语音输入组件。Backend 走 wss 到 AI Builder Space（OpenAI gpt-realtime），需要一个 token。
+VoiceFlowKit 是一个 Swift Package，提供 OpenAI realtime 与 Grok batch 两套完整录音策略。把它加进任何 iOS 17+ / visionOS 1+ app 后，可以用 realtime ticket WebSocket 边录边传，也可以全程本地录 AAC-LC M4A、Stop 后一次上传。两者都使用 AI Builder Space token。
 
 ## 元数据
 
 - **类型**: API Guide / Tutorial
 - **适用场景**: 想在 iOS / visionOS app 里加"按住说话 → 出文字"或"按一下开始录音 / 再按一下停止 → 出文字"的功能
 - **依赖**: SPM `https://github.com/grapeot/voiceflow.git`（公开 repo），minimum platforms iOS 17 / visionOS 1
-- **不适用**: 离线转写（VoiceFlowKit 一律走 WebSocket）、非实时长录音批处理（虽然 `transcribe(audioFile:)` 能跑短文件，但 V0 只支持 WAV 输入）、macOS host（mic capture 没编译进 macOS target）
-- **更新日期**: 2026-05-28
+- **不适用**: 完全离线转写、macOS host 麦克风采集（mic capture 没编译进 macOS target）
+- **更新日期**: 2026-07-29
 
 ## 这个 skill 让你完成什么
 
@@ -27,19 +27,21 @@ VoiceFlowKit 是一个 Swift Package，把"麦克风录音 + 实时转写"封装
 | 类型 | 干什么 |
 |---|---|
 | `VoiceFlowConfig` | endpoint + token 闭包 + 可选 prompt/terms。一个 config = 一次 session 的参数 |
+| `VoiceFlowRecordingStrategy` | `.openAIRealtime` / `.grokBatch`，一次录音从 capture 到 transport 的完整策略 |
 | `VoiceFlowClient` | actor。`config` 给它 → 它给你 `VoiceFlowSession` 或一次性 `transcribe(audioFile:)` 调用 |
 | `VoiceFlowSession` | actor。一次 live 录音会话。`sendAudioChunk` 喂 PCM、`ping` 保活、`commitAndStop` 拿 final 文本、`cancel` 中止并清理缓存、`abortPreservingAudio` 中止但保留已录 PCM；`events` 是 AsyncStream 拿 partial transcript 和连接相位 |
 | `VoiceFlowPreservedAudio` | `abortPreservingAudio()` 返回的轻量句柄。公开 `id` / `byteCount`，可交给 `VoiceFlowClient.transcribe(preservedAudio:)` 重试识别，完成后用 `discardPreservedAudio` 清理 |
-| `VoiceFlowMicrophone` | `@MainActor` final class。录音入口：`requestPermission` → `start(onPCMChunk:)` → `stop()`。给你的 onPCMChunk 闭包推 PCM16 24kHz mono chunk，你直接转给 session |
+| `VoiceFlowMicrophone` | `@MainActor` final class。录音入口：`requestPermission` → `start(strategy:onPCMChunk:)` → `stop()`。Realtime 产出 WAV，Grok 产出 M4A |
 | `VoiceFlowEvent` | enum：`.partialTranscript(String)` / `.phaseChanged(VoiceFlowConnectionPhase)` / `.recoveryStarted` / `.recoveryFailed(message:)` |
 | `VoiceFlowConnectionPhase` | enum：`.connecting / .connected / .recovering / .generating / .disconnected` |
 | `VoiceFlowError` | enum：`.missingToken / .invalidEndpoint / .httpError / .sessionUnavailable / .websocketError / .connectionLost / .emptyTranscript / .microphoneUnavailable / .audioConversionFailed / .underlying(String)` |
 | `VoiceFlowClient.makeStub(...)` | static factory。返回一个不开 WebSocket 的 stub client，行为完整（会 emit `connected → idle`、`commitAndStop` 返回 canned 文本）。给 UI test launch mode 和 SwiftUI Preview 用 |
 
-工作模式只有两种：
+主要工作模式：
 
 - **Live streaming**（推荐，默认）：`client.startSession()` → 边录音边收 partial → `session.commitAndStop()` 拿 final。Latency 低，体验好。
-- **Bulk**：`client.transcribe(audioFile: someWAV)` 一次性传一个 WAV 文件。VoiceFlow app 内部用它做"resend" —— 网络断了之后拿持久化的录音重传。
+- **Grok batch**：`microphone.start(strategy: .grokBatch)` 只在本地编码 AAC-LC M4A；Stop 后调用 `client.transcribe(audioFile: file, strategy: .grokBatch)` 上传完整文件。录音期间不创建 ticket、不连接 WebSocket、不上传音频。
+- **Realtime bulk retry**：`client.transcribe(audioFile: someWAV, strategy: .openAIRealtime)` 通过 realtime pipeline 重传 WAV。
 - **Preserved retry**：live session 卡住或用户主动终止时，`session.abortPreservingAudio()` 关闭 WebSocket 但保留 session 内部磁盘 PCM；之后 `client.transcribe(preservedAudio:)` 用同一段 PCM 重新识别，host 不需要自己复制 mic chunk。
 
 ## 集成步骤
@@ -84,6 +86,8 @@ private func makeVoiceFlowClient() throws -> VoiceFlowClient {
 `tokenProvider` 是 `@Sendable () async throws -> String`。如果你想每次都重新从 Keychain 读（让用户清 token 时立刻生效），让闭包自己读 keychain；如果你希望整个 session 用同一个 token snapshot，让闭包闭包到一个本地变量（推荐）。
 
 ### 4. 写录音 + 转写主流程
+
+先在用户按 Start 时 snapshot strategy。录音中 Settings 变化只能影响下一次录音；持久化录音也要同时记录 strategy，重试时不能读取当前 Settings 猜测旧文件。
 
 最小版本（适合 chat composer 类 UI）：
 
@@ -149,6 +153,17 @@ func stopRecording() async -> String? {
 
 这 ~50 行就是核心。Session 的 `events` 是冷 AsyncStream —— 必须在 mic 开始前 / 开始时起一个 Task 去消费，否则 partial transcript 会被丢。
 
+Grok 路径不创建 session：
+
+```swift
+let strategy = VoiceFlowRecordingStrategy.grokBatch // Start 时 snapshot
+try await microphone.start(strategy: strategy)
+let file = try await microphone.stop()!
+let result = try await client.transcribe(audioFile: file, strategy: strategy)
+```
+
+Grok 使用 AAC-LC M4A（24 kHz、mono、32 kbps），只读取 `VoiceFlowConfig.terms`；`prompt` 仅用于 OpenAI realtime。不要在录音 tap callback 里自行做同步文件 I/O。
+
 如果你的 host UI 需要一个"强制终止语音识别 / 重试上一段录音"按钮，使用 preserved retry，不要在 app 侧重复缓存音频 chunk：
 
 ```swift
@@ -198,6 +213,8 @@ private static func makeClientForTestsOrProd() -> VoiceFlowClient {
 - [ ] 录音中切到后台再切回前台，session 应该仍然能正常 finalize（VoiceFlow app 在 scenePhase `.background` 调 `session.cancel()` 是保守做法，可以学）
 - [ ] Token 错或 endpoint 错时，`commitAndStop` throw `VoiceFlowError.missingToken` / `.invalidEndpoint` / `.httpError(statusCode:)`，UI 应该展示对应错误
 - [ ] UI test launch mode 跑过：`makeStub()` 走通，不起 WebSocket，commitAndStop 在 ~100ms 内返回 stub 文本
+- [ ] Grok 模式从 Start 到 Stop 之间没有 ticket、WebSocket 或上传；Stop 后只出现一次完整 M4A 上传
+- [ ] 录音中切换策略不改变当前 capture；重发旧录音仍使用它产生时的 strategy
 
 ## 已知陷阱
 
@@ -213,6 +230,8 @@ private static func makeClientForTestsOrProd() -> VoiceFlowClient {
 | `recoveryFailed` 之后还在 send audio | session 静默丢弃，UI 看上去"卡住" | 收到 `.recoveryFailed` 就 stop mic 并 `session.cancel()` |
 | 不写麦克风权限描述 | App store reject | Info.plist 里 `NSMicrophoneUsageDescription` 必填 |
 | Xcode Cloud 报 SPM resolve failed | `Package.resolved` 没被 git track | `.gitignore` 把 `Package.resolved` 改成 `/Package.resolved`，commit xcworkspace 下的那份 lockfile |
+| Grok 录音时创建了 realtime session | 录音期出现 ticket/WS 网络活动 | strategy 必须在 Start 前分支；`.grokBatch` 只启动 microphone，不调用 `startSession()` 或 heartbeat |
+| 用户切换 Settings 后旧录音重发失败 | M4A 被按 WAV 解析，或 WAV 被传 Grok | 保存录音 URL 时一起保存 strategy，retry 使用该 snapshot |
 
 ## 边界
 
@@ -220,15 +239,15 @@ private static func makeClientForTestsOrProd() -> VoiceFlowClient {
 
 - **UI**：你自己画 mic button、状态指示、错误提示
 - **Token 存储**：你用 Keychain 或别的方式，传给 `tokenProvider` 闭包
-- **Prompt 输入控件**：你自己做 prompt + terms 的 input UI；库只接受最终的 String / [String]
+- **Prompt 输入控件**：你自己做 prompt + terms 的 input UI；Grok 只使用 terms，OpenAI 使用 prompt + terms
 - **Backend 选择**：endpoint 默认是 AI Builder Space (`https://space.ai-builders.com/backend`)。要换 backend 需要确认对方实现了同样的 wire 协议（POST `/v1/audio/realtime/sessions` 拿 ticket，wss `/v1/audio/realtime/ws?ticket=...` 走 PCM16）
 
 库管的事：
 
-- WebSocket 连接、重连、ticket flow
-- PCM16 24kHz mono 编码 + chunk 序列化
+- OpenAI WebSocket 连接、重连、ticket flow
+- PCM16 24kHz mono 与 AAC-LC M4A capture
 - Partial transcript 累积、合并、commit 后 finalize 等待
-- Bulk 文件转写（同样走 WS pipeline，只是 host 一次性喂完）
+- Strategy-aware 文件转写（OpenAI WAV retry / Grok M4A multipart）
 - Caption 双层状态（`StreamCaption` / `StreamCaptionStore` —— 如果你想要"reconnecting…"/"reconnected"这种用户提示）
 
 ## 参考实现

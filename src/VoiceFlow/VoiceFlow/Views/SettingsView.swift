@@ -1,9 +1,11 @@
 import SwiftUI
+import VoiceFlowKit
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.localizationBundle) private var localizationBundle
     @State private var tokenInput = ""
+    @State private var isTokenVisible = false
     @State private var openCodePasswordInput = ""
 
     var body: some View {
@@ -37,22 +39,35 @@ struct SettingsView: View {
                     .font(DesignTokens.Typography.bodyBold)
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
 
-                if appState.hasSavedAIBuilderToken {
-                    Text(appState.tokenDisplayValue)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(DesignTokens.Palette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .inputCardSurface()
-                        .accessibilityIdentifier("settings.apiTokenMaskedValue")
-                } else {
-                    SecureField(localized("settings.apiToken.placeholder"), text: $tokenInput)
-                        .textContentType(.password)
-                        .textFieldStyle(.plain)
-                        .font(DesignTokens.Typography.body)
-                        .foregroundStyle(DesignTokens.Palette.textPrimary)
-                        .inputCardSurface()
-                        .accessibilityIdentifier("settings.apiTokenField")
+                HStack(spacing: DesignTokens.Spacing.s) {
+                    Group {
+                        if isTokenVisible {
+                            TextField(tokenPlaceholder, text: $tokenInput)
+                        } else {
+                            SecureField(tokenPlaceholder, text: $tokenInput)
+                        }
+                    }
+                    .textContentType(.password)
+                    .textFieldStyle(.plain)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(DesignTokens.Palette.textPrimary)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("settings.apiTokenField")
+
+                    Button {
+                        isTokenVisible.toggle()
+                    } label: {
+                        Image(systemName: isTokenVisible ? "eye.slash" : "eye")
+                            .foregroundStyle(DesignTokens.Palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(localized(isTokenVisible
+                                                   ? "settings.apiToken.hide"
+                                                   : "settings.apiToken.show"))
+                    .accessibilityIdentifier("settings.apiTokenVisibilityButton")
                 }
+                .inputCardSurface()
             }
 
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
@@ -79,34 +94,38 @@ struct SettingsView: View {
             }
 
             HStack(spacing: DesignTokens.Spacing.m) {
-                Button(localized("settings.apiToken.save")) {
-                    appState.saveAIBuilderToken(tokenInput)
-                    tokenInput = ""
+                Button(localized(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                 ? "settings.testConnection"
+                                 : "settings.apiToken.saveAndTest")) {
+                    Task {
+                        let candidate = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !candidate.isEmpty {
+                            guard appState.saveAIBuilderToken(candidate) else { return }
+                            tokenInput = ""
+                            isTokenVisible = false
+                        }
+                        await appState.testAIBuilderConnection()
+                    }
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(DesignTokens.Palette.accent)
-                .disabled(appState.hasSavedAIBuilderToken || tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("settings.saveTokenButton")
+                .disabled((tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                           && !appState.hasSavedAIBuilderToken)
+                          || appState.connectionStatus == .testing)
+                .accessibilityIdentifier("settings.saveAndTestTokenButton")
 
                 Spacer()
 
                 Button(localized("settings.apiToken.clear"), role: .destructive) {
                     appState.clearAIBuilderToken()
                     tokenInput = ""
+                    isTokenVisible = false
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(DesignTokens.Palette.textSecondary)
                 .disabled(!appState.hasSavedAIBuilderToken)
                 .accessibilityIdentifier("settings.clearTokenButton")
             }
-
-            Button(localized("settings.testConnection")) {
-                Task { await appState.testAIBuilderConnection() }
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(DesignTokens.Palette.accent)
-            .disabled(!appState.hasSavedAIBuilderToken || appState.connectionStatus == .testing)
-            .accessibilityIdentifier("settings.testConnectionButton")
 
             connectionStatusView(
                 status: appState.connectionStatus,
@@ -261,19 +280,30 @@ struct SettingsView: View {
     private var transcriptionSection: some View {
         Section {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+                Picker(localized("settings.transcription.strategy"), selection: $appState.transcriptionStrategy) {
+                    ForEach(VoiceFlowRecordingStrategy.allCases, id: \.rawValue) { strategy in
+                        Text(localized(strategy.localizedTitleKey))
+                            .tag(strategy)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.transcriptionStrategyPicker")
+
                 Text(localized("settings.transcription.description"))
                     .font(DesignTokens.Typography.captionSub)
                     .foregroundStyle(DesignTokens.Palette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                inputField(
-                    label: "settings.transcription.prompt",
-                    placeholder: "settings.transcription.prompt.placeholder",
-                    text: $appState.transcriptionPrompt,
-                    accessibilityIdentifier: "settings.transcriptionPromptField",
-                    multiline: true,
-                    capitalize: true
-                )
+                if appState.transcriptionStrategy == .openAIRealtime {
+                    inputField(
+                        label: "settings.transcription.prompt",
+                        placeholder: "settings.transcription.prompt.placeholder",
+                        text: $appState.transcriptionPrompt,
+                        accessibilityIdentifier: "settings.transcriptionPromptField",
+                        multiline: true,
+                        capitalize: true
+                    )
+                }
 
                 inputField(
                     label: "settings.transcription.terms",
@@ -384,6 +414,21 @@ struct SettingsView: View {
 
     private func localized(_ key: String) -> String {
         String(localized: String.LocalizationValue(key), bundle: localizationBundle)
+    }
+
+    private var tokenPlaceholder: String {
+        appState.hasSavedAIBuilderToken
+            ? appState.tokenDisplayValue
+            : localized("settings.apiToken.placeholder")
+    }
+}
+
+private extension VoiceFlowRecordingStrategy {
+    var localizedTitleKey: String {
+        switch self {
+        case .openAIRealtime: "settings.transcription.strategy.openAIRealtime"
+        case .grokBatch: "settings.transcription.strategy.grokBatch"
+        }
     }
 }
 

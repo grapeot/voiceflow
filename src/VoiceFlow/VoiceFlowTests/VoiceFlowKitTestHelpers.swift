@@ -10,7 +10,10 @@ import Foundation
 @MainActor
 func makeStubVoiceFlowClient(
     liveResult: Result<String, Error> = .success("voice text"),
-    bulkResult: Result<String, Error>? = nil
+    bulkResult: Result<String, Error>? = nil,
+    grokResult: Result<TranscriptionResult, Error> = .success(
+        TranscriptionResult(text: "grok voice text", requestID: "test-grok")
+    )
 ) -> (VoiceFlowClient, MockRealtimeTranscriptionClient) {
     let mock = MockRealtimeTranscriptionClient(
         liveResult: liveResult,
@@ -20,5 +23,6 @@ func makeStubVoiceFlowClient(
         endpoint: VoiceFlowConfig.defaultEndpoint,
         tokenProvider: { "test-token" }
     )
-    return (VoiceFlowClient(config: config, transcriber: mock), mock)
+    let grokMock = MockGrokBatchTranscriptionClient(result: grokResult)
+    return (VoiceFlowClient(config: config, transcriber: mock, grokTranscriber: grokMock), mock)
 }

@@ -2,7 +2,7 @@ import Foundation
 import VoiceFlowKit
 
 /// AI Builder Space token management: save/clear via Keychain, test the
-/// configured token against the backend's usage endpoint. Token persistence
+/// configured token against the protected realtime-session endpoint. Token persistence
 /// is handled by `keychainStore`; UI views observe `hasSavedAIBuilderToken`
 /// and `connectionStatus` on the main `AppState`.
 extension AppState {
@@ -10,15 +10,18 @@ extension AppState {
         hasSavedAIBuilderToken ? "••••••••" : ""
     }
 
-    func saveAIBuilderToken(_ token: String) {
+    @discardableResult
+    func saveAIBuilderToken(_ token: String) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         do {
             try keychainStore.saveString(trimmed, for: Self.tokenKey)
             hasSavedAIBuilderToken = true
             connectionStatus = .untested
+            return true
         } catch {
             connectionStatus = .failed("settings.connection.saveFailed", nil)
+            return false
         }
     }
 

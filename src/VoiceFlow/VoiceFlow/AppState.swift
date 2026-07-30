@@ -140,6 +140,12 @@ final class AppState: ObservableObject {
         signalTier == .tier2ShortAudio && recordingStatus == .ready
     }
 
+    var hasActiveWaveformFeedback: Bool {
+        guard recordingStatus == .recording else { return false }
+        if activeRecordingStrategy == .grokBatch { return true }
+        return streamConnectionPhase == .connected || streamConnectionPhase == .generating
+    }
+
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }
@@ -156,6 +162,9 @@ final class AppState: ObservableObject {
     /// editing UX simple; parsed into [String] when handed to the kit.
     @Published var transcriptionTerms: String {
         didSet { UserDefaults.standard.set(transcriptionTerms, forKey: Self.transcriptionTermsDefaultsKey) }
+    }
+    @Published var transcriptionStrategy: VoiceFlowRecordingStrategy {
+        didSet { UserDefaults.standard.set(transcriptionStrategy.rawValue, forKey: Self.transcriptionStrategyDefaultsKey) }
     }
 
     let aiBuilderEndpoint = "https://space.ai-builders.com/backend"
@@ -175,6 +184,7 @@ final class AppState: ObservableObject {
     static let appLanguageDefaultsKey = "appLanguage"                  // UserDefaults
     static let transcriptionPromptDefaultsKey = "transcriptionPrompt"  // UserDefaults
     static let transcriptionTermsDefaultsKey = "transcriptionTerms"    // UserDefaults
+    static let transcriptionStrategyDefaultsKey = "transcriptionStrategy"  // UserDefaults
     static let streamHeartbeatIntervalSeconds: UInt64 = 12
     var lastRecordingURL: URL?
     var recordingTimerStartDate: Date?
@@ -184,6 +194,8 @@ final class AppState: ObservableObject {
     var streamHeartbeatTask: Task<Void, Never>?
     var userEditedTranscriptDuringStream = false
     var isTranscriptionTeardown = false
+    var activeRecordingStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
+    var lastRecordingStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -216,6 +228,7 @@ final class AppState: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.transcriptionStrategyDefaultsKey)
         }
         self.openCodeServerURL = UserDefaults.standard.string(forKey: Self.openCodeServerURLDefaultsKey) ?? OpenCodeClient.defaultServerURL
         self.openCodeUsername = UserDefaults.standard.string(forKey: Self.openCodeUsernameDefaultsKey) ?? OpenCodeClient.defaultUsername
@@ -223,6 +236,8 @@ final class AppState: ObservableObject {
         self.appLanguage = savedLanguage ?? .system
         self.transcriptionPrompt = UserDefaults.standard.string(forKey: Self.transcriptionPromptDefaultsKey) ?? ""
         self.transcriptionTerms = UserDefaults.standard.string(forKey: Self.transcriptionTermsDefaultsKey) ?? ""
+        self.transcriptionStrategy = UserDefaults.standard.string(forKey: Self.transcriptionStrategyDefaultsKey)
+            .flatMap(VoiceFlowRecordingStrategy.init(rawValue:)) ?? .openAIRealtime
         self.keychainStore = keychainStore ?? (isUITestMode ? InMemoryKeychainStore() : KeychainStore())
         if let aiBuilderClient {
             self.aiBuilderClient = aiBuilderClient
@@ -335,11 +350,15 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.appLanguageDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.transcriptionStrategyDefaultsKey)
         openCodeServerURL = OpenCodeClient.defaultServerURL
         openCodeUsername = OpenCodeClient.defaultUsername
         appLanguage = .system
         transcriptionPrompt = ""
         transcriptionTerms = ""
+        transcriptionStrategy = .openAIRealtime
+        activeRecordingStrategy = .openAIRealtime
+        lastRecordingStrategy = .openAIRealtime
 
         try? keychainStore.deleteString(for: Self.tokenKey)
         try? keychainStore.deleteString(for: Self.openCodePasswordKey)
@@ -429,6 +448,8 @@ final class AppState: ObservableObject {
             return
         }
 
+        let strategy = transcriptionStrategy
+
         recordingStatus = .requestingPermission
         recordDiagnostic("recording_permission_request_started")
         guard await audioRecorder.requestPermission() else {
@@ -445,19 +466,22 @@ final class AppState: ObservableObject {
             lastSavedRecording = nil
             shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
-            streamConnectionPhase = .connecting
+            activeRecordingStrategy = strategy
+            streamConnectionPhase = strategy == .openAIRealtime ? .connecting : .disconnected
             peakRms = 0
             activeAudioMs = 0
             signalTier = nil
-            recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": "stream"])
+            recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": strategy.diagnosticMode])
 
-            await applyCurrentTranscriptionConfig(token: token)
-            let session = try await voiceFlowClient.startSession()
-            liveTranscriptionSession = session
-            startLiveEventConsumer(for: session)
-            startStreamHeartbeat()
+            if strategy == .openAIRealtime {
+                await applyCurrentTranscriptionConfig(token: token)
+                let session = try await voiceFlowClient.startSession()
+                liveTranscriptionSession = session
+                startLiveEventConsumer(for: session)
+                startStreamHeartbeat()
+            }
 
-            try await audioRecorder.startRecording { [weak self] chunk in
+            try await audioRecorder.startRecording(strategy: strategy) { [weak self] chunk in
                 Task { await self?.handleCapturedPCMChunk(chunk) }
             }
             recordDiagnostic("recording_start_succeeded")
@@ -485,6 +509,7 @@ final class AppState: ObservableObject {
         recordDiagnostic("recording_stop_requested")
 
         let audioURL: URL
+        let strategy = activeRecordingStrategy
         do {
             audioURL = try await audioRecorder.stopRecording()
         } catch {
@@ -527,6 +552,7 @@ final class AppState: ObservableObject {
 
         do {
             lastRecordingURL = try persistLastRecording(from: audioURL)
+            lastRecordingStrategy = strategy
         } catch {
             try? FileManager.default.removeItem(at: audioURL)
             await cancelLiveTranscriptionSession()
@@ -536,7 +562,11 @@ final class AppState: ObservableObject {
         }
         try? FileManager.default.removeItem(at: audioURL)
 
-        await finishLiveTranscriptionSession()
+        if strategy == .openAIRealtime {
+            await finishLiveTranscriptionSession()
+        } else {
+            await finishBatchTranscription()
+        }
     }
 
     func handleScenePhaseChange(to phase: ScenePhase) async {
@@ -587,6 +617,7 @@ final class AppState: ObservableObject {
 
             do {
                 lastRecordingURL = try persistLastRecording(from: audioURL)
+                lastRecordingStrategy = activeRecordingStrategy
             } catch {
                 try? FileManager.default.removeItem(at: audioURL)
                 await cancelLiveTranscriptionSession()
@@ -618,4 +649,13 @@ final class AppState: ObservableObject {
         stopRecordingTimer()
     }
 
+}
+
+private extension VoiceFlowRecordingStrategy {
+    var diagnosticMode: String {
+        switch self {
+        case .openAIRealtime: "stream"
+        case .grokBatch: "grok_batch"
+        }
+    }
 }

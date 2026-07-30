@@ -65,15 +65,16 @@ extension AppState {
         }
 
         do {
-            recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": "bulk"])
+            let strategy = lastRecordingStrategy
+            recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": strategy == .grokBatch ? "grok_batch" : "bulk"])
             await applyCurrentTranscriptionConfig(token: token)
-            let result = try await voiceFlowClient.transcribe(audioFile: audioURL) { [weak self] partial in
+            let result = try await voiceFlowClient.transcribe(audioFile: audioURL, strategy: strategy) { [weak self] partial in
                 Task { @MainActor in
                     self?.applyStreamedTranscript(partial)
                 }
             }
             let transcribedText = result.text
-            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)", "mode": "bulk"])
+            recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)", "mode": strategy == .grokBatch ? "grok_batch" : "bulk"])
             return transcribedText
         } catch {
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
@@ -153,7 +154,9 @@ extension AppState {
 
     func handleCapturedPCMChunk(_ chunk: Data) async {
         updateAudioLevel(from: chunk)
-        await liveTranscriptionSession?.sendAudioChunk(chunk)
+        if activeRecordingStrategy == .openAIRealtime {
+            await liveTranscriptionSession?.sendAudioChunk(chunk)
+        }
     }
 
     /// Compute RMS of a PCM16 little-endian chunk via VoiceFlowKit's metering
@@ -269,6 +272,15 @@ extension AppState {
         }
 
         completeStopTranscriptionFailure(reason: "allPathsFailed")
+    }
+
+    func finishBatchTranscription() async {
+        if let text = await finishTranscriptionFromLastRecording(presentErrorOnFailure: false),
+           isUsableTranscript(text) {
+            completeStopTranscriptionSuccess(text: text, mode: "grok_batch")
+        } else {
+            completeStopTranscriptionFailure(reason: "grokBatchFailed")
+        }
     }
 
     private func isUsableTranscript(_ text: String) -> Bool {

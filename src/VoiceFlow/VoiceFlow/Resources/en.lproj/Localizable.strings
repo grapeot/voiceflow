@@ -47,7 +47,9 @@
 "settings.apiToken.status" = "Token";
 "settings.apiToken.saved" = "Saved";
 "settings.apiToken.notSaved" = "Not saved";
-"settings.apiToken.save" = "Save";
+"settings.apiToken.saveAndTest" = "Save & Test";
+"settings.apiToken.show" = "Show API token";
+"settings.apiToken.hide" = "Hide API token";
 "settings.apiToken.clear" = "Clear";
 "settings.endpoint.title" = "Endpoint";
 "settings.testConnection" = "Test";
@@ -83,7 +85,10 @@
 "settings.language.english" = "English";
 "settings.language.simplifiedChinese" = "Simplified Chinese";
 "settings.transcription.title" = "Transcription";
-"settings.transcription.description" = "Optional hints the transcription model reads before working. Include language, vocabulary, or context in plain language.";
+"settings.transcription.strategy" = "Strategy";
+"settings.transcription.strategy.openAIRealtime" = "OpenAI Realtime";
+"settings.transcription.strategy.grokBatch" = "Grok Batch";
+"settings.transcription.description" = "The selected strategy applies when the next recording starts. Grok records locally and uploads only after Stop.";
 "settings.transcription.prompt" = "Context prompt";
 "settings.transcription.prompt.placeholder" = "e.g. Transcribe every word in ALL CAPS. Example: THIS IS A TEST.";
 "settings.transcription.terms" = "Terms";

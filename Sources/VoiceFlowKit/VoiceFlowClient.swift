@@ -12,10 +12,12 @@ import Foundation
 public actor VoiceFlowClient {
     private var config: VoiceFlowConfig
     private let transcriber: any RealtimeTranscribing
+    private let grokTranscriber: any GrokBatchTranscribing
 
     public init(config: VoiceFlowConfig) {
         self.config = config
         self.transcriber = RealtimeTranscriptionClient()
+        self.grokTranscriber = GrokBatchTranscriptionClient()
     }
 
     /// Internal initializer. The host's own test target can reach this
@@ -27,6 +29,19 @@ public actor VoiceFlowClient {
     init(config: VoiceFlowConfig, transcriber: any RealtimeTranscribing) {
         self.config = config
         self.transcriber = transcriber
+        self.grokTranscriber = MockGrokBatchTranscriptionClient(
+            result: .success(TranscriptionResult(text: "Mock transcription", requestID: "stub-grok"))
+        )
+    }
+
+    init(
+        config: VoiceFlowConfig,
+        transcriber: any RealtimeTranscribing,
+        grokTranscriber: any GrokBatchTranscribing
+    ) {
+        self.config = config
+        self.transcriber = transcriber
+        self.grokTranscriber = grokTranscriber
     }
 
     /// Offline stub client. Does not open a WebSocket; `startSession`
@@ -74,7 +89,29 @@ public actor VoiceFlowClient {
         audioFile: URL,
         onPartialTranscript: (@Sendable (String) -> Void)? = nil
     ) async throws -> TranscriptionResult {
-        let token = try await currentToken()
+        try await transcribe(
+            audioFile: audioFile,
+            strategy: .openAIRealtime,
+            onPartialTranscript: onPartialTranscript
+        )
+    }
+
+    /// Transcribe a completed recording using the selected transport.
+    public func transcribe(
+        audioFile: URL,
+        strategy: VoiceFlowRecordingStrategy,
+        onPartialTranscript: (@Sendable (String) -> Void)? = nil
+    ) async throws -> TranscriptionResult {
+        let requestConfig = config
+        let token = try await currentToken(from: requestConfig)
+        if strategy == .grokBatch {
+            return try await grokTranscriber.transcribe(
+                audioFileURL: audioFile,
+                baseURL: requestConfig.endpoint.absoluteString,
+                token: token,
+                terms: requestConfig.terms
+            )
+        }
         let pcmData: Data
         do {
             // For WAV files we extract PCM directly; for other formats
@@ -88,10 +125,10 @@ public actor VoiceFlowClient {
         do {
             let text = try await transcriber.transcribeBulkPCM(
                 pcmData: pcmData,
-                baseURL: config.endpoint.absoluteString,
+                baseURL: requestConfig.endpoint.absoluteString,
                 token: token,
-                model: config.model,
-                context: RealtimeSessionContext(prompt: config.prompt, terms: config.terms),
+                model: requestConfig.model,
+                context: RealtimeSessionContext(prompt: requestConfig.prompt, terms: requestConfig.terms),
                 onPartialTranscript: onPartialTranscript
             )
             return TranscriptionResult(text: text, requestID: UUID().uuidString)
@@ -138,14 +175,15 @@ public actor VoiceFlowClient {
     /// Start a realtime session. Host then pumps PCM chunks in,
     /// optionally pings, and finalizes with `commitAndStop`.
     public func startSession() async throws -> VoiceFlowSession {
-        let token = try await currentToken()
+        let requestConfig = config
+        let token = try await currentToken(from: requestConfig)
         let bridge = SessionEventBridge()
         do {
             let live = try await transcriber.beginLiveSession(
-                baseURL: config.endpoint.absoluteString,
+                baseURL: requestConfig.endpoint.absoluteString,
                 token: token,
-                model: config.model,
-                context: RealtimeSessionContext(prompt: config.prompt, terms: config.terms),
+                model: requestConfig.model,
+                context: RealtimeSessionContext(prompt: requestConfig.prompt, terms: requestConfig.terms),
                 onEvent: { event in
                     bridge.emit(event)
                 }
@@ -173,6 +211,10 @@ public actor VoiceFlowClient {
     }
 
     private func currentToken() async throws -> String {
+        try await currentToken(from: config)
+    }
+
+    private func currentToken(from config: VoiceFlowConfig) async throws -> String {
         do {
             let token = try await config.tokenProvider()
                 .trimmingCharacters(in: .whitespacesAndNewlines)

@@ -228,6 +228,9 @@ struct RecordView: View {
     private var waveformColor: Color {
         switch appState.recordingStatus {
         case .recording:
+            if appState.hasActiveWaveformFeedback {
+                return DesignTokens.Palette.accent
+            }
             switch appState.streamConnectionPhase {
             case .connected, .generating: return DesignTokens.Palette.accent
             case .connecting, .recovering: return DesignTokens.Palette.textSecondary.color(for: colorScheme)

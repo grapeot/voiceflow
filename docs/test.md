@@ -93,6 +93,7 @@ Swift Testing + mock。当前覆盖包括但不限于：
 - Deep link 解析、`voiceflow://record` 触发录音、未知 URL 忽略
 - Multipart 上传 body 格式
 - **V1 实时转写**：`RealtimeMessageParser`、`TranscriptDeltaReducer`、`TranscriptEpochMerger`、recovery caption（录音中无 modal）、`AudioChunkEncoder`、WAV PCM roundtrip、mock live session、preserved audio abort + retry facade
+- **双策略**：Grok multipart route/body/MIME/terms、Start strategy snapshot、录音期不创建 realtime session、Stop 后 Grok 转写、WAV/M4A 动态持久化、Settings 改动后重发仍使用原策略
 
 共享 HTTP mock 的 suite 使用 `@Suite(.serialized)`。
 
@@ -183,6 +184,7 @@ XCUITest，`-uiTestMode` 启用内存 Keychain 与 mock 服务；每次用例冷
 
 - 首次启动 → Settings 保存 token → Test Connection
 - Record 录音 → 停止 → 转写 → 自动复制
+- 分别选择 OpenAI Realtime / Grok Batch 录音；确认 Grok 录音期无网络活动、Stop 后才上传，保存文件扩展名分别为 WAV / M4A
 - 历史 chevron、保存/重发菜单
 - OpenCode 配置、连接测试、发送（或 mock 环境验证按钮状态）
 - 语言切换
