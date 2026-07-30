@@ -25,7 +25,7 @@ This is not a toy. VoiceFlowKit is not just demoed by the small reference app in
 
 ### Quick start
 
-In Xcode: File → Add Package Dependencies → URL `https://github.com/grapeot/voiceflow.git`. Pin to a SemVer version — **Up to Next Major** from `0.2.0` (`.package(url: "https://github.com/grapeot/voiceflow.git", from: "0.2.0")`). Add the `VoiceFlowKit` product to your app target.
+In Xcode: File → Add Package Dependencies → URL `https://github.com/grapeot/voiceflow.git`. Pin an exact SemVer release — currently **`0.3.0`** (`.package(url: "https://github.com/grapeot/voiceflow.git", exact: "0.3.0")`). Add the `VoiceFlowKit` product to your app target. Host apps that need reproducible builds should commit `Package.resolved`.
 
 Add `NSMicrophoneUsageDescription` to your Info.plist (a sentence explaining the mic is used for voice-to-text).
 

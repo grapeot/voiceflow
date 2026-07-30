@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-07-30 (Grok Batch 5-minute latency baseline + 0.3.0 release prep)
+
+- 对 300.02 秒、4.80 MB 的双人 MP3 直接调用 xAI REST STT，并开启 diarization：HTTP 200，完整响应 wall clock 3.343 秒，RTF 0.0111（89.75× realtime），返回 2 位 speaker 和 16 个连续 speaker turns。
+- 测量包含上传、网络、provider STT 和 diarization，不包含 VoiceFlow AAC 编码、AI Builder Space relay，也不代表生产 P95。当前继续使用 Grok Batch；约 3 秒的单样本等待不足以支持新增第二套 WebSocket 与 partial-revision 状态机。
+- 后续性能验收记录 upload、provider STT 和总 Stop-to-text latency，并按录音长度观察 P50/P95；只有真实尾延迟或录音中 partial transcript 需求成为瓶颈时再评估 Grok streaming。
+- `VoiceFlowKit.version` 升到 `0.3.0`；README 推荐 host 用 exact SemVer pin `0.3.0`，而不是长期锁裸 commit。
+
 ### 2026-07-29 (OpenAI realtime / Grok batch 双录音策略)
 
 - **Token 设置重做**：token 输入框始终存在，保存态以掩码 placeholder 表示，并允许直接输入新 token 覆盖旧值；输入框右侧 eye button 可显示/隐藏当前尚未保存的输入，便于检查引号、`Bearer ` 前缀或复制截断，但不会读取 Keychain 中的旧 token。删除独立 Save 步骤；输入新值时主按钮为 Save & Test，输入为空且已有 token 时直接测试已保存值。连接测试使用支持 Builder key 的 `GET /v1/usage/summary`，只验证凭证并读取 usage，不创建 realtime ticket。失败不再吞掉 HTTP 状态，401/403/429/5xx 分别给出可行动提示。

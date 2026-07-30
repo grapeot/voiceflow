@@ -179,6 +179,8 @@ Settings：表单式 AI Builder token、只读 endpoint、OpenAI Realtime / Grok
 
 Start 时 snapshot `VoiceFlowRecordingStrategy`。OpenAI 路径建立 realtime session 后录制 PCM16 / 24 kHz / mono，并在 Stop finalize；Grok 路径在录音期间只把 PCM 经串行 writer 编码为 AAC-LC M4A（24 kHz、mono、32 kbps），不调用 session API、不启动 heartbeat、不上传音频。Stop 关闭 writer并重新打开文件验证后，multipart `POST /v1/audio/grok-transcription`，字段为 `audio_file` 与可选逗号分隔 `terms`。
 
+2026-07-30 的 direct-to-xAI 基线中，300.02 秒、4.80 MB 的双人 MP3 开启 diarization 后，完整 REST 响应耗时 3.343 秒，RTF 0.0111（89.75× realtime）。该单样本不包含移动端编码、AI Builder Space relay，也不代表生产 P95；它只说明当前 Batch latency 的量级不足以单独证明新增 Grok WebSocket 路径合理。是否升级 streaming 应以后续真实 Stop-to-text P50/P95 和是否需要录音中 partial transcript 为准。
+
 AAC writer 不在 AVAudioEngine tap callback 中执行阻塞文件 I/O。callback 生成 owned `Data`，串行 writer queue 负责写入与 finalization；同一队列决定 enqueue/close 先后，避免 Stop 后仍写入已关闭文件。iOS 17 / visionOS 1 通过释放最后一个 `AVAudioFile` 引用完成关闭，iOS 18 / visionOS 2 以上额外调用 `close()`。
 
 #### 协议与会话
