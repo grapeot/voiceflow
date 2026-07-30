@@ -47,16 +47,17 @@ let session = try await client.startSession()
 | Type | What it does |
 |---|---|
 | `VoiceFlowConfig` | endpoint + token closure + optional prompt/terms |
-| `VoiceFlowClient` (actor) | factory for sessions + bulk transcribe + connection test |
+| `VoiceFlowRecordingStrategy` | complete capture/transport choice: OpenAI realtime or Grok batch |
+| `VoiceFlowClient` (actor) | factory for sessions + strategy-aware file transcribe + connection test |
 | `VoiceFlowSession` (actor) | one live recording session — send audio, ping, commit, cancel; exposes `events: AsyncStream<VoiceFlowEvent>` |
-| `VoiceFlowMicrophone` (`@MainActor`) | mic capture; permission + PCM16/24kHz/mono `start(onPCMChunk:)` + `stop()` |
+| `VoiceFlowMicrophone` (`@MainActor`) | mic capture; strategy-aware `start(strategy:onPCMChunk:)` + `stop()` |
 | `VoiceFlowEvent` | enum: `partialTranscript / phaseChanged / recoveryStarted / recoveryFailed` |
 | `VoiceFlowConnectionPhase` | enum: `connecting / connected / recovering / generating / disconnected` |
 | `VoiceFlowError` | enum: `missingToken / invalidEndpoint / httpError / sessionUnavailable / websocketError / connectionLost / emptyTranscript / microphoneUnavailable / audioConversionFailed / underlying(String)` |
 | `VoiceFlowClient.makeStub(...)` | offline stub client for UI test launch modes + SwiftUI previews — no WebSocket, canned final transcript |
 | `StreamCaption` / `StreamCaptionStore` | optional two-layer caption helper (persistent + transient flash) if you want "Reconnecting…" / "Stream restored." prompts |
 
-Two work modes: **live streaming** (`startSession` → push chunks → `commitAndStop`) or **bulk** (`transcribe(audioFile:)` for one-shot WAV files — used by VoiceFlow's resend path).
+Two complete recording strategies are available: **OpenAI Realtime** streams PCM16/24 kHz/mono over the ticket WebSocket and persists WAV; **Grok Batch** records AAC-LC M4A locally and uploads only after Stop via `transcribe(audioFile:strategy:)`.
 
 ### Integration guide for AI agents
 
@@ -80,7 +81,7 @@ Default endpoint is AI Builder Space (`https://space.ai-builders.com/backend`). 
 
 V0 has two tabs: **Record** and **Settings**.
 
-**Record**: start/stop recording with live partial transcript, auto-copy on stop, history navigation (prev/next), save WAV to Files, resend last recording, manual copy, optional push to OpenCode when configured.
+**Record**: start/stop using the strategy selected in Settings, auto-copy on completion, history navigation, save WAV/M4A to Files, resend with the original recording strategy, manual copy, optional push to OpenCode when configured.
 
 **Settings**: AI Builder Space token (Keychain), default endpoint, optional OpenCode (server URL + username in UserDefaults, password in Keychain), language preference (System / English / 简体中文), transcription prompt + terms inputs for shaping recognizer output.
 

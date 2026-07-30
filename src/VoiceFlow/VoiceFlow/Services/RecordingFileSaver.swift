@@ -1,10 +1,15 @@
 import Foundation
 
 enum RecordingFileSaver {
-    static func makeDestinationURL(in documentsDirectory: URL, date: Date = Date()) -> URL {
+    static func makeDestinationURL(
+        in documentsDirectory: URL,
+        date: Date = Date(),
+        fileExtension: String = "wav"
+    ) -> URL {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let fileName = "recording_\(dateFormatter.string(from: date)).wav"
+        let normalizedExtension = fileExtension.isEmpty ? "wav" : fileExtension.lowercased()
+        let fileName = "recording_\(dateFormatter.string(from: date)).\(normalizedExtension)"
         return documentsDirectory.appendingPathComponent(fileName)
     }
 

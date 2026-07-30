@@ -559,6 +559,103 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .ready)
     }
 
+    @Test func grokStrategyRecordsLocallyThenTranscribesAfterStop() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-grok-strategy-test.m4a")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        let (client, realtimeMock) = makeStubVoiceFlowClient(
+            grokResult: .success(TranscriptionResult(text: "grok result text", requestID: "grok-request"))
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionStrategy = .grokBatch
+        await state.startRecording()
+
+        #expect(recorder.recordingStrategy == .grokBatch)
+        #expect(state.liveTranscriptionSession == nil)
+        #expect(await realtimeMock.appendedChunkCount == 0)
+
+        await state.stopRecording()
+
+        #expect(state.transcript == "grok result text")
+        #expect(state.lastRecordingURL?.pathExtension == "m4a")
+        #expect(state.lastRecordingStrategy == .grokBatch)
+        #expect(await realtimeMock.didFinalize == false)
+        #expect(state.recordingStatus == .ready)
+    }
+
+    @Test func recordingStrategyIsSnapshottedAtStart() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: makeStubVoiceFlowClient().0
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionStrategy = .openAIRealtime
+        await state.startRecording()
+        state.transcriptionStrategy = .grokBatch
+
+        #expect(state.activeRecordingStrategy == .openAIRealtime)
+        #expect(recorder.recordingStrategy == .openAIRealtime)
+    }
+
+    @Test func resendUsesTheStrategyThatCreatedTheRecording() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-grok-resend-strategy-test.m4a")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        let realtimeMock = MockRealtimeTranscriptionClient(
+            bulkResult: .failure(VoiceFlowError.audioConversionFailed)
+        )
+        let grokMock = MockGrokBatchTranscriptionClient(
+            result: .success(TranscriptionResult(text: "first grok text", requestID: "first"))
+        )
+        let client = VoiceFlowClient(
+            config: VoiceFlowConfig(tokenProvider: { "test-token" }),
+            transcriber: realtimeMock,
+            grokTranscriber: grokMock
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionStrategy = .grokBatch
+        await state.startRecording()
+        await state.stopRecording()
+
+        grokMock.result = .success(TranscriptionResult(text: "resent grok text", requestID: "second"))
+        state.transcriptionStrategy = .openAIRealtime
+        await state.resendLastRecording()
+
+        #expect(state.transcript == "resent grok text")
+        #expect(grokMock.calls.count == 2)
+        #expect(await realtimeMock.appendedChunkCount == 0)
+    }
+
     @Test func streamRecoveryDuringRecordingDoesNotUpdateTranscript() async throws {
         let keychain = InMemoryKeychainStore()
         let recorder = MockAudioRecorder()
@@ -1167,7 +1264,12 @@ private func resetOpenCodeDefaults() {
 
 private func resetPreferenceDefaults() {
     UserDefaults.standard.removeObject(forKey: "appLanguage")
+    resetTranscriptionStrategyDefault()
     StartRecordingIntentRequest.clearPendingForTests()
+}
+
+private func resetTranscriptionStrategyDefault() {
+    UserDefaults.standard.removeObject(forKey: "transcriptionStrategy")
 }
 
 private func requestBodyData(for request: URLRequest) throws -> Data {

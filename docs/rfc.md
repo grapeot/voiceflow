@@ -87,20 +87,21 @@ voiceflow/                       # repo root
 
 UI test 路径走 `VoiceFlowClient.makeStub(...)`（PR #38 新增的 public factory）：返回 offline client，commitAndStop 直接 emit `connected → idle` 并返回 canned 文本，不开真 WebSocket。Unit test 里如果要细粒度脚本化事件序列（emit recoveryFailed、setBulkResult mid-test），通过 `@testable import VoiceFlowKit` 拿到 internal init `VoiceFlowClient(config:, transcriber:)` 注入自己造的 mock，见 `VoiceFlowKitTestHelpers.swift`。
 
-`AppState` 保存跨页面状态：录音状态、transcript、历史索引、tab 选择、token/OpenCode 配置与连接状态、剪贴板/OpenCode 发送状态、语言偏好、转写上下文（prompt / terms）、deep link 待处理标志。PR #40 之后 AppState 主文件从 1098 行降到 493 行，行为按职责拆到 7 个同型 extension（`AppState+LiveSession` / `+OpenCode` / `+Diagnostics` / `+AIBuilderToken` / `+RecordingFiles` / `+StreamCaption` / `+RecordingTimer` / `+TranscriptHistory`）。State 字段留在主类（SwiftUI 视图直接 bind `@Published` 投影），extension 只搬行为。
+`AppState` 保存跨页面状态：录音状态、transcript、历史索引、tab 选择、token/OpenCode 配置与连接状态、剪贴板/OpenCode 发送状态、语言偏好、转写策略与上下文（prompt / terms）、deep link 待处理标志。PR #40 之后 AppState 主文件按职责拆到同型 extension（`AppState+LiveSession` / `+OpenCode` / `+Diagnostics` / `+AIBuilderToken` / `+RecordingFiles` / `+StreamCaption` / `+RecordingTimer` / `+TranscriptHistory`）。State 字段留在主类（SwiftUI 视图直接 bind `@Published` 投影），extension 只搬行为。
 
 录音、API、剪贴板、Keychain 现在分两层：底层 audio/WS pipeline 在 `VoiceFlowKit`（SPM package），上层 app 业务行为在 `src/VoiceFlow/VoiceFlow/Services/`（Clipboard、OpenCode HTTP relay、RecordingDiagnostics、KeychainStore、RecordingFileSaver）。UI 不直接碰系统接口。
 
-语言偏好、转写 prompt 与 terms 用 `UserDefaults`。AI Builder token 与 OpenCode password 只进 Keychain。OpenCode server URL 与 username 进 UserDefaults；清除 OpenCode 只删 password。
+语言偏好、转写 strategy、prompt 与 terms 用 `UserDefaults`。AI Builder token 与 OpenCode password 只进 Keychain。OpenCode server URL 与 username 进 UserDefaults；清除 OpenCode 只删 password。
 
 ## VoiceFlowKit 公开 API
 
 下面是 `VoiceFlowKit` 暴露给 host（VoiceFlow app 和未来的 OpenCode iOS Client）的 surface：
 
-- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession()` / `transcribe(audioFile:onPartialTranscript:)` / `transcribe(preservedAudio:onPartialTranscript:)` / `discardPreservedAudio(_:)` / `testConnection()` / `updateConfig(_:)`。
+- `VoiceFlowRecordingStrategy`：完整 capture + transport 选择，当前为 `.openAIRealtime` / `.grokBatch`。
+- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession()` / `transcribe(audioFile:strategy:onPartialTranscript:)` / preserved audio retry / connection test / config update。
 - `VoiceFlowSession`（actor）：实时会话句柄。`sendAudioChunk(_:)` 推 PCM，`ping()` 心跳，`commitAndStop(onPartialTranscript:)` 收口，`cancel()` 取消并清理缓存，`abortPreservingAudio()` 关闭连接但保留已录 PCM 供后续重试，`connectionPhase`（VoiceFlowConnectionPhase）读相位，`events`（AsyncStream<VoiceFlowEvent>）订阅事件。
 - `VoiceFlowPreservedAudio`（struct）：`abortPreservingAudio()` 返回的轻量句柄，公开 `id` / `byteCount`，底层临时 PCM 文件只由 Kit 管理。
-- `VoiceFlowMicrophone`（class，iOS/visionOS only）：mic 封装。`requestPermission()` / `start(onPCMChunk:)` / `stop()` / `discard()`，`audioLevel`（AsyncStream<Float>）暴露 0..1 RMS。
+- `VoiceFlowMicrophone`（class，iOS/visionOS only）：mic 封装。`requestPermission()` / `start(strategy:onPCMChunk:)` / `stop()` / `discard()`，`audioLevel`（AsyncStream<Float>）暴露 0..1 RMS。Realtime 产出 WAV；Grok 产出 AAC-LC M4A。
 - `VoiceFlowConfig`（struct）：`endpoint` / `tokenProvider` / `model` / `prompt` / `terms` / `loggerSubsystem`。注意：**没有** `language` 字段——backend 把语言提示当 prompt 拼接，用户自己在 prompt 里写。
 - `VoiceFlowError`（enum）：`invalidEndpoint` / `missingToken` / `httpError(statusCode:)` / `sessionUnavailable` / `websocketError(_)` / `connectionLost(_)` / `audioConversionFailed` / `emptyTranscript` / `microphoneUnavailable` / `underlying(_)`。
 - `StreamCaption` / `StreamCaptionStore`：双层 caption 模型（persistent + transient 3 秒闪现），数据结构层、不画 UI。
@@ -117,6 +118,8 @@ Settings → Transcription 分组让用户设置两个值：
 - **Terms**：英文逗号分隔的字符串，app 层 split + trim 后变 `[String]` 传给 `VoiceFlowConfig.terms`，库内部塞进 session.create payload 的 `terms` 字段。
 
 两值都 UserDefaults 持久化。空字符串和纯空白 trim 后视为未设置，wire 上不出现这个 key。
+
+OpenAI Realtime 使用 prompt + terms；Grok Batch 只发送 trim/filter 后的 terms。Grok 模式下 Settings 隐藏 prompt 输入，但不删除已保存值。
 
 详细 wire 格式：
 
@@ -160,7 +163,7 @@ https://space.ai-builders.com/backend
 
 Record：顶部 VoiceFlow 标题 + 状态灯、录音计时（`MM:SS`）、控制区（左/右历史、Start/Stop 宽 120pt、保存/重发菜单）、大文本区、底部 Copy 与 Send to OpenCode（旁有 info 按钮）。
 
-Settings：表单式 AI Builder token、只读 endpoint、OpenCode URL/username/password、连接测试与失败 detail、语言 segmented picker。点击文本框外收起键盘。
+Settings：表单式 AI Builder token、只读 endpoint、OpenAI Realtime / Grok Batch segmented picker、转写提示、OpenCode URL/username/password、连接测试与失败 detail、语言 picker。点击文本框外收起键盘。
 
 ## 转写方案
 
@@ -171,6 +174,12 @@ Settings：表单式 AI Builder token、只读 endpoint、OpenCode URL/username/
 ### V1（已交付）：WebSocket 实时 stream
 
 目标：边录边发，Stop 只 finalize，文本随服务端 push 增量显示。主录音路径已从 V0 batch HTTP 切换为 WebSocket stream；`AIBuilderTranscriptionClient` 保留供 HTTP 单测与潜在 fallback，重发录音走 bulk WebSocket。
+
+### 双策略（已交付）：OpenAI Realtime / Grok Batch
+
+Start 时 snapshot `VoiceFlowRecordingStrategy`。OpenAI 路径建立 realtime session 后录制 PCM16 / 24 kHz / mono，并在 Stop finalize；Grok 路径在录音期间只把 PCM 经串行 writer 编码为 AAC-LC M4A（24 kHz、mono、32 kbps），不调用 session API、不启动 heartbeat、不上传音频。Stop 关闭 writer并重新打开文件验证后，multipart `POST /v1/audio/grok-transcription`，字段为 `audio_file` 与可选逗号分隔 `terms`。
+
+AAC writer 不在 AVAudioEngine tap callback 中执行阻塞文件 I/O。callback 生成 owned `Data`，串行 writer queue 负责写入与 finalization；同一队列决定 enqueue/close 先后，避免 Stop 后仍写入已关闭文件。iOS 17 / visionOS 1 通过释放最后一个 `AVAudioFile` 引用完成关闭，iOS 18 / visionOS 2 以上额外调用 `close()`。
 
 #### 协议与会话
 
@@ -270,9 +279,9 @@ ready -> (start again) -> requestingPermission -> ...
 
 录音错误通过 alert 展示（`recordErrorAlertKey`），`recordingStatus` 回到 `idle`。OpenCode 发送状态独立为 `OpenCodeSendStatus`，不并入录音状态机。
 
-历史：`TranscriptHistory` index 0 为最新；`navigatePrevious` 更旧，`navigateNext` 更新。录音完成后持久化 `last-recording.wav`（Application Support）供保存到 Documents 与重发转写。
+历史：`TranscriptHistory` index 0 为最新；`navigatePrevious` 更旧，`navigateNext` 更新。录音完成后按原格式持久化 `last-recording.wav` 或 `last-recording.m4a`（Application Support），并保存本次 strategy 供 Documents 导出与重发转写。
 
-保存录音：`RecordingFileSaver` 把 `last-recording.wav` 复制到 Documents，文件名 `recording_yyyy-MM-dd_HH-mm-ss.wav`。`URLScheme.plist` 启用 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，使 Files → On My iPhone → VoiceFlow 可见。保存成功弹窗告知文件名与 Files 路径；iOS 无公开 API 可 deep link 到该目录，不提供文件预览或分享面板。标题下方 caption 保留路径提示。
+保存录音：`RecordingFileSaver` 保留源扩展名复制到 Documents，文件名为 `recording_yyyy-MM-dd_HH-mm-ss.wav|m4a`。`URLScheme.plist` 启用 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，使 Files → On My iPhone → VoiceFlow 可见。
 
 ## 录音诊断
 
@@ -308,7 +317,7 @@ ready -> (start again) -> requestingPermission -> ...
 
 ## 数据保留
 
-历史最多 5 条 transcript。临时 WAV 转写后清理；最近一次保留在 Application Support 供保存/重发。剪贴板不单独持久化。
+历史最多 5 条 transcript。临时 WAV/M4A 转写后清理；最近一次保留在 Application Support 供保存/重发。剪贴板不单独持久化。
 
 ## 错误处理
 

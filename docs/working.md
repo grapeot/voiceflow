@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-07-29 (OpenAI realtime / Grok batch 双录音策略)
+
+- **产品行为**：Settings 新增持久化 strategy picker。Start 时 snapshot；OpenAI 保持 realtime WebSocket，Grok 录音期只在本地生成 AAC-LC M4A，Stop 后才上传 `/v1/audio/grok-transcription`。Grok 只发送 terms，不发送 prompt。
+- **录音与文件**：AAC 参数为 24 kHz、mono、32 kbps。tap callback 只交付 owned PCM，串行 writer queue 负责文件写入和 finalization；保存/重发保留 WAV/M4A 扩展名与录音产生时的 strategy。
+- **Kit API**：新增 `VoiceFlowRecordingStrategy`、strategy-aware microphone/recorder start、strategy-aware file transcription 和 Grok multipart client。
+- **Regression**：新增 Grok route/multipart、Start snapshot、录音期无 realtime session、Stop 后转写、Settings 改动后按原策略重发测试。`swift test`、iOS Simulator build 和 `./scripts/test_unit.sh` 通过。
+
 ### 2026-06-09 (长转写自动跟随底部)
 
 - **问题**：Stop 后逐 delta 打字机输出长文本时，转写区内部可滚动，但 `TextEditor` 不会在程序化 append 时自动跟到底部。用户听写较长内容时只能看到旧位置，不知道当前是否仍在生成。

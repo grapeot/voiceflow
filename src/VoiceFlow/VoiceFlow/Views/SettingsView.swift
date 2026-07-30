@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceFlowKit
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
@@ -261,19 +262,30 @@ struct SettingsView: View {
     private var transcriptionSection: some View {
         Section {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+                Picker(localized("settings.transcription.strategy"), selection: $appState.transcriptionStrategy) {
+                    ForEach(VoiceFlowRecordingStrategy.allCases, id: \.rawValue) { strategy in
+                        Text(localized(strategy.localizedTitleKey))
+                            .tag(strategy)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.transcriptionStrategyPicker")
+
                 Text(localized("settings.transcription.description"))
                     .font(DesignTokens.Typography.captionSub)
                     .foregroundStyle(DesignTokens.Palette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                inputField(
-                    label: "settings.transcription.prompt",
-                    placeholder: "settings.transcription.prompt.placeholder",
-                    text: $appState.transcriptionPrompt,
-                    accessibilityIdentifier: "settings.transcriptionPromptField",
-                    multiline: true,
-                    capitalize: true
-                )
+                if appState.transcriptionStrategy == .openAIRealtime {
+                    inputField(
+                        label: "settings.transcription.prompt",
+                        placeholder: "settings.transcription.prompt.placeholder",
+                        text: $appState.transcriptionPrompt,
+                        accessibilityIdentifier: "settings.transcriptionPromptField",
+                        multiline: true,
+                        capitalize: true
+                    )
+                }
 
                 inputField(
                     label: "settings.transcription.terms",
@@ -384,6 +396,15 @@ struct SettingsView: View {
 
     private func localized(_ key: String) -> String {
         String(localized: String.LocalizationValue(key), bundle: localizationBundle)
+    }
+}
+
+private extension VoiceFlowRecordingStrategy {
+    var localizedTitleKey: String {
+        switch self {
+        case .openAIRealtime: "settings.transcription.strategy.openAIRealtime"
+        case .grokBatch: "settings.transcription.strategy.grokBatch"
+        }
     }
 }
 
