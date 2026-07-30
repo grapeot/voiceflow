@@ -140,6 +140,12 @@ final class AppState: ObservableObject {
         signalTier == .tier2ShortAudio && recordingStatus == .ready
     }
 
+    var hasActiveWaveformFeedback: Bool {
+        guard recordingStatus == .recording else { return false }
+        if activeRecordingStrategy == .grokBatch { return true }
+        return streamConnectionPhase == .connected || streamConnectionPhase == .generating
+    }
+
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: Self.appLanguageDefaultsKey) }
     }

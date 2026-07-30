@@ -15,16 +15,16 @@ struct VoiceFlowKitSanityTests {
         #expect(AIBuilderClientError.requestFailed(statusCode: 503).localizedDescription.contains("503"))
     }
 
-    @Test func connectionTestUsesProtectedVoiceEndpoint() throws {
+    @Test func connectionTestUsesUsageSummaryEndpoint() throws {
         let request = try AIBuilderClient.makeConnectionTestRequest(
             baseURL: "https://example.com/backend",
             token: "fake-token"
         )
 
-        #expect(request.url?.absoluteString == "https://example.com/backend/v1/audio/realtime/sessions")
-        #expect(request.httpMethod == "POST")
+        #expect(request.url?.absoluteString == "https://example.com/backend/v1/usage/summary")
+        #expect(request.httpMethod == "GET")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fake-token")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        #expect(request.httpBody == Data(#"{"vad":false}"#.utf8))
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
+        #expect(request.httpBody == nil)
     }
 }

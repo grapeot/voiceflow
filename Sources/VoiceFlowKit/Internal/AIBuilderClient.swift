@@ -49,15 +49,13 @@ public struct AIBuilderClient: AIBuilderConnectionTesting {
     }
 
     static func makeConnectionTestRequest(baseURL: String, token: String) throws -> URLRequest {
-        guard let url = URL(string: baseURL)?.appending(path: "v1/audio/realtime/sessions") else {
+        guard let url = URL(string: baseURL)?.appending(path: "v1/usage/summary") else {
             throw AIBuilderClientError.invalidBaseURL
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(#"{"vad":false}"#.utf8)
         return request
     }
 }

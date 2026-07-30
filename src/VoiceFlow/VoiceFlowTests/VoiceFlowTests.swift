@@ -583,6 +583,9 @@ struct VoiceFlowTests {
         await state.startRecording()
 
         #expect(recorder.recordingStrategy == .grokBatch)
+        #expect(state.recordingStatus == .recording)
+        #expect(state.streamConnectionPhase == .disconnected)
+        #expect(state.hasActiveWaveformFeedback)
         #expect(state.liveTranscriptionSession == nil)
         #expect(await realtimeMock.appendedChunkCount == 0)
 
