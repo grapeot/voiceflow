@@ -47,7 +47,7 @@
 "settings.apiToken.status" = "Token";
 "settings.apiToken.saved" = "已保存";
 "settings.apiToken.notSaved" = "未保存";
-"settings.apiToken.save" = "保存";
+"settings.apiToken.saveAndTest" = "保存并测试";
 "settings.apiToken.clear" = "清除";
 "settings.endpoint.title" = "Endpoint";
 "settings.testConnection" = "测试";

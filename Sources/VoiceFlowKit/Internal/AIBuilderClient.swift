@@ -7,7 +7,7 @@ public protocol AIBuilderConnectionTesting: Sendable {
 public enum AIBuilderClientError: Error {
     case invalidBaseURL
     case invalidResponse
-    case requestFailed
+    case requestFailed(statusCode: Int)
 }
 
 extension AIBuilderClientError: LocalizedError {
@@ -17,8 +17,19 @@ extension AIBuilderClientError: LocalizedError {
             "The AI Builder endpoint URL is invalid."
         case .invalidResponse:
             "The server returned an unexpected response."
-        case .requestFailed:
-            "The connection test request failed."
+        case .requestFailed(let statusCode):
+            switch statusCode {
+            case 401:
+                "The API token was rejected (HTTP 401). Check that the complete AI Builder token was copied."
+            case 403:
+                "This API token does not have access to the AI Builder API (HTTP 403)."
+            case 429:
+                "The AI Builder API rate limit was reached (HTTP 429). Try again shortly."
+            case 500..<600:
+                "The AI Builder service returned an error (HTTP \(statusCode)). Try again shortly."
+            default:
+                "The connection test failed (HTTP \(statusCode))."
+            }
         }
     }
 }
@@ -40,7 +51,7 @@ public struct AIBuilderClient: AIBuilderConnectionTesting {
             throw AIBuilderClientError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AIBuilderClientError.requestFailed
+            throw AIBuilderClientError.requestFailed(statusCode: httpResponse.statusCode)
         }
     }
 }

@@ -20,7 +20,7 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(app.textFields["settings.openCodeUsernameField"].exists)
     }
 
-    func testTokenIsMaskedAfterSavingAndCanBeCleared() throws {
+    func testTokenCanBeSavedReplacedAndCleared() throws {
         let app = launchVoiceFlowApp(language: "en", locale: "en_US")
 
         openSettings(in: app, label: "Settings")
@@ -28,12 +28,17 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         tokenField.tap()
         tokenField.typeText("fake-ui-token")
-        app.buttons["settings.saveTokenButton"].tap()
+        app.buttons["settings.saveAndTestTokenButton"].tap()
 
-        XCTAssertTrue(app.staticTexts["settings.apiTokenMaskedValue"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertFalse(app.staticTexts["fake-ui-token"].exists)
+        XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
 
-        app.buttons["settings.testConnectionButton"].tap()
+        tokenField.tap()
+        tokenField.typeText("replacement-ui-token")
+        app.buttons["settings.saveAndTestTokenButton"].tap()
+        XCTAssertTrue(tokenField.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertFalse(app.staticTexts["replacement-ui-token"].exists)
         XCTAssertTrue(app.staticTexts["Connection OK"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
 
         app.buttons["settings.clearTokenButton"].tap()
@@ -133,7 +138,7 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["录音"].exists)
 
         openSettings(in: app, label: "设置")
-        XCTAssertTrue(app.buttons["settings.testConnectionButton"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertTrue(app.buttons["settings.saveAndTestTokenButton"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
     }
 
     func testSettingsLanguagePreferenceOverridesSystemLanguage() throws {

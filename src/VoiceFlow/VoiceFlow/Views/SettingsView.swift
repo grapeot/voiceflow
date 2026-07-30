@@ -38,22 +38,18 @@ struct SettingsView: View {
                     .font(DesignTokens.Typography.bodyBold)
                     .foregroundStyle(DesignTokens.Palette.textPrimary)
 
-                if appState.hasSavedAIBuilderToken {
-                    Text(appState.tokenDisplayValue)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(DesignTokens.Palette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .inputCardSurface()
-                        .accessibilityIdentifier("settings.apiTokenMaskedValue")
-                } else {
-                    SecureField(localized("settings.apiToken.placeholder"), text: $tokenInput)
-                        .textContentType(.password)
-                        .textFieldStyle(.plain)
-                        .font(DesignTokens.Typography.body)
-                        .foregroundStyle(DesignTokens.Palette.textPrimary)
-                        .inputCardSurface()
-                        .accessibilityIdentifier("settings.apiTokenField")
-                }
+                SecureField(
+                    appState.hasSavedAIBuilderToken
+                        ? appState.tokenDisplayValue
+                        : localized("settings.apiToken.placeholder"),
+                    text: $tokenInput
+                )
+                .textContentType(.password)
+                .textFieldStyle(.plain)
+                .font(DesignTokens.Typography.body)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .inputCardSurface()
+                .accessibilityIdentifier("settings.apiTokenField")
             }
 
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
@@ -80,14 +76,24 @@ struct SettingsView: View {
             }
 
             HStack(spacing: DesignTokens.Spacing.m) {
-                Button(localized("settings.apiToken.save")) {
-                    appState.saveAIBuilderToken(tokenInput)
-                    tokenInput = ""
+                Button(localized(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                 ? "settings.testConnection"
+                                 : "settings.apiToken.saveAndTest")) {
+                    Task {
+                        let candidate = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !candidate.isEmpty {
+                            guard appState.saveAIBuilderToken(candidate) else { return }
+                            tokenInput = ""
+                        }
+                        await appState.testAIBuilderConnection()
+                    }
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(DesignTokens.Palette.accent)
-                .disabled(appState.hasSavedAIBuilderToken || tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("settings.saveTokenButton")
+                .disabled((tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                           && !appState.hasSavedAIBuilderToken)
+                          || appState.connectionStatus == .testing)
+                .accessibilityIdentifier("settings.saveAndTestTokenButton")
 
                 Spacer()
 
@@ -100,14 +106,6 @@ struct SettingsView: View {
                 .disabled(!appState.hasSavedAIBuilderToken)
                 .accessibilityIdentifier("settings.clearTokenButton")
             }
-
-            Button(localized("settings.testConnection")) {
-                Task { await appState.testAIBuilderConnection() }
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(DesignTokens.Palette.accent)
-            .disabled(!appState.hasSavedAIBuilderToken || appState.connectionStatus == .testing)
-            .accessibilityIdentifier("settings.testConnectionButton")
 
             connectionStatusView(
                 status: appState.connectionStatus,

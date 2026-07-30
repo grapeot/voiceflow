@@ -10,15 +10,18 @@ extension AppState {
         hasSavedAIBuilderToken ? "••••••••" : ""
     }
 
-    func saveAIBuilderToken(_ token: String) {
+    @discardableResult
+    func saveAIBuilderToken(_ token: String) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         do {
             try keychainStore.saveString(trimmed, for: Self.tokenKey)
             hasSavedAIBuilderToken = true
             connectionStatus = .untested
+            return true
         } catch {
             connectionStatus = .failed("settings.connection.saveFailed", nil)
+            return false
         }
     }
 

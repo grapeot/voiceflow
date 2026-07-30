@@ -47,7 +47,7 @@
 "settings.apiToken.status" = "Token";
 "settings.apiToken.saved" = "Saved";
 "settings.apiToken.notSaved" = "Not saved";
-"settings.apiToken.save" = "Save";
+"settings.apiToken.saveAndTest" = "Save & Test";
 "settings.apiToken.clear" = "Clear";
 "settings.endpoint.title" = "Endpoint";
 "settings.testConnection" = "Test";
