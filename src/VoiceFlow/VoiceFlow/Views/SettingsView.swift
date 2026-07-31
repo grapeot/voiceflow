@@ -294,16 +294,23 @@ struct SettingsView: View {
                     Button {
                         showStrategyHelp = true
                     } label: {
-                        Image(systemName: "info.circle")
+                        Image(systemName: "info.circle.fill")
                             .font(.system(size: 16))
-                            .foregroundStyle(DesignTokens.Palette.textTertiary)
+                            .foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(DesignTokens.Palette.accent)
+                            .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
 
-                    Text(localized("settings.transcription.strategy.help"))
-                        .font(DesignTokens.Typography.captionSub)
-                        .foregroundStyle(DesignTokens.Palette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        showStrategyHelp = true
+                    } label: {
+                        Text(localized("settings.transcription.strategy.help"))
+                            .font(DesignTokens.Typography.captionSub)
+                            .foregroundStyle(DesignTokens.Palette.accent)
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if appState.transcriptionStrategy == .openAIRealtime {
