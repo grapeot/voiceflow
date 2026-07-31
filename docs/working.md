@@ -20,6 +20,11 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-07-31 (VoiceFlowKit 0.4.0 release prep)
+
+- Bumped `VoiceFlowKit.version` and the documented exact Swift Package pin to `0.4.0`. The release includes GPT Live Transcribe, accumulated recording-time transcript snapshots, and GPT Live as the reference App default for new installations.
+- Verification: `swift test` passed all 35 tests.
+
 ### 2026-07-31 (GPT Live default strategy)
 
 - New installations and invalid/missing saved strategy values now default to GPT Live Transcribe. Existing users' valid saved choices remain unchanged; VoiceFlowKit's no-argument public API still defaults to GPT Realtime for source compatibility.
