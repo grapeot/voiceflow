@@ -88,7 +88,8 @@
 "settings.transcription.strategy" = "转写方式";
 "settings.transcription.strategy.openAIRealtime" = "GPT Realtime";
 "settings.transcription.strategy.grokBatch" = "Grok STT";
-"settings.transcription.description" = "所选方式会在下次开始录音时生效。Grok STT 仅在本地录音，停止后才上传。";
+"settings.transcription.description" = "可选的提示，转写前会传给模型。";
+"settings.transcription.model" = "录音模型";
 "settings.transcription.strategy.help" = "我该选哪个？";
 "settings.transcription.strategy.dialog.title" = "我该选哪个？";
 "settings.transcription.strategy.dialog.body" = "GPT Realtime——排版、标点和准确率更好，说话时能看到实时字幕。\n\nGrok STT——价格约为前者的 1/10，准确率略低，无实时字幕；本地录音，停止后上传。\n\n建议：给人看的内容（笔记、消息、文章）用 GPT Realtime；给 AI 处理的内容（指令、prompt、日志）用 Grok STT 就够——AI 对错别字和排版的包容度比人高得多。";

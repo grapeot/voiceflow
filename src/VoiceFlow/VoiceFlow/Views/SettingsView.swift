@@ -281,16 +281,16 @@ struct SettingsView: View {
     private var transcriptionSection: some View {
         Section {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
-                Picker(localized("settings.transcription.strategy"), selection: $appState.transcriptionStrategy) {
-                    ForEach(VoiceFlowRecordingStrategy.allCases, id: \.rawValue) { strategy in
-                        Text(localized(strategy.localizedTitleKey))
-                            .tag(strategy)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("settings.transcriptionStrategyPicker")
+                Text(localized("settings.transcription.description"))
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: DesignTokens.Spacing.xs) {
+                    Text(localized("settings.transcription.model"))
+                        .font(DesignTokens.Typography.bodyBold)
+                        .foregroundStyle(DesignTokens.Palette.textPrimary)
+
                     Button {
                         showStrategyHelp = true
                     } label: {
@@ -299,16 +299,16 @@ struct SettingsView: View {
                             .foregroundStyle(DesignTokens.Palette.accent)
                     }
                     .buttonStyle(.plain)
-
-                    Button {
-                        showStrategyHelp = true
-                    } label: {
-                        Text(localized("settings.transcription.strategy.help"))
-                            .font(DesignTokens.Typography.captionSub)
-                            .foregroundStyle(DesignTokens.Palette.accent)
-                    }
-                    .buttonStyle(.plain)
                 }
+
+                Picker("Strategy", selection: $appState.transcriptionStrategy) {
+                    ForEach(VoiceFlowRecordingStrategy.allCases, id: \.rawValue) { strategy in
+                        Text(localized(strategy.localizedTitleKey))
+                            .tag(strategy)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.transcriptionStrategyPicker")
 
                 if appState.transcriptionStrategy == .openAIRealtime {
                     inputField(

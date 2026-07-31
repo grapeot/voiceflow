@@ -88,7 +88,8 @@
 "settings.transcription.strategy" = "Strategy";
 "settings.transcription.strategy.openAIRealtime" = "GPT Realtime";
 "settings.transcription.strategy.grokBatch" = "Grok STT";
-"settings.transcription.description" = "The selected strategy applies when the next recording starts. Grok STT records locally and uploads only after Stop.";
+"settings.transcription.description" = "Optional hints the transcription model reads before working.";
+"settings.transcription.model" = "Transcription model";
 "settings.transcription.strategy.help" = "Which one should I choose?";
 "settings.transcription.strategy.dialog.title" = "Which one should I choose?";
 "settings.transcription.strategy.dialog.body" = "GPT Realtime — better formatting, punctuation, and accuracy. Shows a live transcript while you speak.\n\nGrok STT — about 10x cheaper, slightly lower accuracy, no live transcript. Records locally and uploads after Stop.\n\nRecommendation: For content a human will read (notes, messages, articles), prefer GPT Realtime. For content an AI agent will process (commands, prompts, logs), Grok STT is usually good enough — AI tolerates typos and messy formatting far better than people do.";
