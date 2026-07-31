@@ -198,8 +198,8 @@ final class AppState: ObservableObject {
     var partialTranscriptAttemptID: UUID?
     var userEditedTranscriptDuringStream = false
     var isTranscriptionTeardown = false
-    var activeRecordingStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
-    var lastRecordingStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
+    var activeRecordingStrategy: VoiceFlowRecordingStrategy = .gptLiveTranscribe
+    var lastRecordingStrategy: VoiceFlowRecordingStrategy = .gptLiveTranscribe
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -241,7 +241,7 @@ final class AppState: ObservableObject {
         self.transcriptionPrompt = UserDefaults.standard.string(forKey: Self.transcriptionPromptDefaultsKey) ?? ""
         self.transcriptionTerms = UserDefaults.standard.string(forKey: Self.transcriptionTermsDefaultsKey) ?? ""
         self.transcriptionStrategy = UserDefaults.standard.string(forKey: Self.transcriptionStrategyDefaultsKey)
-            .flatMap(VoiceFlowRecordingStrategy.init(rawValue:)) ?? .openAIRealtime
+            .flatMap(VoiceFlowRecordingStrategy.init(rawValue:)) ?? .gptLiveTranscribe
         self.keychainStore = keychainStore ?? (isUITestMode ? InMemoryKeychainStore() : KeychainStore())
         if let aiBuilderClient {
             self.aiBuilderClient = aiBuilderClient
@@ -362,9 +362,9 @@ final class AppState: ObservableObject {
         appLanguage = .system
         transcriptionPrompt = ""
         transcriptionTerms = ""
-        transcriptionStrategy = .openAIRealtime
-        activeRecordingStrategy = .openAIRealtime
-        lastRecordingStrategy = .openAIRealtime
+        transcriptionStrategy = .gptLiveTranscribe
+        activeRecordingStrategy = .gptLiveTranscribe
+        lastRecordingStrategy = .gptLiveTranscribe
 
         try? keychainStore.deleteString(for: Self.tokenKey)
         try? keychainStore.deleteString(for: Self.openCodePasswordKey)

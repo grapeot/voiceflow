@@ -22,6 +22,7 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .idle)
         #expect(state.recordingTimerText == "00:00")
         #expect(state.transcript.isEmpty)
+        #expect(state.transcriptionStrategy == .gptLiveTranscribe)
         #expect(state.hasSavedAIBuilderToken == false)
         #expect(state.isOpenCodeConfigured == false)
         #expect(state.openCodeServerURL == "http://localhost:4096")

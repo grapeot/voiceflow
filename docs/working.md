@@ -20,6 +20,11 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-07-31 (GPT Live default strategy)
+
+- New installations and invalid/missing saved strategy values now default to GPT Live Transcribe. Existing users' valid saved choices remain unchanged; VoiceFlowKit's no-argument public API still defaults to GPT Realtime for source compatibility.
+- Verification: `./scripts/test_unit.sh` passed all 91 tests; live backend tests were not run.
+
 ### 2026-07-31 (GPT Live recording-time transcript snapshots)
 
 - GPT Live now retains `transcript_delta` frames received before Stop and publishes accumulated snapshots through `VoiceFlowSession.events`; hosts never receive raw fragments. Finalize preserves that accumulator, continues snapshots through its callback, and still replaces the result with the authoritative `transcript_completed` payload.
