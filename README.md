@@ -47,17 +47,17 @@ let session = try await client.startSession()
 | Type | What it does |
 |---|---|
 | `VoiceFlowConfig` | endpoint + token closure + optional prompt/terms |
-| `VoiceFlowRecordingStrategy` | complete capture/transport choice: OpenAI realtime or Grok batch |
+| `VoiceFlowRecordingStrategy` | complete capture/transport choice: GPT Realtime, GPT Live Transcribe, or Grok batch |
 | `VoiceFlowClient` (actor) | factory for sessions + strategy-aware file transcribe + connection test |
 | `VoiceFlowSession` (actor) | one live recording session — send audio, ping, commit, cancel; exposes `events: AsyncStream<VoiceFlowEvent>` |
 | `VoiceFlowMicrophone` (`@MainActor`) | mic capture; strategy-aware `start(strategy:onPCMChunk:)` + `stop()` |
 | `VoiceFlowEvent` | enum: `partialTranscript / phaseChanged / recoveryStarted / recoveryFailed` |
 | `VoiceFlowConnectionPhase` | enum: `connecting / connected / recovering / generating / disconnected` |
-| `VoiceFlowError` | enum: `missingToken / invalidEndpoint / httpError / sessionUnavailable / websocketError / connectionLost / emptyTranscript / microphoneUnavailable / audioConversionFailed / underlying(String)` |
+| `VoiceFlowError` | enum: `missingToken / invalidEndpoint / httpError / sessionUnavailable / websocketError / connectionLost / emptyTranscript / microphoneUnavailable / audioConversionFailed / unsupportedRecordingStrategy / underlying(String)` |
 | `VoiceFlowClient.makeStub(...)` | offline stub client for UI test launch modes + SwiftUI previews — no WebSocket, canned final transcript |
 | `StreamCaption` / `StreamCaptionStore` | optional two-layer caption helper (persistent + transient flash) if you want "Reconnecting…" / "Stream restored." prompts |
 
-Two complete recording strategies are available: **OpenAI Realtime** streams PCM16/24 kHz/mono over the ticket WebSocket and persists WAV; **Grok Batch** records AAC-LC M4A locally and uploads only after Stop via `transcribe(audioFile:strategy:)`.
+Three complete recording strategies are available: **GPT Realtime** and **GPT Live Transcribe** stream PCM16/24 kHz/mono over the ticket WebSocket and persist WAV; **Grok Batch** records AAC-LC M4A locally and uploads only after Stop via `transcribe(audioFile:strategy:)`. GPT Live always routes to `gpt-live-transcribe`; GPT Realtime retains the model configured in `VoiceFlowConfig`.
 
 ### Integration guide for AI agents
 
@@ -75,7 +75,7 @@ Full integration walkthrough (with reference implementations, traps, and accepta
 
 ### Backend
 
-Default endpoint is AI Builder Space (`https://space.ai-builders.com/backend`). Wire protocol: POST `/v1/audio/realtime/sessions` to get a ticket, then `wss://.../v1/audio/realtime/ws?ticket=...` for PCM16 streaming. Model is `gpt-realtime`. You can swap the endpoint via `VoiceFlowConfig.endpoint` if you have a compatible backend.
+Default endpoint is AI Builder Space (`https://space.ai-builders.com/backend`). Wire protocol: POST `/v1/audio/realtime/sessions` to get a ticket, then `wss://.../v1/audio/realtime/ws?ticket=...` for PCM16 streaming. The default strategy uses `gpt-realtime`; GPT Live uses `gpt-live-transcribe`. You can swap the endpoint via `VoiceFlowConfig.endpoint` if you have a compatible backend.
 
 ## VoiceFlow (the app)
 

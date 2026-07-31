@@ -112,6 +112,9 @@ public actor VoiceFlowClient {
                 terms: requestConfig.terms
             )
         }
+        guard let model = strategy.realtimeModel(configuredModel: requestConfig.model) else {
+            throw VoiceFlowError.unsupportedRecordingStrategy(strategy)
+        }
         let pcmData: Data
         do {
             // For WAV files we extract PCM directly; for other formats
@@ -127,7 +130,8 @@ public actor VoiceFlowClient {
                 pcmData: pcmData,
                 baseURL: requestConfig.endpoint.absoluteString,
                 token: token,
-                model: requestConfig.model,
+                model: model,
+                strategy: strategy,
                 context: RealtimeSessionContext(prompt: requestConfig.prompt, terms: requestConfig.terms),
                 onPartialTranscript: onPartialTranscript
             )
@@ -144,7 +148,8 @@ public actor VoiceFlowClient {
         preservedAudio: VoiceFlowPreservedAudio,
         onPartialTranscript: (@Sendable (String) -> Void)? = nil
     ) async throws -> TranscriptionResult {
-        let token = try await currentToken()
+        let requestConfig = config
+        let token = try await currentToken(from: requestConfig)
         let pcmData: Data
         do {
             pcmData = try Data(contentsOf: preservedAudio.fileURL)
@@ -155,10 +160,11 @@ public actor VoiceFlowClient {
         do {
             let text = try await transcriber.transcribeBulkPCM(
                 pcmData: pcmData,
-                baseURL: config.endpoint.absoluteString,
+                baseURL: requestConfig.endpoint.absoluteString,
                 token: token,
-                model: config.model,
-                context: RealtimeSessionContext(prompt: config.prompt, terms: config.terms),
+                model: preservedAudio.model,
+                strategy: preservedAudio.strategy,
+                context: RealtimeSessionContext(prompt: requestConfig.prompt, terms: requestConfig.terms),
                 onPartialTranscript: onPartialTranscript
             )
             return TranscriptionResult(text: text, requestID: preservedAudio.id.uuidString)
@@ -174,21 +180,30 @@ public actor VoiceFlowClient {
 
     /// Start a realtime session. Host then pumps PCM chunks in,
     /// optionally pings, and finalizes with `commitAndStop`.
-    public func startSession() async throws -> VoiceFlowSession {
+    public func startSession(
+        strategy: VoiceFlowRecordingStrategy = .openAIRealtime
+    ) async throws -> VoiceFlowSession {
+        guard strategy.usesRealtimeTransport else {
+            throw VoiceFlowError.unsupportedRecordingStrategy(strategy)
+        }
         let requestConfig = config
         let token = try await currentToken(from: requestConfig)
         let bridge = SessionEventBridge()
+        guard let model = strategy.realtimeModel(configuredModel: requestConfig.model) else {
+            throw VoiceFlowError.unsupportedRecordingStrategy(strategy)
+        }
         do {
             let live = try await transcriber.beginLiveSession(
                 baseURL: requestConfig.endpoint.absoluteString,
                 token: token,
-                model: requestConfig.model,
+                model: model,
+                strategy: strategy,
                 context: RealtimeSessionContext(prompt: requestConfig.prompt, terms: requestConfig.terms),
                 onEvent: { event in
                     bridge.emit(event)
                 }
             )
-            return VoiceFlowSession(underlying: live, eventBridge: bridge)
+            return VoiceFlowSession(strategy: strategy, underlying: live, eventBridge: bridge)
         } catch let realtime as RealtimeTranscriptionError {
             bridge.finish()
             throw VoiceFlowError(realtime)

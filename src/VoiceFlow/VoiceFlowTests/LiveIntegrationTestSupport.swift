@@ -95,6 +95,16 @@ enum LiveIntegrationTestSupport {
         return nil
     }
 
+    static func fixtureURL(environmentKey: String) -> URL? {
+        guard let path = ProcessInfo.processInfo.environment[environmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     private static func repositoryRoot() -> URL? {
         if let envRoot = ProcessInfo.processInfo.environment["VOICEFLOW_REPO_ROOT"],
            !envRoot.isEmpty {

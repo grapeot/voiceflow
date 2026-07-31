@@ -9,7 +9,7 @@ voiceflow_test_ui_only_testing_args() {
       tests=(
         "VoiceFlowUITests/VoiceFlowUITests/testEnglishAppShell"
         "VoiceFlowUITests/VoiceFlowUITests/testMockStreamingRecordingUpdatesTranscript"
-        "VoiceFlowUITests/VoiceFlowUITests/testTokenIsMaskedAfterSavingAndCanBeCleared"
+        "VoiceFlowUITests/VoiceFlowUITests/testTokenCanBeSavedReplacedAndCleared"
       )
       ;;
     full)
@@ -24,8 +24,9 @@ voiceflow_test_ui_only_testing_args() {
         "VoiceFlowUITests/VoiceFlowUITests/testSettingsConnectionFailureShowsErrorDetail"
         "VoiceFlowUITests/VoiceFlowUITests/testSettingsDismissesKeyboardWhenTappingOutsideFields"
         "VoiceFlowUITests/VoiceFlowUITests/testSettingsLanguagePreferenceOverridesSystemLanguage"
-        "VoiceFlowUITests/VoiceFlowUITests/testTokenIsMaskedAfterSavingAndCanBeCleared"
+        "VoiceFlowUITests/VoiceFlowUITests/testTokenCanBeSavedReplacedAndCleared"
         "VoiceFlowUITests/VoiceFlowUITests/testTranscriptionSettingsFieldsAcceptInputAndPersistInForm"
+        "VoiceFlowUITests/VoiceFlowUITests/testTranscriptionStrategyMenuOffersThreeStrategies"
       )
       ;;
     perf)

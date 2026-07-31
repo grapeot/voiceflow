@@ -142,7 +142,7 @@ final class AppState: ObservableObject {
 
     var hasActiveWaveformFeedback: Bool {
         guard recordingStatus == .recording else { return false }
-        if activeRecordingStrategy == .grokBatch { return true }
+        if !activeRecordingStrategy.usesRealtimeTransport { return true }
         return streamConnectionPhase == .connected || streamConnectionPhase == .generating
     }
 
@@ -192,6 +192,10 @@ final class AppState: ObservableObject {
     var liveTranscriptionSession: VoiceFlowSession?
     var liveEventConsumerTask: Task<Void, Never>?
     var streamHeartbeatTask: Task<Void, Never>?
+    var capturedPCMBuffer: OrderedPCMChunkBuffer?
+    var capturedPCMConsumerTask: Task<Void, Never>?
+    var activeTranscriptionAttemptID: UUID?
+    var partialTranscriptAttemptID: UUID?
     var userEditedTranscriptDuringStream = false
     var isTranscriptionTeardown = false
     var activeRecordingStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
@@ -322,6 +326,8 @@ final class AppState: ObservableObject {
     func resetForUITest() async {
         guard ProcessInfo.processInfo.arguments.contains("-uiTestMode") else { return }
 
+        invalidateTranscriptionAttempt()
+        await cancelCapturedPCMConsumer()
         await cancelLiveTranscriptionSession()
         stopRecordingTimer()
         recordErrorAlertKey = nil
@@ -426,7 +432,8 @@ final class AppState: ObservableObject {
     // `.transcribing` case, so it is also no longer gated on
     // `canNavigateTranscriptHistory`.
     var canResendRecording: Bool {
-        hasSavedAIBuilderToken
+        activeTranscriptionAttemptID == nil
+            && hasSavedAIBuilderToken
             && (recordingStatus == .recording || lastRecordingFileExists)
     }
 
@@ -467,22 +474,23 @@ final class AppState: ObservableObject {
             shouldPresentSavedRecordingAlert = false
             openCodeSendStatus = .idle
             activeRecordingStrategy = strategy
-            streamConnectionPhase = strategy == .openAIRealtime ? .connecting : .disconnected
+            streamConnectionPhase = strategy.usesRealtimeTransport ? .connecting : .disconnected
             peakRms = 0
             activeAudioMs = 0
             signalTier = nil
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": strategy.diagnosticMode])
 
-            if strategy == .openAIRealtime {
+            if strategy.usesRealtimeTransport {
                 await applyCurrentTranscriptionConfig(token: token)
-                let session = try await voiceFlowClient.startSession()
+                let session = try await voiceFlowClient.startSession(strategy: strategy)
                 liveTranscriptionSession = session
                 startLiveEventConsumer(for: session)
                 startStreamHeartbeat()
             }
 
-            try await audioRecorder.startRecording(strategy: strategy) { [weak self] chunk in
-                Task { await self?.handleCapturedPCMChunk(chunk) }
+            let pcmBuffer = startCapturedPCMConsumer()
+            try await audioRecorder.startRecording(strategy: strategy) { chunk in
+                pcmBuffer.enqueue(chunk)
             }
             recordDiagnostic("recording_start_succeeded")
             resetRecordingTimer()
@@ -490,6 +498,7 @@ final class AppState: ObservableObject {
             recordingStatus = .recording
             startSignalBannerGraceTimer()
         } catch {
+            await cancelCapturedPCMConsumer()
             await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
             resetRecordingTimer()
@@ -503,6 +512,8 @@ final class AppState: ObservableObject {
 
     func stopRecording() async {
         guard recordingStatus == .recording else { return }
+        guard let attemptID = beginTranscriptionAttempt() else { return }
+        defer { finishTranscriptionAttempt(attemptID) }
         stopRecordingTimer()
         cancelSignalBannerGraceTimer()
         recordingStatus = .transcribing
@@ -512,10 +523,16 @@ final class AppState: ObservableObject {
         let strategy = activeRecordingStrategy
         do {
             audioURL = try await audioRecorder.stopRecording()
+            await finishCapturedPCMConsumer()
         } catch {
+            await cancelCapturedPCMConsumer()
             await cancelLiveTranscriptionSession()
             recordDiagnostic("recording_stop_failed", metadata: diagnosticMetadata(for: error))
             presentRecordError("record.error.transcriptionFailed")
+            return
+        }
+        guard ownsTranscriptionAttempt(attemptID) else {
+            try? FileManager.default.removeItem(at: audioURL)
             return
         }
 
@@ -562,10 +579,10 @@ final class AppState: ObservableObject {
         }
         try? FileManager.default.removeItem(at: audioURL)
 
-        if strategy == .openAIRealtime {
-            await finishLiveTranscriptionSession()
+        if strategy.usesRealtimeTransport {
+            await finishLiveTranscriptionSession(attemptID: attemptID)
         } else {
-            await finishBatchTranscription()
+            await finishBatchTranscription(attemptID: attemptID)
         }
     }
 
@@ -588,6 +605,8 @@ final class AppState: ObservableObject {
 
     func resendLastRecording() async {
         guard canResendRecording else { return }
+        guard let attemptID = beginTranscriptionAttempt() else { return }
+        defer { finishTranscriptionAttempt(attemptID) }
         let shouldStopActiveRecording = recordingStatus == .recording
         recordingStatus = .transcribing
         openCodeSendStatus = .idle
@@ -599,10 +618,16 @@ final class AppState: ObservableObject {
             do {
                 stopRecordingTimer()
                 audioURL = try await audioRecorder.stopRecording()
+                await finishCapturedPCMConsumer()
             } catch {
+                await cancelCapturedPCMConsumer()
                 await cancelLiveTranscriptionSession()
                 recordDiagnostic("recording_resend_stop_failed", metadata: diagnosticMetadata(for: error))
                 presentRecordError("record.error.transcriptionFailed")
+                return
+            }
+            guard ownsTranscriptionAttempt(attemptID) else {
+                try? FileManager.default.removeItem(at: audioURL)
                 return
             }
 
@@ -627,19 +652,21 @@ final class AppState: ObservableObject {
             }
             try? FileManager.default.removeItem(at: audioURL)
             await cancelLiveTranscriptionSession()
+            guard ownsTranscriptionAttempt(attemptID) else { return }
         } else {
             // Rescue path: transcription is stuck (e.g. a hung live WebSocket
             // session that never returned). Force-close any active session so we
             // start the re-transcription from a clean state instead of layering
             // on top of the stalled one.
             await cancelLiveTranscriptionSession()
+            guard ownsTranscriptionAttempt(attemptID) else { return }
         }
 
-        if let bulkText = await finishTranscriptionFromLastRecording(presentErrorOnFailure: true) {
-            transcript = bulkText
-            transcriptHistory.add(bulkText)
-            copyTranscript()
-            recordingStatus = .ready
+        if let bulkText = await finishTranscriptionFromLastRecording(
+            attemptID: attemptID,
+            presentErrorOnFailure: true
+        ) {
+            completeStopTranscriptionSuccess(text: bulkText, mode: "resend", attemptID: attemptID)
         }
     }
 
@@ -655,6 +682,7 @@ private extension VoiceFlowRecordingStrategy {
     var diagnosticMode: String {
         switch self {
         case .openAIRealtime: "stream"
+        case .gptLiveTranscribe: "gpt_live_transcribe"
         case .grokBatch: "grok_batch"
         }
     }

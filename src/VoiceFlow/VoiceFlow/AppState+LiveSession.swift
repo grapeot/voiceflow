@@ -1,6 +1,65 @@
 import Foundation
 import VoiceFlowKit
 
+final class OrderedPCMChunkBuffer: @unchecked Sendable {
+    let signals: AsyncStream<Void>
+
+    private let lock = NSLock()
+    private let continuation: AsyncStream<Void>.Continuation
+    private let maxPendingChunks: Int
+    private var chunks: [Data] = []
+    private var isFinished = false
+
+    init(maxPendingChunks: Int = 32) {
+        precondition(maxPendingChunks > 0)
+        var capturedContinuation: AsyncStream<Void>.Continuation?
+        signals = AsyncStream(bufferingPolicy: .bufferingNewest(1)) {
+            capturedContinuation = $0
+        }
+        continuation = capturedContinuation!
+        self.maxPendingChunks = maxPendingChunks
+    }
+
+    func enqueue(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        guard !isFinished else {
+            lock.unlock()
+            return
+        }
+        if chunks.count < maxPendingChunks {
+            chunks.append(chunk)
+        } else {
+            chunks[chunks.count - 1].append(chunk)
+        }
+        lock.unlock()
+        continuation.yield(())
+    }
+
+    func popFirst() -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !chunks.isEmpty else { return nil }
+        return chunks.removeFirst()
+    }
+
+    func finish() {
+        lock.lock()
+        let shouldFinish = !isFinished
+        isFinished = true
+        lock.unlock()
+        if shouldFinish {
+            continuation.finish()
+        }
+    }
+
+    var pendingChunkCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return chunks.count
+    }
+}
+
 /// Live transcription session bridge. Wires the kit's `VoiceFlowSession`
 /// (events / audio chunks / heartbeat / finalize / cancel) into AppState's
 /// publishable state. Also handles the bulk-fallback `transcribe(audioFile:)`
@@ -10,6 +69,70 @@ import VoiceFlowKit
 /// file makes the recording lifecycle (`startRecording` / `stopRecording`)
 /// in the main file shorter and easier to follow.
 extension AppState {
+    func beginTranscriptionAttempt() -> UUID? {
+        guard activeTranscriptionAttemptID == nil else { return nil }
+        let attemptID = UUID()
+        activeTranscriptionAttemptID = attemptID
+        return attemptID
+    }
+
+    func ownsTranscriptionAttempt(_ attemptID: UUID) -> Bool {
+        activeTranscriptionAttemptID == attemptID
+    }
+
+    func finishTranscriptionAttempt(_ attemptID: UUID) {
+        guard ownsTranscriptionAttempt(attemptID) else { return }
+        if partialTranscriptAttemptID == attemptID {
+            partialTranscriptAttemptID = nil
+        }
+        activeTranscriptionAttemptID = nil
+    }
+
+    func invalidateTranscriptionAttempt() {
+        partialTranscriptAttemptID = nil
+        activeTranscriptionAttemptID = nil
+    }
+
+    func acceptsPartialTranscript(for attemptID: UUID) -> Bool {
+        ownsTranscriptionAttempt(attemptID) && partialTranscriptAttemptID == attemptID
+    }
+
+    func startCapturedPCMConsumer() -> OrderedPCMChunkBuffer {
+        capturedPCMBuffer?.finish()
+        capturedPCMConsumerTask?.cancel()
+
+        let buffer = OrderedPCMChunkBuffer()
+        capturedPCMBuffer = buffer
+        capturedPCMConsumerTask = Task { @MainActor [weak self, buffer] in
+            for await _ in buffer.signals {
+                while let chunk = buffer.popFirst() {
+                    guard !Task.isCancelled, let self else { return }
+                    await self.handleCapturedPCMChunk(chunk)
+                }
+            }
+            while let chunk = buffer.popFirst() {
+                guard !Task.isCancelled, let self else { return }
+                await self.handleCapturedPCMChunk(chunk)
+            }
+        }
+        return buffer
+    }
+
+    func finishCapturedPCMConsumer() async {
+        capturedPCMBuffer?.finish()
+        await capturedPCMConsumerTask?.value
+        capturedPCMBuffer = nil
+        capturedPCMConsumerTask = nil
+    }
+
+    func cancelCapturedPCMConsumer() async {
+        capturedPCMBuffer?.finish()
+        capturedPCMConsumerTask?.cancel()
+        await capturedPCMConsumerTask?.value
+        capturedPCMBuffer = nil
+        capturedPCMConsumerTask = nil
+    }
+
     /// Refresh the kit-side config with the current token + prompt + terms
     /// from Settings. `tokenProvider` is rebuilt to close over the token
     /// value (rather than re-reading Keychain on every call) so the
@@ -48,7 +171,11 @@ extension AppState {
         }
     }
 
-    func finishTranscriptionFromLastRecording(presentErrorOnFailure: Bool = true) async -> String? {
+    func finishTranscriptionFromLastRecording(
+        attemptID: UUID,
+        presentErrorOnFailure: Bool = true
+    ) async -> String? {
+        guard ownsTranscriptionAttempt(attemptID) else { return nil }
         guard let audioURL = lastRecordingURL else {
             if presentErrorOnFailure {
                 presentRecordError("record.error.transcriptionFailed")
@@ -68,15 +195,25 @@ extension AppState {
             let strategy = lastRecordingStrategy
             recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": strategy == .grokBatch ? "grok_batch" : "bulk"])
             await applyCurrentTranscriptionConfig(token: token)
-            let result = try await voiceFlowClient.transcribe(audioFile: audioURL, strategy: strategy) { [weak self] partial in
-                Task { @MainActor in
-                    self?.applyStreamedTranscript(partial)
+            guard ownsTranscriptionAttempt(attemptID) else { return nil }
+            partialTranscriptAttemptID = attemptID
+            defer {
+                if partialTranscriptAttemptID == attemptID {
+                    partialTranscriptAttemptID = nil
                 }
             }
+            let result = try await voiceFlowClient.transcribe(audioFile: audioURL, strategy: strategy) { [weak self] partial in
+                Task { @MainActor in
+                    guard let self, self.acceptsPartialTranscript(for: attemptID) else { return }
+                    self.applyStreamedTranscript(partial)
+                }
+            }
+            guard ownsTranscriptionAttempt(attemptID) else { return nil }
             let transcribedText = result.text
             recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(transcribedText.count)", "mode": strategy == .grokBatch ? "grok_batch" : "bulk"])
             return transcribedText
         } catch {
+            guard ownsTranscriptionAttempt(attemptID) else { return nil }
             recordDiagnostic(transcriptionFailureEventName(for: error), metadata: diagnosticMetadata(for: error))
             if presentErrorOnFailure {
                 presentRecordError("record.error.transcriptionFailed")
@@ -110,6 +247,8 @@ extension AppState {
         switch event {
         case .partialTranscript(let content):
             guard recordingStatus != .recording else { return }
+            guard let attemptID = activeTranscriptionAttemptID,
+                  acceptsPartialTranscript(for: attemptID) else { return }
             if !userEditedTranscriptDuringStream {
                 applyStreamedTranscript(content)
             }
@@ -154,7 +293,7 @@ extension AppState {
 
     func handleCapturedPCMChunk(_ chunk: Data) async {
         updateAudioLevel(from: chunk)
-        if activeRecordingStrategy == .openAIRealtime {
+        if activeRecordingStrategy.usesRealtimeTransport {
             await liveTranscriptionSession?.sendAudioChunk(chunk)
         }
     }
@@ -168,7 +307,9 @@ extension AppState {
         let normalized = VoiceFlowAudioMetering.normalizedLevel(fromPCM16LE: chunk)
         audioLevel = audioLevel * 0.7 + normalized * 0.3
 
-        guard recordingStatus == .recording || recordingStatus == .requestingPermission else { return }
+        guard recordingStatus == .recording
+                || recordingStatus == .requestingPermission
+                || recordingStatus == .transcribing else { return }
         let rawRms = VoiceFlowAudioMetering.rmsLevel(fromPCM16LE: chunk)
         if rawRms > peakRms { peakRms = rawRms }
         if rawRms >= Self.speechThreshold {
@@ -221,30 +362,34 @@ extension AppState {
         signalBannerGraceTask = nil
     }
 
-    private func makeFinalizePartialHandler() -> @Sendable (String) -> Void {
+    private func makeFinalizePartialHandler(attemptID: UUID) -> @Sendable (String) -> Void {
         { [weak self] partial in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.acceptsPartialTranscript(for: attemptID) else { return }
                 updateTranscriptDuringFinalize(partial)
             }
         }
     }
 
-    func finishLiveTranscriptionSession() async {
+    func finishLiveTranscriptionSession(attemptID: UUID) async {
+        guard ownsTranscriptionAttempt(attemptID) else { return }
         stopStreamHeartbeat()
         isTranscriptionTeardown = true
         defer { isTranscriptionTeardown = false }
 
         guard let session = liveTranscriptionSession else {
             recordDiagnostic("transcription_finalize_failed", metadata: ["reason": "noSession"])
-            completeStopTranscriptionFailure(reason: "noSession")
+            completeStopTranscriptionFailure(reason: "noSession", attemptID: attemptID)
             return
         }
 
         recordDiagnostic("transcription_finalize_started", metadata: ["hasToken": "true", "mode": "stream"])
         var streamText = ""
+        partialTranscriptAttemptID = attemptID
         do {
-            streamText = try await session.commitAndStop(onPartialTranscript: makeFinalizePartialHandler())
+            streamText = try await session.commitAndStop(
+                onPartialTranscript: makeFinalizePartialHandler(attemptID: attemptID)
+            )
             recordDiagnostic(
                 "transcription_finalize_stream_done",
                 metadata: ["characterCount": "\(streamText.count)"]
@@ -255,31 +400,50 @@ extension AppState {
                 metadata: diagnosticMetadata(for: error).merging(["reason": String(describing: error)]) { _, new in new }
             )
         }
+        if partialTranscriptAttemptID == attemptID {
+            partialTranscriptAttemptID = nil
+        }
 
+        guard ownsTranscriptionAttempt(attemptID) else {
+            await session.cancel()
+            return
+        }
         await cancelLiveTranscriptionSession()
 
         if isUsableTranscript(streamText) {
-            completeStopTranscriptionSuccess(text: streamText, mode: "stream")
+            completeStopTranscriptionSuccess(text: streamText, mode: "stream", attemptID: attemptID)
+            return
+        }
+
+        if activeRecordingStrategy == .gptLiveTranscribe {
+            completeStopTranscriptionFailure(reason: "gptLiveFinalizeFailed", attemptID: attemptID)
             return
         }
 
         let fallbackReason = streamText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "emptyStream" : "tooShort"
         recordDiagnostic("transcription_fallback_bulk", metadata: ["reason": fallbackReason])
-        if let bulkText = await finishTranscriptionFromLastRecording(presentErrorOnFailure: false),
+        if let bulkText = await finishTranscriptionFromLastRecording(
+            attemptID: attemptID,
+            presentErrorOnFailure: false
+        ),
            isUsableTranscript(bulkText) {
-            completeStopTranscriptionSuccess(text: bulkText, mode: "bulk")
+            completeStopTranscriptionSuccess(text: bulkText, mode: "bulk", attemptID: attemptID)
             return
         }
 
-        completeStopTranscriptionFailure(reason: "allPathsFailed")
+        completeStopTranscriptionFailure(reason: "allPathsFailed", attemptID: attemptID)
     }
 
-    func finishBatchTranscription() async {
-        if let text = await finishTranscriptionFromLastRecording(presentErrorOnFailure: false),
+    func finishBatchTranscription(attemptID: UUID) async {
+        guard ownsTranscriptionAttempt(attemptID) else { return }
+        if let text = await finishTranscriptionFromLastRecording(
+            attemptID: attemptID,
+            presentErrorOnFailure: false
+        ),
            isUsableTranscript(text) {
-            completeStopTranscriptionSuccess(text: text, mode: "grok_batch")
+            completeStopTranscriptionSuccess(text: text, mode: "grok_batch", attemptID: attemptID)
         } else {
-            completeStopTranscriptionFailure(reason: "grokBatchFailed")
+            completeStopTranscriptionFailure(reason: "grokBatchFailed", attemptID: attemptID)
         }
     }
 
@@ -287,7 +451,8 @@ extension AppState {
         text.trimmingCharacters(in: .whitespacesAndNewlines).count > 3
     }
 
-    private func completeStopTranscriptionSuccess(text: String, mode: String) {
+    func completeStopTranscriptionSuccess(text: String, mode: String, attemptID: UUID) {
+        guard ownsTranscriptionAttempt(attemptID) else { return }
         recordErrorAlertKey = nil
         transcript = text
         openCodeSendStatus = .idle
@@ -299,15 +464,9 @@ extension AppState {
         recordingStatus = .ready
     }
 
-    private func completeStopTranscriptionFailure(reason: String) {
+    private func completeStopTranscriptionFailure(reason: String, attemptID: UUID) {
+        guard ownsTranscriptionAttempt(attemptID) else { return }
         recordDiagnostic("transcription_stop_failed", metadata: ["reason": reason])
-        if isUsableTranscript(transcript) {
-            transcriptHistory.add(transcript)
-            copyTranscript()
-            recordingStatus = .ready
-            setPersistentStreamCaption(StreamCaptionKey.streamDisconnected)
-            return
-        }
         presentRecordError("record.error.transcriptionFailed")
     }
 

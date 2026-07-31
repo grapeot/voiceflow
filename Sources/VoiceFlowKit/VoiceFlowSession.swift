@@ -35,12 +35,22 @@ public enum VoiceFlowEvent: Sendable, Equatable {
 public struct VoiceFlowPreservedAudio: Sendable, Equatable {
     public let id: UUID
     public let byteCount: Int
+    public let strategy: VoiceFlowRecordingStrategy
     let fileURL: URL
+    let model: String
 
-    init(fileURL: URL, byteCount: Int, id: UUID = UUID()) {
+    init(
+        fileURL: URL,
+        byteCount: Int,
+        strategy: VoiceFlowRecordingStrategy,
+        model: String,
+        id: UUID = UUID()
+    ) {
         self.id = id
         self.fileURL = fileURL
         self.byteCount = byteCount
+        self.strategy = strategy
+        self.model = model
     }
 }
 
@@ -53,10 +63,16 @@ public struct VoiceFlowPreservedAudio: Sendable, Equatable {
 /// `commitAndStop` returns the full transcript. The optional callback
 /// fires repeatedly as partial deltas arrive during finalize.
 public actor VoiceFlowSession {
+    public nonisolated let strategy: VoiceFlowRecordingStrategy
     private let underlying: any RealtimeLiveTranscriptionSession
     private let eventBridge: SessionEventBridge
 
-    init(underlying: any RealtimeLiveTranscriptionSession, eventBridge: SessionEventBridge) {
+    init(
+        strategy: VoiceFlowRecordingStrategy,
+        underlying: any RealtimeLiveTranscriptionSession,
+        eventBridge: SessionEventBridge
+    ) {
+        self.strategy = strategy
         self.underlying = underlying
         self.eventBridge = eventBridge
     }

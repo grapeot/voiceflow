@@ -74,16 +74,59 @@ enum RealtimeTranscriptionConfig: Sendable {
 }
 
 enum RealtimeTranscriptionSupport: Sendable {
+    public nonisolated static func timeoutSeconds(
+        strategy: VoiceFlowRecordingStrategy,
+        pcmByteCount: Int
+    ) -> TimeInterval {
+        guard strategy == .gptLiveTranscribe else { return 30 }
+        let audioSeconds = Double(pcmByteCount) / (RealtimeTranscriptionConfig.sampleRate * 2)
+        return max(60, audioSeconds + 60)
+    }
+
     public nonisolated static func isRecoverableBufferTooSmallError(_ message: String) -> Bool {
         message.localizedCaseInsensitiveContains("buffer too small")
     }
 
+    nonisolated static func isReadyToSendStop(
+        strategy: VoiceFlowRecordingStrategy,
+        receivedTranscriptCompleted: Bool,
+        receivedTurnCompleted: Bool
+    ) -> Bool {
+        guard receivedTranscriptCompleted else { return false }
+        return strategy != .gptLiveTranscribe || receivedTurnCompleted
+    }
+
     public nonisolated static func resolveFinalizeTranscript(partial: String, completed: String?) -> String {
-        let trimmedPartial = partial.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCompleted = completed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if trimmedPartial.isEmpty { return trimmedCompleted }
-        if trimmedCompleted.isEmpty { return partial }
-        return trimmedPartial.count >= trimmedCompleted.count ? partial : trimmedCompleted
+        return trimmedCompleted.isEmpty ? partial : completed ?? partial
+    }
+}
+
+struct RealtimeTerminalState: Sendable {
+    let strategy: VoiceFlowRecordingStrategy
+    private(set) var receivedTranscriptCompleted = false
+    private(set) var receivedTurnCompleted = false
+    private(set) var hasSentStop = false
+
+    mutating func observe(eventType: String) -> Bool {
+        if eventType == "transcript_completed" {
+            receivedTranscriptCompleted = true
+        } else if eventType == "turn_completed" {
+            receivedTurnCompleted = true
+        }
+        return !hasSentStop && RealtimeTranscriptionSupport.isReadyToSendStop(
+            strategy: strategy,
+            receivedTranscriptCompleted: receivedTranscriptCompleted,
+            receivedTurnCompleted: receivedTurnCompleted
+        )
+    }
+
+    mutating func markStopSent() {
+        hasSentStop = true
+    }
+
+    func acceptsSessionStopped() -> Bool {
+        hasSentStop
     }
 }
 
