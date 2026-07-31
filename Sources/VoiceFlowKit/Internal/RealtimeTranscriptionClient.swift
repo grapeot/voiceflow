@@ -413,7 +413,9 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)? = nil) async throws -> String {
         isFinalizing = true
-        finalizeText.reset()
+        if strategy != .gptLiveTranscribe {
+            finalizeText.reset()
+        }
         finalizePartialCallback = onPartialTranscript
         phase = .generating
         defer {
@@ -428,7 +430,9 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         for attempt in 0..<maxAttempts {
             let attemptID = UUID()
             finalizeAttemptID = attemptID
-            finalizeText.reset()
+            if strategy != .gptLiveTranscribe {
+                finalizeText.reset()
+            }
             await finalizeWaitCoordinator.prepare(attemptID: attemptID)
             try await ensureSessionReadyForFinalize()
             guard var activeSession = session else {
@@ -690,13 +694,21 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 await completeFinalize(with: .failure(RealtimeTranscriptionError.websocketError(message)))
             }
         case .textDelta(let content, let isNewResponse):
-            guard isFinalizing, !content.isEmpty else { return }
+            guard !content.isEmpty else { return }
+            guard isFinalizing || strategy == .gptLiveTranscribe else { return }
             if isNewResponse {
                 finalizeText.setCompleted(content)
             } else {
                 finalizeText.appendDelta(content)
             }
-            finalizePartialCallback?(finalizeText.resolvedText)
+            let snapshot = finalizeText.resolvedText
+            if isFinalizing {
+                finalizePartialCallback?(snapshot)
+            } else {
+                // GPT Live emits deltas while recording. Surface one accumulated
+                // snapshot so hosts never have to merge raw wire fragments.
+                onEvent(.textDelta(content: snapshot, isNewResponse: true))
+            }
         case .recoveryStarted, .recoveryFailed:
             break
         }

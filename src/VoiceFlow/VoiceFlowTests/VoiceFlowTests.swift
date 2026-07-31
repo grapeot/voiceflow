@@ -869,6 +869,27 @@ struct VoiceFlowTests {
         #expect(state.transcript == "authoritative final")
     }
 
+    @Test func gptLiveRecordingAcceptsAccumulatedTranscriptSnapshots() {
+        let state = AppState(clipboardWriter: MockClipboardWriter())
+        state.activeRecordingStrategy = .gptLiveTranscribe
+        state.recordingStatus = .recording
+
+        state.handleStreamEvent(.partialTranscript("The first "))
+        state.handleStreamEvent(.partialTranscript("The first sentence."))
+
+        #expect(state.transcript == "The first sentence.")
+    }
+
+    @Test func realtimeRecordingStillSuppressesTranscriptEvents() {
+        let state = AppState(clipboardWriter: MockClipboardWriter())
+        state.activeRecordingStrategy = .openAIRealtime
+        state.recordingStatus = .recording
+
+        state.handleStreamEvent(.partialTranscript("should remain hidden"))
+
+        #expect(state.transcript.isEmpty)
+    }
+
     @Test func allRecordingStrategiesRoundTripThroughUserDefaults() {
         resetTranscriptionStrategyDefault()
         defer { resetTranscriptionStrategyDefault() }

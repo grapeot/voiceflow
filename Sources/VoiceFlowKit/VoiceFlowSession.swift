@@ -61,7 +61,8 @@ public struct VoiceFlowPreservedAudio: Sendable, Equatable {
 /// cancelled or the disk cache write fails.
 ///
 /// `commitAndStop` returns the full transcript. The optional callback
-/// fires repeatedly as partial deltas arrive during finalize.
+/// fires repeatedly with accumulated snapshots during finalize. GPT Live
+/// also publishes accumulated recording-time snapshots through `events`.
 public actor VoiceFlowSession {
     public nonisolated let strategy: VoiceFlowRecordingStrategy
     private let underlying: any RealtimeLiveTranscriptionSession

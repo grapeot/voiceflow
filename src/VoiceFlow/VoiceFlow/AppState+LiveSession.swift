@@ -246,7 +246,13 @@ extension AppState {
     func handleStreamEvent(_ event: VoiceFlowEvent) {
         switch event {
         case .partialTranscript(let content):
-            guard recordingStatus != .recording else { return }
+            if recordingStatus == .recording {
+                guard activeRecordingStrategy == .gptLiveTranscribe else { return }
+                if !userEditedTranscriptDuringStream {
+                    applyStreamedTranscript(content)
+                }
+                return
+            }
             guard let attemptID = activeTranscriptionAttemptID,
                   acceptsPartialTranscript(for: attemptID) else { return }
             if !userEditedTranscriptDuringStream {

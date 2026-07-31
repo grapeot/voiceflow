@@ -20,6 +20,12 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-07-31 (GPT Live recording-time transcript snapshots)
+
+- GPT Live now retains `transcript_delta` frames received before Stop and publishes accumulated snapshots through `VoiceFlowSession.events`; hosts never receive raw fragments. Finalize preserves that accumulator, continues snapshots through its callback, and still replaces the result with the authoritative `transcript_completed` payload.
+- The reference app displays those snapshots while GPT Live is recording. GPT Realtime keeps its existing recording-time suppression, and stale post-attempt partials remain ownership-gated.
+- Added deterministic Kit and App regressions for recording deltas, Stop-boundary accumulation, authoritative completion, and unchanged GPT Realtime behavior. Verification: full Kit tests 35/35 and rebuilt iOS app tests 91/91 passed.
+
 ### 2026-07-31 (GPT Live finalize / audio / Resend race hardening)
 
 - **Initial connection ownership**: the live-session handle now owns an explicit initial-connection task and result. Finalize waits for a pending handshake and reuses that session instead of entering recovery and opening a concurrent second ticket. GPT Live never auto-recovers onto another ticket after initial, audio-send, heartbeat, disconnect, sync, or finalize failure; the app preserves the recording for explicit Resend. GPT Realtime retains cache-replay recovery.

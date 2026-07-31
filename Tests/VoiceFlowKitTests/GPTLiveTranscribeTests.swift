@@ -304,6 +304,46 @@ struct GPTLiveTranscribeTests {
         await handle.cancel()
     }
 
+    @Test func recordingDeltasRemainAccumulatedAcrossGPTLiveFinalize() async throws {
+        let cache = try AudioChunkCache()
+        let handleBox = TestHandleBox()
+        let publicEvents = LockedTranscriptCollector()
+        let finalizeSnapshots = LockedTranscriptCollector()
+        let initial = TestSessionTransport {
+            guard let handle = handleBox.handle else { return }
+            await handle.ingestServerEvent(.textDelta(content: " Final", isNewResponse: false))
+            await handle.ingestServerEvent(.textDelta(content: "Authoritative full transcript.", isNewResponse: true))
+            await handle.ingestServerEvent(.status(.idle))
+        }
+        let handle = RealtimeLiveSessionHandle(
+            cache: cache,
+            strategy: .gptLiveTranscribe,
+            model: "gpt-live-transcribe",
+            onEvent: { event in
+                if case .textDelta(let content, _) = event {
+                    publicEvents.append(content)
+                }
+            },
+            makeSession: { throw RealtimeTranscriptionError.sessionUnavailable }
+        )
+        handleBox.handle = handle
+        try await handle.attachInitialSession(initial)
+        await handle.appendAudioChunk(Data(repeating: 1, count: 9_600))
+
+        await handle.ingestServerEvent(.textDelta(content: "The first ", isNewResponse: false))
+        await handle.ingestServerEvent(.textDelta(content: "sentence.", isNewResponse: false))
+        let transcript = try await handle.finalize { snapshot in
+            finalizeSnapshots.append(snapshot)
+        }
+
+        #expect(publicEvents.snapshot == ["The first ", "The first sentence."])
+        #expect(finalizeSnapshots.snapshot == [
+            "The first sentence. Final",
+            "Authoritative full transcript."
+        ])
+        #expect(transcript == "Authoritative full transcript.")
+    }
+
     @Test func pendingInitialConnectionFinalizeWaitsWithoutCreatingSecondTicket() async throws {
         let cache = try AudioChunkCache()
         let blocker = AsyncTestBlocker()
@@ -433,6 +473,23 @@ private actor AsyncTestBlocker {
 
 private final class TestHandleBox: @unchecked Sendable {
     var handle: RealtimeLiveSessionHandle?
+}
+
+private final class LockedTranscriptCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    var snapshot: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
 }
 
 private actor TestSessionTransport: RealtimeSessionTransport {
