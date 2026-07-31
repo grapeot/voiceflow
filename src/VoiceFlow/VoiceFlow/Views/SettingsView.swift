@@ -294,12 +294,9 @@ struct SettingsView: View {
                     Button {
                         showStrategyHelp = true
                     } label: {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white)
-                            .frame(width: 22, height: 22)
-                            .background(DesignTokens.Palette.accent)
-                            .clipShape(Circle())
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(DesignTokens.Palette.accent)
                     }
                     .buttonStyle(.plain)
 
@@ -345,7 +342,7 @@ struct SettingsView: View {
             Text(localized("settings.transcription.strategy.dialog.title")),
             isPresented: $showStrategyHelp
         ) {
-            Button(Text(localized("ok")), role: .cancel) {}
+            Button(localized("ok"), role: .cancel) {}
         } message: {
             Text(localized("settings.transcription.strategy.dialog.body"))
         }
