@@ -4,8 +4,8 @@ import Testing
 
 @Suite("VoiceFlowKit module")
 struct VoiceFlowKitSanityTests {
-    @Test func moduleExposesVersion() {
-        #expect(!VoiceFlowKit.version.isEmpty)
+    @Test func moduleExposesReleaseVersion() {
+        #expect(VoiceFlowKit.version == "0.4.0")
     }
 
     @Test func connectionErrorsExplainHTTPStatus() {
