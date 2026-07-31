@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var tokenInput = ""
     @State private var isTokenVisible = false
     @State private var openCodePasswordInput = ""
+    @State private var showStrategyHelp = false
 
     var body: some View {
         NavigationStack {
@@ -289,10 +290,21 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("settings.transcriptionStrategyPicker")
 
-                Text(localized("settings.transcription.description"))
-                    .font(DesignTokens.Typography.captionSub)
-                    .foregroundStyle(DesignTokens.Palette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: DesignTokens.Spacing.xs) {
+                    Button {
+                        showStrategyHelp = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 16))
+                            .foregroundStyle(DesignTokens.Palette.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(localized("settings.transcription.strategy.help"))
+                        .font(DesignTokens.Typography.captionSub)
+                        .foregroundStyle(DesignTokens.Palette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if appState.transcriptionStrategy == .openAIRealtime {
                     inputField(
@@ -322,9 +334,15 @@ struct SettingsView: View {
                 .textCase(nil)
         }
         .listRowBackground(DesignTokens.Palette.bgSecondary)
+        .alert(
+            Text(localized("settings.transcription.strategy.dialog.title")),
+            isPresented: $showStrategyHelp
+        ) {
+            Button(Text(localized("ok")), role: .cancel) {}
+        } message: {
+            Text(localized("settings.transcription.strategy.dialog.body"))
+        }
     }
-
-    /// Visual cue for "this is an input": a filled rounded surface in
     /// `bg.primary` floating on the section's `bg.secondary`. Same
     /// shape works for single-line and multi-line — multiline just
     /// gets `axis: .vertical` and grows.
