@@ -68,10 +68,18 @@ final class AudioChunkCache: @unchecked Sendable {
         }
     }
 
-    nonisolated func preservedAudio() -> VoiceFlowPreservedAudio? {
+    nonisolated func preservedAudio(
+        strategy: VoiceFlowRecordingStrategy,
+        model: String
+    ) -> VoiceFlowPreservedAudio? {
         queue.sync {
             guard byteCountValue > 0 else { return nil }
-            return VoiceFlowPreservedAudio(fileURL: fileURL, byteCount: byteCountValue)
+            return VoiceFlowPreservedAudio(
+                fileURL: fileURL,
+                byteCount: byteCountValue,
+                strategy: strategy,
+                model: model
+            )
         }
     }
 }

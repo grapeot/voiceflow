@@ -307,10 +307,10 @@ struct SettingsView: View {
                             .tag(strategy)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .accessibilityIdentifier("settings.transcriptionStrategyPicker")
 
-                if appState.transcriptionStrategy == .openAIRealtime {
+                if appState.transcriptionStrategy.usesRealtimeTransport {
                     inputField(
                         label: "settings.transcription.prompt",
                         placeholder: "settings.transcription.prompt.placeholder",
@@ -449,6 +449,7 @@ private extension VoiceFlowRecordingStrategy {
     var localizedTitleKey: String {
         switch self {
         case .openAIRealtime: "settings.transcription.strategy.openAIRealtime"
+        case .gptLiveTranscribe: "settings.transcription.strategy.gptLiveTranscribe"
         case .grokBatch: "settings.transcription.strategy.grokBatch"
         }
     }

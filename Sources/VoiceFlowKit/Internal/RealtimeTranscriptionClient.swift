@@ -16,15 +16,6 @@ private nonisolated struct FinalizeTranscriptAccumulator: Sendable {
         completedText = nil
     }
 
-    func preserveForRetry() -> String {
-        resolvedText
-    }
-
-    mutating func restoreAfterRetry(_ text: String) {
-        partialText = text
-        completedText = nil
-    }
-
     mutating func appendDelta(_ content: String) {
         partialText += content
     }
@@ -59,6 +50,7 @@ protocol RealtimeTranscribing: Sendable {
         baseURL: String,
         token: String,
         model: String,
+        strategy: VoiceFlowRecordingStrategy,
         context: RealtimeSessionContext,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession
@@ -68,6 +60,7 @@ protocol RealtimeTranscribing: Sendable {
         baseURL: String,
         token: String,
         model: String,
+        strategy: VoiceFlowRecordingStrategy,
         context: RealtimeSessionContext,
         onPartialTranscript: (@Sendable (String) -> Void)?
     ) async throws -> String
@@ -82,25 +75,127 @@ protocol RealtimeLiveTranscriptionSession: Sendable {
     var connectionPhase: RealtimeConnectionPhase { get async }
 }
 
-actor RealtimeTranscriptionSession {
+protocol RealtimeSessionTransport: Sendable {
+    func sendAudioChunk(_ chunk: Data) async throws
+    func sendCommit() async throws
+    func ping() async throws
+    func close() async
+    var pendingCommitAudioBytes: Int { get async }
+}
+
+actor FinalizeWaitCoordinator {
+    private var attemptID: UUID?
+    private var waiter: CheckedContinuation<Void, Error>?
+    private var pendingResult: Result<Void, Error>?
+    private var timeoutTask: Task<Void, Never>?
+    private var operationTask: Task<Void, Never>?
+
+    func prepare(attemptID: UUID) {
+        timeoutTask?.cancel()
+        operationTask?.cancel()
+        if let waiter {
+            waiter.resume(throwing: CancellationError())
+        }
+        self.attemptID = attemptID
+        waiter = nil
+        pendingResult = nil
+        timeoutTask = nil
+        operationTask = nil
+    }
+
+    func wait(
+        attemptID: UUID,
+        timeoutSeconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        defer { finish(attemptID: attemptID) }
+        try Task.checkCancellation()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                guard self.attemptID == attemptID else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if let pendingResult {
+                    self.pendingResult = nil
+                    continuation.resume(with: pendingResult)
+                    return
+                }
+
+                waiter = continuation
+                timeoutTask = Task { [weak self] in
+                    do {
+                        try await Task.sleep(for: .seconds(timeoutSeconds))
+                    } catch {
+                        return
+                    }
+                    await self?.resolve(
+                        .failure(RealtimeTranscriptionError.connectionLost(
+                            "Timed out waiting for transcription to finish"
+                        )),
+                        attemptID: attemptID
+                    )
+                }
+                operationTask = Task { [weak self] in
+                    do {
+                        try await operation()
+                    } catch {
+                        await self?.resolve(.failure(error), attemptID: attemptID)
+                    }
+                }
+            }
+        } onCancel: {
+            Task { [weak self] in
+                await self?.resolve(.failure(CancellationError()), attemptID: attemptID)
+            }
+        }
+    }
+
+    func resolve(_ result: Result<Void, Error>, attemptID: UUID) {
+        guard self.attemptID == attemptID else { return }
+        timeoutTask?.cancel()
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(with: result)
+        } else if case nil = pendingResult {
+            pendingResult = result
+        }
+    }
+
+    private func finish(attemptID: UUID) {
+        guard self.attemptID == attemptID else { return }
+        timeoutTask?.cancel()
+        operationTask?.cancel()
+        self.attemptID = nil
+        waiter = nil
+        pendingResult = nil
+        timeoutTask = nil
+        operationTask = nil
+    }
+}
+
+actor RealtimeTranscriptionSession: RealtimeSessionTransport {
     private let webSocketTask: URLSessionWebSocketTask
     private let urlSession: URLSession
     private let sender: RealtimeWebSocketSender
-    private let onEvent: @Sendable (RealtimeTranscriptEvent) -> Void
+    private let onEvent: @Sendable (RealtimeTranscriptEvent) async -> Void
     private var receiveTask: Task<Void, Never>?
     private var isClosed = false
     private var hasSentCommit = false
-    private var shouldSendStopAfterTranscriptCompleted = false
+    private var shouldSendStopAfterCompletion = false
+    private var terminalState: RealtimeTerminalState
     private var enqueuedAudioBytes = 0
 
     init(
         webSocketTask: URLSessionWebSocketTask,
         urlSession: URLSession,
-        onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
+        strategy: VoiceFlowRecordingStrategy,
+        onEvent: @escaping @Sendable (RealtimeTranscriptEvent) async -> Void
     ) {
         self.webSocketTask = webSocketTask
         self.urlSession = urlSession
         self.sender = RealtimeWebSocketSender(task: webSocketTask)
+        self.terminalState = RealtimeTerminalState(strategy: strategy)
         self.onEvent = onEvent
     }
 
@@ -133,13 +228,14 @@ actor RealtimeTranscriptionSession {
         }
         hasSentCommit = true
         try await sender.flush()
-        shouldSendStopAfterTranscriptCompleted = true
+        shouldSendStopAfterCompletion = true
         try await sender.send(.string(RealtimeTranscriptionConfig.commitMessage))
     }
 
     func sendStop() async throws {
         guard !isClosed else { return }
         try await sender.send(.string(RealtimeTranscriptionConfig.stopMessage))
+        terminalState.markStopSent()
     }
 
     func sendCommitAndStop() async throws {
@@ -161,14 +257,14 @@ actor RealtimeTranscriptionSession {
         }
     }
 
-    func close() {
+    func close() async {
         guard !isClosed else { return }
         isClosed = true
         receiveTask?.cancel()
         receiveTask = nil
         webSocketTask.cancel(with: .goingAway, reason: nil)
         urlSession.invalidateAndCancel()
-        onEvent(.disconnected)
+        await onEvent(.disconnected)
     }
 
     private func receiveLoop() async {
@@ -176,16 +272,24 @@ actor RealtimeTranscriptionSession {
             do {
                 let message = try await webSocketTask.receive()
                 let socketEvent = try RealtimeMessageParser.parseSocketMessage(message)
-                if socketEvent.type == "transcript_completed", shouldSendStopAfterTranscriptCompleted {
-                    shouldSendStopAfterTranscriptCompleted = false
-                    try? await sender.send(.string(RealtimeTranscriptionConfig.stopMessage))
+                let isReadyToSendStop = terminalState.observe(eventType: socketEvent.type)
+                if socketEvent.type == "session_stopped", !terminalState.acceptsSessionStopped() {
+                    await onEvent(.error(message: "Received session_stopped before client stop"))
+                } else if let event = RealtimeMessageParser.parseSocketEvent(socketEvent) {
+                    await onEvent(event)
                 }
-                if let event = RealtimeMessageParser.parseSocketEvent(socketEvent) {
-                    onEvent(event)
+                if shouldSendStopAfterCompletion, isReadyToSendStop {
+                    shouldSendStopAfterCompletion = false
+                    do {
+                        try await sender.send(.string(RealtimeTranscriptionConfig.stopMessage))
+                        terminalState.markStopSent()
+                    } catch {
+                        await onEvent(.error(message: String(describing: error)))
+                    }
                 }
             } catch {
                 if !Task.isCancelled, !isClosed {
-                    onEvent(.disconnected)
+                    await onEvent(.disconnected)
                 }
                 break
             }
@@ -194,25 +298,40 @@ actor RealtimeTranscriptionSession {
 }
 
 actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
+    private enum InitialConnectionState {
+        case notStarted
+        case connecting(id: UUID, task: Task<Void, Never>)
+        case completed(Result<Void, Error>)
+    }
+
     private let cache: AudioChunkCache
-    private let makeSession: @Sendable () async throws -> RealtimeTranscriptionSession
+    private let strategy: VoiceFlowRecordingStrategy
+    private let model: String
+    private let makeSession: @Sendable () async throws -> any RealtimeSessionTransport
     private let onEvent: @Sendable (RealtimeTranscriptEvent) -> Void
-    private var session: RealtimeTranscriptionSession?
+    private let finalizeWaitCoordinator = FinalizeWaitCoordinator()
+    private var session: (any RealtimeSessionTransport)?
+    private var initialConnectionState: InitialConnectionState = .notStarted
     private var isRecovering = false
     private var phase: RealtimeConnectionPhase = .connecting
     private var isFinalizing = false
-    private var finalizeContinuation: CheckedContinuation<Void, Error>?
+    private var finalizeAttemptID: UUID?
     private var finalizeText = FinalizeTranscriptAccumulator()
     private var finalizePartialCallback: (@Sendable (String) -> Void)?
     private var hasPreservedAudio = false
     private var isTerminated = false
+    private var isClosingFailedSession = false
 
     init(
         cache: AudioChunkCache,
+        strategy: VoiceFlowRecordingStrategy,
+        model: String,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void,
-        makeSession: @escaping @Sendable () async throws -> RealtimeTranscriptionSession
+        makeSession: @escaping @Sendable () async throws -> any RealtimeSessionTransport
     ) {
         self.cache = cache
+        self.strategy = strategy
+        self.model = model
         self.onEvent = onEvent
         self.makeSession = makeSession
     }
@@ -221,26 +340,46 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         phase
     }
 
-    func attachInitialSession(_ newSession: RealtimeTranscriptionSession) async throws {
+    func startInitialConnection() {
+        guard case .notStarted = initialConnectionState else { return }
+        let connectionID = UUID()
+        let makeSession = self.makeSession
+        let task = Task { [weak self] in
+            do {
+                let initialSession = try await makeSession()
+                guard let self else {
+                    await initialSession.close()
+                    return
+                }
+                await self.completeInitialConnection(initialSession, connectionID: connectionID)
+            } catch {
+                await self?.failInitialConnection(error, connectionID: connectionID)
+            }
+        }
+        initialConnectionState = .connecting(id: connectionID, task: task)
+    }
+
+    func attachInitialSession(_ newSession: any RealtimeSessionTransport) async throws {
         guard !isTerminated else {
             await newSession.close()
             return
         }
-        guard session == nil, !isRecovering else {
+        guard session == nil, !isRecovering,
+              case .notStarted = initialConnectionState else {
             await newSession.close()
             return
         }
-        isRecovering = true
-        phase = .recovering
-        defer {
-            isRecovering = false
-            if case .recovering = phase {
-                phase = .connected
-            }
+        do {
+            try await replayCache(to: newSession)
+            session = newSession
+            initialConnectionState = .completed(.success(()))
+            phase = .connected
+        } catch {
+            await newSession.close()
+            initialConnectionState = .completed(.failure(error))
+            phase = .disconnected
+            throw error
         }
-        try await replayCache(to: newSession)
-        session = newSession
-        phase = .connected
     }
 
     func appendAudioChunk(_ chunk: Data) async {
@@ -250,7 +389,11 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             guard !isRecovering, let session else { return }
             try await session.sendAudioChunk(chunk)
         } catch {
-            await recover(reason: error)
+            if strategy == .gptLiveTranscribe {
+                await failTransportWithoutRecovery(reason: error)
+            } else {
+                await recover(reason: error)
+            }
         }
     }
 
@@ -260,25 +403,37 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         do {
             try await session.ping()
         } catch {
-            await recover(reason: error)
+            if strategy == .gptLiveTranscribe {
+                await failTransportWithoutRecovery(reason: error)
+            } else {
+                await recover(reason: error)
+            }
         }
     }
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)? = nil) async throws -> String {
         isFinalizing = true
-        finalizeText.reset()
+        if strategy != .gptLiveTranscribe {
+            finalizeText.reset()
+        }
         finalizePartialCallback = onPartialTranscript
         phase = .generating
         defer {
             isFinalizing = false
-            finalizeContinuation = nil
+            finalizeAttemptID = nil
             finalizePartialCallback = nil
         }
 
-        let maxAttempts = 2
+        let maxAttempts = strategy == .gptLiveTranscribe ? 1 : 2
         var lastError: Error = RealtimeTranscriptionError.emptyTranscript
 
         for attempt in 0..<maxAttempts {
+            let attemptID = UUID()
+            finalizeAttemptID = attemptID
+            if strategy != .gptLiveTranscribe {
+                finalizeText.reset()
+            }
+            await finalizeWaitCoordinator.prepare(attemptID: attemptID)
             try await ensureSessionReadyForFinalize()
             guard var activeSession = session else {
                 throw RealtimeTranscriptionError.sessionUnavailable
@@ -286,7 +441,9 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
             if cache.byteCount >= RealtimeTranscriptionConfig.minCommitAudioBytes,
                await activeSession.pendingCommitAudioBytes < RealtimeTranscriptionConfig.minCommitAudioBytes {
-                await recover(reason: RealtimeTranscriptionError.connectionLost("Audio not fully synced before finalize"))
+                let syncError = RealtimeTranscriptionError.connectionLost("Audio not fully synced before finalize")
+                guard strategy != .gptLiveTranscribe else { throw syncError }
+                await recover(reason: syncError)
                 try await ensureSessionReadyForFinalize()
                 guard let recoveredSession = session else {
                     throw RealtimeTranscriptionError.sessionUnavailable
@@ -294,9 +451,10 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 activeSession = recoveredSession
             }
 
+            let commitSession = activeSession
             do {
-                try await waitForFinalizeResult {
-                    try await activeSession.sendCommit()
+                try await waitForFinalizeResult(attemptID: attemptID) {
+                    try await commitSession.sendCommit()
                 }
                 let resolved = finalizeText.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !resolved.isEmpty {
@@ -310,11 +468,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
             }
 
             if attempt < maxAttempts - 1 {
-                let preserved = finalizeText.preserveForRetry()
                 await recover(reason: lastError)
-                if !preserved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    finalizeText.restoreAfterRetry(preserved)
-                }
             }
         }
 
@@ -322,11 +476,19 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     }
 
     private func ensureSessionReadyForFinalize() async throws {
+        do {
+            try await awaitInitialConnection()
+        } catch {
+            guard strategy != .gptLiveTranscribe else { throw error }
+            await recover(reason: error)
+        }
         while isRecovering {
             try await Task.sleep(for: .milliseconds(100))
         }
         if session == nil {
-            await recover(reason: RealtimeTranscriptionError.connectionLost("Session unavailable before finalize"))
+            let unavailableError = RealtimeTranscriptionError.connectionLost("Session unavailable before finalize")
+            guard strategy != .gptLiveTranscribe else { throw unavailableError }
+            await recover(reason: unavailableError)
         }
         while isRecovering {
             try await Task.sleep(for: .milliseconds(100))
@@ -336,29 +498,84 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         }
     }
 
-    private func waitForFinalizeResult(sendCommit: () async throws -> Void) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await self.waitForFinalizeSignal()
+    private func awaitInitialConnection() async throws {
+        while true {
+            switch initialConnectionState {
+            case .notStarted:
+                startInitialConnection()
+            case .connecting(_, let task):
+                await task.value
+                try Task.checkCancellation()
+            case .completed(.success):
+                return
+            case .completed(.failure(let error)):
+                throw error
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(30))
-                throw RealtimeTranscriptionError.connectionLost("Timed out waiting for transcription to finish")
-            }
-            try await sendCommit()
-            try await group.next()
-            group.cancelAll()
         }
     }
 
-    private func waitForFinalizeSignal() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            finalizeContinuation = continuation
+    private func completeInitialConnection(
+        _ newSession: any RealtimeSessionTransport,
+        connectionID: UUID
+    ) async {
+        guard !isTerminated,
+              case .connecting(let activeID, _) = initialConnectionState,
+              activeID == connectionID else {
+            await newSession.close()
+            return
+        }
+
+        do {
+            try await replayCache(to: newSession)
+            guard !isTerminated,
+                  case .connecting(let activeID, _) = initialConnectionState,
+                  activeID == connectionID else {
+                await newSession.close()
+                return
+            }
+            session = newSession
+            initialConnectionState = .completed(.success(()))
+            phase = .connected
+        } catch {
+            await newSession.close()
+            failInitialConnection(error, connectionID: connectionID)
         }
     }
 
-    func ingestServerEvent(_ event: RealtimeTranscriptEvent) {
-        handleServerEvent(event)
+    private func failInitialConnection(_ error: Error, connectionID: UUID) {
+        guard case .connecting(let activeID, _) = initialConnectionState,
+              activeID == connectionID else { return }
+        initialConnectionState = .completed(.failure(error))
+        phase = .disconnected
+        if !isTerminated {
+            onEvent(.recoveryFailed(message: String(describing: error)))
+        }
+    }
+
+    private func cancelInitialConnection() {
+        if case .connecting(_, let task) = initialConnectionState {
+            task.cancel()
+        }
+        initialConnectionState = .completed(.failure(CancellationError()))
+    }
+
+    private func waitForFinalizeResult(
+        attemptID: UUID,
+        sendCommit: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let timeoutSeconds = RealtimeTranscriptionSupport.timeoutSeconds(
+            strategy: strategy,
+            pcmByteCount: cache.byteCount
+        )
+        try await finalizeWaitCoordinator.wait(
+            attemptID: attemptID,
+            timeoutSeconds: timeoutSeconds,
+            operation: sendCommit
+        )
+    }
+
+    func ingestServerEvent(_ event: RealtimeTranscriptEvent) async {
+        await handleServerEvent(event)
     }
 
     func shouldNotifyUI(for event: RealtimeTranscriptEvent) -> Bool {
@@ -382,19 +599,14 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         }
     }
 
-    private func completeFinalize(with result: Result<Void, Error>) {
-        guard let continuation = finalizeContinuation else { return }
-        finalizeContinuation = nil
-        switch result {
-        case .success:
-            continuation.resume()
-        case .failure(let error):
-            continuation.resume(throwing: error)
-        }
+    private func completeFinalize(with result: Result<Void, Error>) async {
+        guard let finalizeAttemptID else { return }
+        await finalizeWaitCoordinator.resolve(result, attemptID: finalizeAttemptID)
     }
 
     func cancel() async {
         isTerminated = true
+        cancelInitialConnection()
         if let session {
             await session.close()
         }
@@ -407,6 +619,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
     func abortPreservingAudio() async throws -> VoiceFlowPreservedAudio? {
         isTerminated = true
+        cancelInitialConnection()
         if let session {
             await session.close()
         }
@@ -414,9 +627,9 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         isRecovering = false
         phase = .disconnected
         if isFinalizing {
-            completeFinalize(with: .failure(RealtimeTranscriptionError.connectionLost("Session aborted")))
+            await completeFinalize(with: .failure(RealtimeTranscriptionError.connectionLost("Session aborted")))
         }
-        guard let preserved = cache.preservedAudio() else {
+        guard let preserved = cache.preservedAudio(strategy: strategy, model: model) else {
             cache.remove()
             return nil
         }
@@ -426,6 +639,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
 
     private func terminate(removeCache: Bool) async {
         isTerminated = true
+        cancelInitialConnection()
         if let session {
             await session.close()
         }
@@ -437,7 +651,7 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         }
     }
 
-    func handleServerEvent(_ event: RealtimeTranscriptEvent) {
+    func handleServerEvent(_ event: RealtimeTranscriptEvent) async {
         switch event {
         case .status(let status):
             switch status {
@@ -452,16 +666,23 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 if isFinalizing {
                     let trimmed = finalizeText.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty {
-                        completeFinalize(with: .failure(RealtimeTranscriptionError.emptyTranscript))
+                        await completeFinalize(with: .failure(RealtimeTranscriptionError.emptyTranscript))
                     } else {
-                        completeFinalize(with: .success(()))
+                        await completeFinalize(with: .success(()))
                     }
                 }
             }
         case .disconnected:
+            if isClosingFailedSession {
+                return
+            }
             phase = .disconnected
             if isFinalizing {
-                completeFinalize(with: .failure(RealtimeTranscriptionError.connectionLost("WebSocket disconnected")))
+                await completeFinalize(with: .failure(RealtimeTranscriptionError.connectionLost("WebSocket disconnected")))
+            } else if strategy == .gptLiveTranscribe {
+                await failTransportWithoutRecovery(
+                    reason: RealtimeTranscriptionError.connectionLost("WebSocket disconnected")
+                )
             } else {
                 Task { await self.recover(reason: RealtimeTranscriptionError.connectionLost("WebSocket disconnected")) }
             }
@@ -470,16 +691,24 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
                 break
             }
             if isFinalizing {
-                completeFinalize(with: .failure(RealtimeTranscriptionError.websocketError(message)))
+                await completeFinalize(with: .failure(RealtimeTranscriptionError.websocketError(message)))
             }
         case .textDelta(let content, let isNewResponse):
-            guard isFinalizing, !content.isEmpty else { return }
+            guard !content.isEmpty else { return }
+            guard isFinalizing || strategy == .gptLiveTranscribe else { return }
             if isNewResponse {
                 finalizeText.setCompleted(content)
             } else {
                 finalizeText.appendDelta(content)
             }
-            finalizePartialCallback?(finalizeText.resolvedText)
+            let snapshot = finalizeText.resolvedText
+            if isFinalizing {
+                finalizePartialCallback?(snapshot)
+            } else {
+                // GPT Live emits deltas while recording. Surface one accumulated
+                // snapshot so hosts never have to merge raw wire fragments.
+                onEvent(.textDelta(content: snapshot, isNewResponse: true))
+            }
         case .recoveryStarted, .recoveryFailed:
             break
         }
@@ -488,6 +717,13 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
     private func recover(reason: Error) async {
         guard !isTerminated else { return }
         guard !hasPreservedAudio else { return }
+        guard strategy != .gptLiveTranscribe else {
+            await failTransportWithoutRecovery(reason: reason)
+            return
+        }
+        if case .connecting(_, let task) = initialConnectionState {
+            await task.value
+        }
         guard !isRecovering else { return }
         isRecovering = true
         phase = .recovering
@@ -520,7 +756,19 @@ actor RealtimeLiveSessionHandle: RealtimeLiveTranscriptionSession {
         onEvent(.recoveryFailed(message: String(describing: lastError)))
     }
 
-    private func replayCache(to targetSession: RealtimeTranscriptionSession) async throws {
+    private func failTransportWithoutRecovery(reason: Error) async {
+        guard !isTerminated else { return }
+        let failedSession = session
+        session = nil
+        phase = .disconnected
+        onEvent(.recoveryFailed(message: String(describing: reason)))
+        guard let failedSession else { return }
+        isClosingFailedSession = true
+        await failedSession.close()
+        isClosingFailedSession = false
+    }
+
+    private func replayCache(to targetSession: any RealtimeSessionTransport) async throws {
         var offset = 0
         while true {
             let chunk = try cache.readChunk(offset: offset, maxBytes: RealtimeTranscriptionConfig.replayChunkSize)
@@ -542,6 +790,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String = RealtimeTranscriptionConfig.defaultModel,
+        strategy: VoiceFlowRecordingStrategy = .openAIRealtime,
         context: RealtimeSessionContext = .empty,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession {
@@ -552,39 +801,28 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
 
         let cache = try AudioChunkCache()
         let handleBox = LiveSessionHandleBox()
-        let handle = RealtimeLiveSessionHandle(cache: cache, onEvent: onEvent) {
+        let handle = RealtimeLiveSessionHandle(
+            cache: cache,
+            strategy: strategy,
+            model: model,
+            onEvent: onEvent
+        ) {
             try await Self.makeSession(
                 baseURL: baseURL,
                 token: trimmedToken,
                 model: model,
+                strategy: strategy,
                 vad: false,
                 context: context,
                 onEvent: { event in
                     guard let boundHandle = handleBox.handle else { return }
-                    Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
+                    await Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
                 }
             )
         }
         handleBox.handle = handle
 
-        Task {
-            do {
-                let initialSession = try await Self.makeSession(
-                    baseURL: baseURL,
-                    token: trimmedToken,
-                    model: model,
-                    vad: false,
-                    context: context,
-                    onEvent: { event in
-                        guard let boundHandle = handleBox.handle else { return }
-                        Self.deliverLiveSessionEvent(event, handle: boundHandle, onEvent: onEvent)
-                    }
-                )
-                try await handle.attachInitialSession(initialSession)
-            } catch {
-                onEvent(.recoveryFailed(message: String(describing: error)))
-            }
-        }
+        await handle.startInitialConnection()
 
         return handle
     }
@@ -594,6 +832,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String = RealtimeTranscriptionConfig.defaultModel,
+        strategy: VoiceFlowRecordingStrategy = .openAIRealtime,
         context: RealtimeSessionContext = .empty,
         onPartialTranscript: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
@@ -607,12 +846,11 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             baseURL: baseURL,
             token: token,
             model: model,
+            strategy: strategy,
             vad: false,
             context: context,
             onEvent: { event in
-                Task {
-                    await progress.handle(event, onPartialTranscript: onPartialTranscript)
-                }
+                await progress.handle(event, onPartialTranscript: onPartialTranscript)
             }
         )
 
@@ -625,32 +863,27 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
 
         try await session.sendCommitAndStop()
 
-        let deadline = Date().addingTimeInterval(30)
+        let deadline = Date().addingTimeInterval(
+            RealtimeTranscriptionSupport.timeoutSeconds(
+                strategy: strategy,
+                pcmByteCount: pcmData.count
+            )
+        )
         while !(await progress.isFinished), Date() < deadline {
             try await Task.sleep(for: .milliseconds(100))
         }
 
-        if let receivedError = await progress.receivedError {
-            throw RealtimeTranscriptionError.websocketError(receivedError)
-        }
-
-        let trimmed = (await progress.transcript).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw RealtimeTranscriptionError.emptyTranscript
-        }
-        return trimmed
+        return try await progress.resolvedTranscript()
     }
 
-    nonisolated private static func deliverLiveSessionEvent(
+    private static func deliverLiveSessionEvent(
         _ event: RealtimeTranscriptEvent,
         handle: RealtimeLiveSessionHandle,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
-    ) {
-        Task {
-            await handle.ingestServerEvent(event)
-            if await handle.shouldNotifyUI(for: event) {
-                onEvent(event)
-            }
+    ) async {
+        await handle.ingestServerEvent(event)
+        if await handle.shouldNotifyUI(for: event) {
+            onEvent(event)
         }
     }
 
@@ -658,9 +891,10 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String,
+        strategy: VoiceFlowRecordingStrategy,
         vad: Bool = false,
         context: RealtimeSessionContext = .empty,
-        onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
+        onEvent: @escaping @Sendable (RealtimeTranscriptEvent) async -> Void
     ) async throws -> RealtimeTranscriptionSession {
         let normalizedBase = try RealtimeAPIURLBuilder.normalizedBaseURL(from: baseURL)
         let sessionResponse = try await createRealtimeSession(
@@ -685,11 +919,12 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             urlSession.invalidateAndCancel()
             throw RealtimeTranscriptionError.websocketError("Expected session_ready, got \(readyEvent.type)")
         }
-        onEvent(.status(.connected))
+        await onEvent(.status(.connected))
 
         let session = RealtimeTranscriptionSession(
             webSocketTask: webSocketTask,
             urlSession: urlSession,
+            strategy: strategy,
             onEvent: onEvent
         )
         await session.startReceiving()
@@ -711,18 +946,7 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             throw RealtimeTranscriptionError.invalidBaseURL
         }
 
-        var payload: [String: Any] = [
-            "model": model,
-            "vad": vad,
-            "silence_duration_ms": 1200
-        ]
-        if let prompt = context.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !prompt.isEmpty {
-            payload["prompt"] = prompt
-        }
-        if !context.terms.isEmpty {
-            payload["terms"] = context.terms
-        }
+        let payload = sessionCreatePayload(model: model, vad: vad, context: context)
 
         // Summary log: which optional context fields actually went on
         // the wire. Body itself is intentionally not dumped — once we
@@ -746,6 +970,27 @@ struct RealtimeTranscriptionClient: RealtimeTranscribing {
             throw RealtimeTranscriptionError.httpError(statusCode: http.statusCode)
         }
         return try JSONDecoder().decode(RealtimeSessionCreateResponse.self, from: data)
+    }
+
+    nonisolated static func sessionCreatePayload(
+        model: String,
+        vad: Bool,
+        context: RealtimeSessionContext
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "model": model,
+            "vad": vad,
+            "silence_duration_ms": 1200
+        ]
+        if let prompt = context.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !prompt.isEmpty {
+            payload["prompt"] = prompt
+        }
+        if !context.terms.isEmpty {
+            payload["terms"] = context.terms
+        }
+
+        return payload
     }
 
     private static func receiveSocketEvent(task: URLSessionWebSocketTask) async throws -> RealtimeSocketEvent {
@@ -814,6 +1059,20 @@ actor BulkTranscriptionProgress {
     var receivedError: String? {
         receivedErrorValue
     }
+
+    func resolvedTranscript() throws -> String {
+        if let receivedErrorValue {
+            throw RealtimeTranscriptionError.websocketError(receivedErrorValue)
+        }
+        guard finishedValue else {
+            throw RealtimeTranscriptionError.connectionLost("Timed out waiting for transcription to finish")
+        }
+        let trimmed = transcriptValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw RealtimeTranscriptionError.emptyTranscript
+        }
+        return trimmed
+    }
 }
 
 final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
@@ -823,6 +1082,10 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
     private var appendedPCM = Data()
     private var didFinalizeValue = false
     private var didCancelValue = false
+    private var appendedByteCountAtFinalizeValue = 0
+    private var bulkCallCountValue = 0
+    private var liveFinalizeDelayMilliseconds: UInt64 = 0
+    private var bulkDelayMilliseconds: UInt64 = 0
     private var liveEventHandler: (@Sendable (RealtimeTranscriptEvent) -> Void)?
     private var liveOnEvent: (@Sendable (RealtimeTranscriptEvent) -> Void)?
     private var livePhase: RealtimeConnectionPhase = .connected
@@ -840,11 +1103,16 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
     /// that prompt/terms made it through the wiring layer.
     public private(set) var lastLiveContext: RealtimeSessionContext = .empty
     public private(set) var lastBulkContext: RealtimeSessionContext = .empty
+    public private(set) var lastLiveModel = ""
+    public private(set) var lastBulkModel = ""
+    public private(set) var lastLiveStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
+    public private(set) var lastBulkStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
 
     public func beginLiveSession(
         baseURL: String,
         token: String,
         model: String,
+        strategy: VoiceFlowRecordingStrategy = .openAIRealtime,
         context: RealtimeSessionContext,
         onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void
     ) async throws -> RealtimeLiveTranscriptionSession {
@@ -853,6 +1121,8 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         livePhase = .connected
         liveIsFinalizing = false
         lastLiveContext = context
+        lastLiveModel = model
+        lastLiveStrategy = strategy
         onEvent(.status(.connected))
         return MockLiveSessionProxy(client: self)
     }
@@ -892,10 +1162,17 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         baseURL: String,
         token: String,
         model: String,
+        strategy: VoiceFlowRecordingStrategy = .openAIRealtime,
         context: RealtimeSessionContext,
         onPartialTranscript: (@Sendable (String) -> Void)?
     ) async throws -> String {
+        bulkCallCountValue += 1
         lastBulkContext = context
+        lastBulkModel = model
+        lastBulkStrategy = strategy
+        if bulkDelayMilliseconds > 0 {
+            try await Task.sleep(for: .milliseconds(bulkDelayMilliseconds))
+        }
         let text = try bulkResult.get()
         onPartialTranscript?(text)
         onPartialTranscript?(text)
@@ -911,11 +1188,35 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         guard !appendedPCM.isEmpty else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-stub-preserved-\(UUID().uuidString).pcm")
         try appendedPCM.write(to: url)
-        return VoiceFlowPreservedAudio(fileURL: url, byteCount: appendedPCM.count)
+        return VoiceFlowPreservedAudio(
+            fileURL: url,
+            byteCount: appendedPCM.count,
+            strategy: lastLiveStrategy,
+            model: lastLiveModel
+        )
     }
 
     public func markCancelled() {
         didCancelValue = true
+    }
+
+    public func markFinalized() {
+        didFinalizeValue = true
+        appendedByteCountAtFinalizeValue = appendedPCM.count
+    }
+
+    public func waitForLiveFinalizeDelay() async throws {
+        if liveFinalizeDelayMilliseconds > 0 {
+            try await Task.sleep(for: .milliseconds(liveFinalizeDelayMilliseconds))
+        }
+    }
+
+    public func setLiveFinalizeDelay(milliseconds: UInt64) {
+        liveFinalizeDelayMilliseconds = milliseconds
+    }
+
+    public func setBulkDelay(milliseconds: UInt64) {
+        bulkDelayMilliseconds = milliseconds
     }
 
     public func simulateFinalize(onEvent: @escaping @Sendable (RealtimeTranscriptEvent) -> Void) throws -> String {
@@ -936,6 +1237,18 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
 
     public var appendedChunkCount: Int {
         appendedChunkCountValue
+    }
+
+    public var appendedPCMData: Data {
+        appendedPCM
+    }
+
+    public var appendedByteCountAtFinalize: Int {
+        appendedByteCountAtFinalizeValue
+    }
+
+    public var bulkCallCount: Int {
+        bulkCallCountValue
     }
 
     public var didFinalize: Bool {
@@ -963,8 +1276,10 @@ private nonisolated struct MockLiveSessionProxy: RealtimeLiveTranscriptionSessio
     func heartbeat() async {}
 
     func finalize(onPartialTranscript: (@Sendable (String) -> Void)?) async throws -> String {
+        await client.markFinalized()
         await client.setLiveFinalizing(true)
         await client.setLivePhase(.generating)
+        try await client.waitForLiveFinalizeDelay()
         let text = try await client.resolvedLiveTranscript()
         await client.ingestLiveEvent(.textDelta(content: text, isNewResponse: true))
         await client.ingestLiveEvent(.status(.idle))

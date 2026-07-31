@@ -296,4 +296,23 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertEqual(promptField.value as? String, "Talking about Kubernetes")
         XCTAssertEqual(termsField.value as? String, "k8s, gRPC")
     }
+
+    func testTranscriptionStrategyMenuOffersThreeStrategies() throws {
+        let app = launchVoiceFlowApp(language: "en", locale: "en_US")
+        openSettings(in: app, label: "Settings")
+
+        let picker = app.buttons["settings.transcriptionStrategyPicker"]
+        XCTAssertTrue(reveal(picker, in: app))
+        picker.tap()
+        XCTAssertTrue(app.buttons["GPT Realtime"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertTrue(app.buttons["GPT Live Transcribe"].exists)
+        XCTAssertTrue(app.buttons["Grok STT"].exists)
+
+        app.buttons["GPT Live Transcribe"].tap()
+        XCTAssertTrue(app.textFields["settings.transcriptionPromptField"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+
+        picker.tap()
+        app.buttons["Grok STT"].tap()
+        XCTAssertFalse(app.textFields["settings.transcriptionPromptField"].exists)
+    }
 }

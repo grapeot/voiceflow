@@ -97,13 +97,13 @@ UI test 路径走 `VoiceFlowClient.makeStub(...)`（PR #38 新增的 public fact
 
 下面是 `VoiceFlowKit` 暴露给 host（VoiceFlow app 和未来的 OpenCode iOS Client）的 surface：
 
-- `VoiceFlowRecordingStrategy`：完整 capture + transport 选择，当前为 `.openAIRealtime` / `.grokBatch`。
-- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession()` / `transcribe(audioFile:strategy:onPartialTranscript:)` / preserved audio retry / connection test / config update。
+- `VoiceFlowRecordingStrategy`：完整 capture + transport 选择，当前为 `.openAIRealtime` / `.gptLiveTranscribe` / `.grokBatch`；`usesRealtimeTransport` 表示 transport capability。
+- `VoiceFlowClient`（actor）：入口。`init(config: VoiceFlowConfig)`，提供 `startSession(strategy:)` / `transcribe(audioFile:strategy:onPartialTranscript:)` / preserved audio retry / connection test / config update。
 - `VoiceFlowSession`（actor）：实时会话句柄。`sendAudioChunk(_:)` 推 PCM，`ping()` 心跳，`commitAndStop(onPartialTranscript:)` 收口，`cancel()` 取消并清理缓存，`abortPreservingAudio()` 关闭连接但保留已录 PCM 供后续重试，`connectionPhase`（VoiceFlowConnectionPhase）读相位，`events`（AsyncStream<VoiceFlowEvent>）订阅事件。
-- `VoiceFlowPreservedAudio`（struct）：`abortPreservingAudio()` 返回的轻量句柄，公开 `id` / `byteCount`，底层临时 PCM 文件只由 Kit 管理。
+- `VoiceFlowPreservedAudio`（struct）：`abortPreservingAudio()` 返回的轻量句柄，公开 `id` / `byteCount` / originating `strategy`，并在 Kit 内保留 resolved model；底层临时 PCM 文件只由 Kit 管理。
 - `VoiceFlowMicrophone`（class，iOS/visionOS only）：mic 封装。`requestPermission()` / `start(strategy:onPCMChunk:)` / `stop()` / `discard()`，`audioLevel`（AsyncStream<Float>）暴露 0..1 RMS。Realtime 产出 WAV；Grok 产出 AAC-LC M4A。
 - `VoiceFlowConfig`（struct）：`endpoint` / `tokenProvider` / `model` / `prompt` / `terms` / `loggerSubsystem`。注意：**没有** `language` 字段——backend 把语言提示当 prompt 拼接，用户自己在 prompt 里写。
-- `VoiceFlowError`（enum）：`invalidEndpoint` / `missingToken` / `httpError(statusCode:)` / `sessionUnavailable` / `websocketError(_)` / `connectionLost(_)` / `audioConversionFailed` / `emptyTranscript` / `microphoneUnavailable` / `underlying(_)`。
+- `VoiceFlowError`（enum）：`invalidEndpoint` / `missingToken` / `httpError(statusCode:)` / `sessionUnavailable` / `websocketError(_)` / `connectionLost(_)` / `audioConversionFailed` / `emptyTranscript` / `microphoneUnavailable` / `unsupportedRecordingStrategy(_)` / `underlying(_)`。
 - `StreamCaption` / `StreamCaptionStore`：双层 caption 模型（persistent + transient 3 秒闪现），数据结构层、不画 UI。
 
 PR #38 之后，**只有** 上述 facade 类型对外公开。原本为 app 兼容而暴露的 `RealtimeTranscribing` / `RealtimeConnectionPhase` / `RealtimeTranscriptEvent` / `RealtimeTranscriptionError` 等 Internal 类型已收回 internal，不再属于 stable API。例外是 `AIBuilderConnectionTesting` / `AudioRecording` / `AIBuilderTranscribing` 三组 protocol + 实现 + Mock 仍为 public —— 它们承担 UI test 时的 DI 注入面（`VoiceFlowMicrophone` 是 `final class` 不可 mock，host 想 mock 录音得不到注入点，这是务实妥协）。
@@ -119,7 +119,7 @@ Settings → Transcription 分组让用户设置两个值：
 
 两值都 UserDefaults 持久化。空字符串和纯空白 trim 后视为未设置，wire 上不出现这个 key。
 
-OpenAI Realtime 使用 prompt + terms；Grok Batch 只发送 trim/filter 后的 terms。Grok 模式下 Settings 隐藏 prompt 输入，但不删除已保存值。
+GPT Realtime 与 GPT Live Transcribe 使用 prompt + terms；Grok Batch 只发送 trim/filter 后的 terms。Grok 模式下 Settings 隐藏 prompt 输入，但不删除已保存值。
 
 详细 wire 格式：
 
@@ -163,7 +163,7 @@ https://space.ai-builders.com/backend
 
 Record：顶部 VoiceFlow 标题 + 状态灯、录音计时（`MM:SS`）、控制区（左/右历史、Start/Stop 宽 120pt、保存/重发菜单）、大文本区、底部 Copy 与 Send to OpenCode（旁有 info 按钮）。
 
-Settings：表单式 AI Builder token、只读 endpoint、OpenAI Realtime / Grok Batch segmented picker、转写提示、OpenCode URL/username/password、连接测试与失败 detail、语言 picker。点击文本框外收起键盘。
+Settings：表单式 AI Builder token、只读 endpoint、GPT Realtime / GPT Live Transcribe / Grok Batch menu picker、转写提示、OpenCode URL/username/password、连接测试与失败 detail、语言 picker。点击文本框外收起键盘。
 
 ## 转写方案
 
@@ -175,9 +175,9 @@ Settings：表单式 AI Builder token、只读 endpoint、OpenAI Realtime / Grok
 
 目标：边录边发，Stop 只 finalize，文本随服务端 push 增量显示。主录音路径已从 V0 batch HTTP 切换为 WebSocket stream；`AIBuilderTranscriptionClient` 保留供 HTTP 单测与潜在 fallback，重发录音走 bulk WebSocket。
 
-### 双策略（已交付）：OpenAI Realtime / Grok Batch
+### 三策略（已交付）：GPT Realtime / GPT Live Transcribe / Grok Batch
 
-Start 时 snapshot `VoiceFlowRecordingStrategy`。OpenAI 路径建立 realtime session 后录制 PCM16 / 24 kHz / mono，并在 Stop finalize；Grok 路径在录音期间只把 PCM 经串行 writer 编码为 AAC-LC M4A（24 kHz、mono、32 kbps），不调用 session API、不启动 heartbeat、不上传音频。Stop 关闭 writer并重新打开文件验证后，multipart `POST /v1/audio/grok-transcription`，字段为 `audio_file` 与可选逗号分隔 `terms`。
+Start 时 snapshot `VoiceFlowRecordingStrategy`。两个 GPT 路径建立 realtime session 后录制 PCM16 / 24 kHz / mono，并在 Stop finalize；GPT Live 精确使用 `gpt-live-transcribe`，GPT Realtime 保留 `VoiceFlowConfig.model`。Grok 路径在录音期间只把 PCM 经串行 writer 编码为 AAC-LC M4A（24 kHz、mono、32 kbps），不调用 session API、不启动 heartbeat、不上传音频。Stop 关闭 writer并重新打开文件验证后，multipart `POST /v1/audio/grok-transcription`，字段为 `audio_file` 与可选逗号分隔 `terms`。
 
 2026-07-30 的 direct-to-xAI 基线中，300.02 秒、4.80 MB 的双人 MP3 开启 diarization 后，完整 REST 响应耗时 3.343 秒，RTF 0.0111（89.75× realtime）。该单样本不包含移动端编码、AI Builder Space relay，也不代表生产 P95；它只说明当前 Batch latency 的量级不足以单独证明新增 Grok WebSocket 路径合理。是否升级 streaming 应以后续真实 Stop-to-text P50/P95 和是否需要录音中 partial transcript 为准。
 
@@ -193,7 +193,7 @@ Authorization: Bearer <token>
   # WebSocket 升级不带 Bearer；ticket 来自上一步 HTTP 响应
 ```
 
-默认 model：`gpt-realtime`（常量 `RealtimeTranscriptionConfig.defaultModel`）。
+默认 strategy 的 model：`gpt-realtime`（常量 `RealtimeTranscriptionConfig.defaultModel`）；GPT Live 固定为 `gpt-live-transcribe`。
 
 控制消息（JSON text frame，Student Portal realtime API）：
 
@@ -205,10 +205,11 @@ Authorization: Bearer <token>
 | `session_ready` | server → client | WS 已就绪 |
 | `transcript_delta` | server → client | 增量转写（`text` 字段） |
 | `transcript_completed` | server → client | 一轮完整转写 |
+| `turn_completed` | server → client | 本轮处理结束；GPT Live 收到该事件后才发送 `stop` |
 | `session_stopped` | server → client | 会话结束 |
 | `error` | server → client | 错误文案 |
 
-音频（binary frame）：24 kHz PCM16 mono，按 ~0.5s（`chunkByteSize` = 24000 bytes）分片；Stop 时 flush 剩余 buffer → `commit` + `stop`。bulk 重发创建 session 时 `vad: false`，发完音频后 `commit` + `stop`。
+音频（binary frame）：24 kHz PCM16 mono，按 ~0.5s（`chunkByteSize` = 24000 bytes）分片；Stop 时先 flush 剩余 buffer，再发送一次 `commit`。GPT Live 等 `transcript_completed` + `turn_completed` 后发送 `stop`；GPT Realtime 保持原有 completed 后 stop 行为。bulk/replay 快速发送 PCM，不在客户端增加 1x pacing。
 
 #### 客户端模块
 
@@ -229,7 +230,7 @@ Services/
    - `appendAudioChunk`：先写 cache，再 send；send 失败 → `recover()`。
    - `recover()`：cancel 旧 session → 新建 ticket session → `start` → `replayCache` bulk 发送（20ms 轮询等待新数据，不按时序 sleep 模拟麦克风）。
    - `heartbeat()`：WebSocket ping；失败触发 recover。
-   - `finalize()`：flush send 队列 → `commit` + `stop` → 等待 `session_stopped`（映射为 `status: idle`，30s 超时）；失败时 recover 后重试。
+    - `finalize()`：flush send 队列 → `commit` → 等待 terminal event → `stop`；GPT Realtime 保留 30s timeout，GPT Live 使用 `max(60s, PCM 秒数 + 60s)`；失败时 recover 后重试。
    - `abortPreservingAudio()`：关闭当前 WebSocket、停止 recovery、保留 `AudioChunkCache` 的 PCM 文件并返回 `VoiceFlowPreservedAudio`。旧 `cancel()` 语义保持不变，仍会删除缓存。
 3. **isRecovering 门闩**：恢复期间暂停 live send，避免与 replay 交错。
 

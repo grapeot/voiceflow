@@ -43,7 +43,8 @@ extension AppState {
         }
         if let kitError = error as? VoiceFlowError {
             switch kitError {
-            case .invalidEndpoint, .missingToken, .connectionLost, .sessionUnavailable, .httpError:
+            case .invalidEndpoint, .missingToken, .connectionLost, .sessionUnavailable, .httpError,
+                 .unsupportedRecordingStrategy:
                 return "transcription_upload_failed"
             case .websocketError, .emptyTranscript, .audioConversionFailed, .microphoneUnavailable, .underlying:
                 return "transcription_response_failed"

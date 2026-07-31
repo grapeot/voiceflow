@@ -19,7 +19,7 @@ public extension AudioRecording {
         strategy: VoiceFlowRecordingStrategy,
         onPCMChunk: (@Sendable (Data) -> Void)? = nil
     ) async throws {
-        guard strategy == .openAIRealtime else {
+        guard strategy.usesRealtimeTransport else {
             throw AudioRecorderError.couldNotCreateRecorder
         }
         try await startRecording(onPCMChunk: onPCMChunk)
@@ -58,6 +58,106 @@ public enum AudioRecorderError: Error {
     }
 }
 
+final class AudioTapCallbackDeliveryCoordinator: @unchecked Sendable {
+    final class Lease: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isCompleted = false
+        private let coordinator: AudioTapCallbackDeliveryCoordinator
+
+        fileprivate init(coordinator: AudioTapCallbackDeliveryCoordinator) {
+            self.coordinator = coordinator
+        }
+
+        func deliver(_ data: Data, using delivery: @escaping @Sendable (Data) -> Void) {
+            guard claimCompletion() else { return }
+            coordinator.enqueueDelivery(data, using: delivery)
+        }
+
+        func complete() {
+            guard claimCompletion() else { return }
+            coordinator.completeCallback()
+        }
+
+        private func claimCompletion() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !isCompleted else { return false }
+            isCompleted = true
+            return true
+        }
+    }
+
+    private let lock = NSLock()
+    private let deliveryQueue = DispatchQueue(label: "ai.yage.voiceflow.pcm-callback-delivery")
+    private var isAcceptingCallbacks = true
+    private var pendingCallbackCount = 0
+    private var finishWaiters: [@Sendable () -> Void] = []
+
+    func beginCallback() -> Lease? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isAcceptingCallbacks else { return nil }
+        pendingCallbackCount += 1
+        return Lease(coordinator: self)
+    }
+
+    func finish() async {
+        await withCheckedContinuation { continuation in
+            closeAndNotifyWhenDrained {
+                continuation.resume()
+            }
+        }
+    }
+
+    func finishBlocking() {
+        let semaphore = DispatchSemaphore(value: 0)
+        closeAndNotifyWhenDrained {
+            semaphore.signal()
+        }
+        semaphore.wait()
+    }
+
+    private func enqueueDelivery(
+        _ data: Data,
+        using delivery: @escaping @Sendable (Data) -> Void
+    ) {
+        deliveryQueue.async { [self] in
+            delivery(data)
+            completeCallback()
+        }
+    }
+
+    private func completeCallback() {
+        let waiters: [@Sendable () -> Void]
+        lock.lock()
+        pendingCallbackCount -= 1
+        if pendingCallbackCount == 0, !isAcceptingCallbacks {
+            waiters = finishWaiters
+            finishWaiters.removeAll()
+        } else {
+            waiters = []
+        }
+        lock.unlock()
+        waiters.forEach { $0() }
+    }
+
+    private func closeAndNotifyWhenDrained(_ waiter: @escaping @Sendable () -> Void) {
+        let shouldNotifyImmediately: Bool
+        lock.lock()
+        isAcceptingCallbacks = false
+        if pendingCallbackCount == 0 {
+            shouldNotifyImmediately = true
+        } else {
+            shouldNotifyImmediately = false
+            finishWaiters.append(waiter)
+        }
+        lock.unlock()
+        if shouldNotifyImmediately {
+            waiter()
+        }
+    }
+}
+
 #if os(iOS) || os(visionOS)
 public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDelegate {
     private var audioEngine: AVAudioEngine?
@@ -67,6 +167,7 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
     private var isRecording = false
     private var recordingStrategy: VoiceFlowRecordingStrategy = .openAIRealtime
     private var aacWriter: AACRecordingWriter?
+    private var callbackDelivery: AudioTapCallbackDeliveryCoordinator?
 
     public override init() {
         super.init()
@@ -121,6 +222,8 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.inputFormat(forBus: 0)
+        let callbackDelivery = AudioTapCallbackDeliveryCoordinator()
+        self.callbackDelivery = callbackDelivery
         let targetSampleRate = RealtimeTranscriptionConfig.sampleRate
         guard let recordingFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
@@ -131,7 +234,9 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
             throw AudioRecorderError.couldNotCreateRecorder
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self, callbackDelivery] buffer, _ in
+            guard let callbackLease = callbackDelivery.beginCallback() else { return }
+            defer { callbackLease.complete() }
             guard let self else { return }
             let frameCount = AVAudioFrameCount(buffer.frameLength)
             let ratio = recordingFormat.sampleRate / inputFormat.sampleRate
@@ -153,12 +258,15 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
             let bufferLength = Int(convertedBuffer.frameLength)
             let bytesPerFrame = Int(recordingFormat.streamDescription.pointee.mBytesPerFrame)
             let data = Data(bytes: channelData, count: bufferLength * bytesPerFrame)
-            if strategy == .openAIRealtime {
-                self.pcmBuffer.append(data)
-            } else {
-                self.aacWriter?.enqueue(pcmData: data)
+            callbackLease.deliver(data) { [weak self] data in
+                guard let self else { return }
+                if strategy.usesRealtimeTransport {
+                    self.pcmBuffer.append(data)
+                } else {
+                    self.aacWriter?.enqueue(pcmData: data)
+                }
+                self.onPCMChunk?(data)
             }
-            self.onPCMChunk?(data)
         }
 
         try performSessionSetup(phase: .startEngine) {
@@ -199,6 +307,8 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
         }
         audioEngine = nil
         isRecording = false
+        await callbackDelivery?.finish()
+        callbackDelivery = nil
         onPCMChunk = nil
 
         if recordingStrategy == .grokBatch {
@@ -244,6 +354,8 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
         }
         audioEngine = nil
         isRecording = false
+        callbackDelivery?.finishBlocking()
+        callbackDelivery = nil
         onPCMChunk = nil
         aacWriter?.discard()
         aacWriter = nil
@@ -265,6 +377,7 @@ public final class MockAudioRecorder: AudioRecording, @unchecked Sendable {
     public var startError: Error?
     public var stopError: Error?
     public var outputPCMData: Data
+    public var emittedPCMChunks: [Data]?
     public private(set) var didStart = false
     public private(set) var didStop = false
     public private(set) var receivedChunkHandler = false
@@ -274,12 +387,14 @@ public final class MockAudioRecorder: AudioRecording, @unchecked Sendable {
         permissionGranted: Bool = true,
         outputURL: URL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-ui-test.wav"),
         outputPCMData: Data = Data("mock-audio".utf8),
+        emittedPCMChunks: [Data]? = nil,
         startError: Error? = nil,
         stopError: Error? = nil
     ) {
         self.permissionGranted = permissionGranted
         self.outputURL = outputURL
         self.outputPCMData = outputPCMData
+        self.emittedPCMChunks = emittedPCMChunks
         self.startError = startError
         self.stopError = stopError
     }
@@ -303,9 +418,10 @@ public final class MockAudioRecorder: AudioRecording, @unchecked Sendable {
         recordingStrategy = strategy
         didStart = true
         if !outputPCMData.isEmpty {
-            // Simulate 2 seconds of audible PCM so app-level signal gates treat
-            // the mock's non-empty recording as a real capture.
-            onPCMChunk?(Data(repeating: 0x10, count: 96_000))
+            let chunks = emittedPCMChunks ?? [Data(repeating: 0x10, count: 96_000)]
+            for chunk in chunks {
+                onPCMChunk?(chunk)
+            }
             await Task.yield()
         }
     }

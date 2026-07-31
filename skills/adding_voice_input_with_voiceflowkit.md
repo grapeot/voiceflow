@@ -27,21 +27,22 @@ VoiceFlowKit 是一个 Swift Package，提供 OpenAI realtime 与 Grok batch 两
 | 类型 | 干什么 |
 |---|---|
 | `VoiceFlowConfig` | endpoint + token 闭包 + 可选 prompt/terms。一个 config = 一次 session 的参数 |
-| `VoiceFlowRecordingStrategy` | `.openAIRealtime` / `.grokBatch`，一次录音从 capture 到 transport 的完整策略 |
+| `VoiceFlowRecordingStrategy` | `.openAIRealtime` / `.gptLiveTranscribe` / `.grokBatch`，一次录音从 capture 到 transport 的完整策略；用 `usesRealtimeTransport` 判断 capability |
 | `VoiceFlowClient` | actor。`config` 给它 → 它给你 `VoiceFlowSession` 或一次性 `transcribe(audioFile:)` 调用 |
 | `VoiceFlowSession` | actor。一次 live 录音会话。`sendAudioChunk` 喂 PCM、`ping` 保活、`commitAndStop` 拿 final 文本、`cancel` 中止并清理缓存、`abortPreservingAudio` 中止但保留已录 PCM；`events` 是 AsyncStream 拿 partial transcript 和连接相位 |
-| `VoiceFlowPreservedAudio` | `abortPreservingAudio()` 返回的轻量句柄。公开 `id` / `byteCount`，可交给 `VoiceFlowClient.transcribe(preservedAudio:)` 重试识别，完成后用 `discardPreservedAudio` 清理 |
+| `VoiceFlowPreservedAudio` | `abortPreservingAudio()` 返回的轻量句柄。公开 `id` / `byteCount` / `strategy`，可交给 `VoiceFlowClient.transcribe(preservedAudio:)` 按原模型重试，完成后用 `discardPreservedAudio` 清理 |
 | `VoiceFlowMicrophone` | `@MainActor` final class。录音入口：`requestPermission` → `start(strategy:onPCMChunk:)` → `stop()`。Realtime 产出 WAV，Grok 产出 M4A |
 | `VoiceFlowEvent` | enum：`.partialTranscript(String)` / `.phaseChanged(VoiceFlowConnectionPhase)` / `.recoveryStarted` / `.recoveryFailed(message:)` |
 | `VoiceFlowConnectionPhase` | enum：`.connecting / .connected / .recovering / .generating / .disconnected` |
-| `VoiceFlowError` | enum：`.missingToken / .invalidEndpoint / .httpError / .sessionUnavailable / .websocketError / .connectionLost / .emptyTranscript / .microphoneUnavailable / .audioConversionFailed / .underlying(String)` |
+| `VoiceFlowError` | enum：`.missingToken / .invalidEndpoint / .httpError / .sessionUnavailable / .websocketError / .connectionLost / .emptyTranscript / .microphoneUnavailable / .audioConversionFailed / .unsupportedRecordingStrategy / .underlying(String)` |
 | `VoiceFlowClient.makeStub(...)` | static factory。返回一个不开 WebSocket 的 stub client，行为完整（会 emit `connected → idle`、`commitAndStop` 返回 canned 文本）。给 UI test launch mode 和 SwiftUI Preview 用 |
 
 主要工作模式：
 
-- **Live streaming**（推荐，默认）：`client.startSession()` → 边录音边收 partial → `session.commitAndStop()` 拿 final。Latency 低，体验好。
+- **GPT Realtime**（默认）：`client.startSession(strategy: .openAIRealtime)` → 边录音边送 PCM → `session.commitAndStop()` 拿 final；使用 `VoiceFlowConfig.model`。
+- **GPT Live Transcribe**：`client.startSession(strategy: .gptLiveTranscribe)` 复用同一 transport，固定路由 `gpt-live-transcribe`；不要在客户端增加 1x pacing。
 - **Grok batch**：`microphone.start(strategy: .grokBatch)` 只在本地编码 AAC-LC M4A；Stop 后调用 `client.transcribe(audioFile: file, strategy: .grokBatch)` 上传完整文件。录音期间不创建 ticket、不连接 WebSocket、不上传音频。
-- **Realtime bulk retry**：`client.transcribe(audioFile: someWAV, strategy: .openAIRealtime)` 通过 realtime pipeline 重传 WAV。
+- **Realtime bulk retry**：`client.transcribe(audioFile: someWAV, strategy:)` 通过对应 GPT strategy 的 realtime pipeline 重传 WAV。
 - **Preserved retry**：live session 卡住或用户主动终止时，`session.abortPreservingAudio()` 关闭 WebSocket 但保留 session 内部磁盘 PCM；之后 `client.transcribe(preservedAudio:)` 用同一段 PCM 重新识别，host 不需要自己复制 mic chunk。
 
 ## 集成步骤

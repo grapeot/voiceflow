@@ -22,6 +22,7 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .idle)
         #expect(state.recordingTimerText == "00:00")
         #expect(state.transcript.isEmpty)
+        #expect(state.transcriptionStrategy == .gptLiveTranscribe)
         #expect(state.hasSavedAIBuilderToken == false)
         #expect(state.isOpenCodeConfigured == false)
         #expect(state.openCodeServerURL == "http://localhost:4096")
@@ -616,6 +617,288 @@ struct VoiceFlowTests {
 
         #expect(state.activeRecordingStrategy == .openAIRealtime)
         #expect(recorder.recordingStrategy == .openAIRealtime)
+    }
+
+    @Test func gptLiveStrategyUsesRealtimeSessionPCMAndFinalize() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let (client, realtimeMock) = makeStubVoiceFlowClient(liveResult: .success("gpt live result"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionStrategy = .gptLiveTranscribe
+        await state.startRecording()
+
+        #expect(state.activeRecordingStrategy == .gptLiveTranscribe)
+        #expect(recorder.recordingStrategy == .gptLiveTranscribe)
+        #expect(state.liveTranscriptionSession?.strategy == .gptLiveTranscribe)
+        #expect(await realtimeMock.lastLiveModel == "gpt-live-transcribe")
+
+        await state.stopRecording()
+
+        #expect(state.transcript == "gpt live result")
+        #expect(state.lastRecordingURL?.pathExtension == "wav")
+        #expect(state.lastRecordingStrategy == .gptLiveTranscribe)
+        #expect(await realtimeMock.didFinalize)
+        #expect(state.recordingStatus == .ready)
+    }
+
+    @Test func gptLiveRecordingAndResendKeepStartStrategyAfterSettingsChange() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let (client, realtimeMock) = makeStubVoiceFlowClient(
+            liveResult: .success("first live text"),
+            bulkResult: .success("resent live text")
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionStrategy = .gptLiveTranscribe
+        await state.startRecording()
+        state.transcriptionStrategy = .grokBatch
+
+        #expect(state.activeRecordingStrategy == .gptLiveTranscribe)
+        await state.stopRecording()
+        await state.resendLastRecording()
+
+        #expect(state.transcript == "resent live text")
+        #expect(state.lastRecordingStrategy == .gptLiveTranscribe)
+        #expect(await realtimeMock.lastBulkStrategy == .gptLiveTranscribe)
+        #expect(await realtimeMock.lastBulkModel == "gpt-live-transcribe")
+    }
+
+    @Test func microphoneChunksStayOrderedAndDrainBeforeFinalize() async throws {
+        let chunks = (0..<48).map { index in
+            Data(repeating: UInt8(0x10 + index % 32), count: 2_000)
+        }
+        let expectedPCM = chunks.reduce(into: Data()) { $0.append($1) }
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-ordered-pcm-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(
+            outputURL: outputURL,
+            outputPCMData: expectedPCM,
+            emittedPCMChunks: chunks
+        )
+        let (client, realtimeMock) = makeStubVoiceFlowClient(liveResult: .success("ordered transcript"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        #expect((state.capturedPCMBuffer?.pendingChunkCount ?? 0) <= 32)
+        await state.stopRecording()
+
+        #expect(await realtimeMock.appendedPCMData == expectedPCM)
+        #expect(await realtimeMock.appendedByteCountAtFinalize == expectedPCM.count)
+    }
+
+    @Test func stopWaitsForInFlightTapCallbackBeforeWAVAndFinalize() async throws {
+        let initialPCM = Data(repeating: 0x10, count: 96_000)
+        let finalPCM = Data(repeating: 0x20, count: 4_000)
+        let expectedPCM = initialPCM + finalPCM
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-stop-callback-race-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let recorder = StopRacingAudioRecorder(
+            outputURL: outputURL,
+            initialPCM: initialPCM,
+            finalPCM: finalPCM
+        )
+        let keychain = InMemoryKeychainStore()
+        let (client, realtimeMock) = makeStubVoiceFlowClient(liveResult: .success("complete transcript"))
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        #expect(recorder.beginFinalCallback())
+
+        let stopTask = Task { await state.stopRecording() }
+        await recorder.waitUntilStopBegan()
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+
+        recorder.releaseFinalCallback()
+        await stopTask.value
+
+        let persistedURL = try #require(state.lastRecordingURL)
+        defer { try? FileManager.default.removeItem(at: persistedURL) }
+        #expect(try PCM16WAVWriter.readPCM(from: persistedURL) == expectedPCM)
+        #expect(await realtimeMock.appendedPCMData == expectedPCM)
+        #expect(await realtimeMock.appendedByteCountAtFinalize == expectedPCM.count)
+    }
+
+    @Test func gptLiveFinalizeFailureRequiresExplicitResend() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-gpt-live-explicit-resend-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder(outputURL: outputURL)
+        let clipboard = MockClipboardWriter()
+        let (client, realtimeMock) = makeStubVoiceFlowClient(
+            liveResult: .failure(VoiceFlowError.connectionLost("finalize failed")),
+            bulkResult: .success("explicit resend transcript")
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: clipboard
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptionStrategy = .gptLiveTranscribe
+        await state.startRecording()
+        await state.stopRecording()
+
+        #expect(await realtimeMock.bulkCallCount == 0)
+        #expect(state.recordErrorAlertKey == "record.error.transcriptionFailed")
+        #expect(state.transcriptHistory.entries.isEmpty)
+        #expect(clipboard.writeCount == 0)
+        #expect(state.canResendRecording)
+
+        await state.resendLastRecording()
+
+        #expect(await realtimeMock.bulkCallCount == 1)
+        #expect(state.transcript == "explicit resend transcript")
+        #expect(state.transcriptHistory.entries.count == 1)
+        #expect(clipboard.writeCount == 1)
+    }
+
+    @Test func originalFinalizeOwnsWritesAndGatesConcurrentResend() async throws {
+        let keychain = InMemoryKeychainStore()
+        let clipboard = MockClipboardWriter()
+        let (client, realtimeMock) = makeStubVoiceFlowClient(
+            liveResult: .success("owned finalize transcript"),
+            bulkResult: .success("duplicate resend transcript")
+        )
+        await realtimeMock.setLiveFinalizeDelay(milliseconds: 100)
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: MockAudioRecorder(),
+            voiceFlowClient: client,
+            clipboardWriter: clipboard
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        let stopTask = Task { await state.stopRecording() }
+        while state.activeTranscriptionAttemptID == nil {
+            await Task.yield()
+        }
+
+        #expect(!state.canResendRecording)
+        await state.resendLastRecording()
+        await stopTask.value
+
+        #expect(await realtimeMock.bulkCallCount == 0)
+        #expect(state.transcript == "owned finalize transcript")
+        #expect(state.transcriptHistory.entries.count == 1)
+        #expect(clipboard.writeCount == 1)
+    }
+
+    @Test func repeatedResendCreatesOnlyOneAttempt() async throws {
+        let keychain = InMemoryKeychainStore()
+        let clipboard = MockClipboardWriter()
+        let (client, realtimeMock) = makeStubVoiceFlowClient(
+            liveResult: .success("initial transcript"),
+            bulkResult: .success("single resend transcript")
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: MockAudioRecorder(),
+            voiceFlowClient: client,
+            clipboardWriter: clipboard
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        await state.stopRecording()
+        await realtimeMock.setBulkDelay(milliseconds: 100)
+
+        let resendTask = Task { await state.resendLastRecording() }
+        while state.activeTranscriptionAttemptID == nil {
+            await Task.yield()
+        }
+        #expect(!state.canResendRecording)
+        await state.resendLastRecording()
+        await resendTask.value
+
+        #expect(await realtimeMock.bulkCallCount == 1)
+        #expect(state.transcript == "single resend transcript")
+        #expect(state.transcriptHistory.entries.count == 2)
+        #expect(clipboard.writeCount == 2)
+    }
+
+    @Test func latePartialCannotOverwriteCompletedAttempt() {
+        let state = AppState(clipboardWriter: MockClipboardWriter())
+        let attemptID = state.beginTranscriptionAttempt()!
+        state.partialTranscriptAttemptID = attemptID
+        state.transcript = "authoritative final"
+
+        state.finishTranscriptionAttempt(attemptID)
+        state.handleStreamEvent(.partialTranscript("late partial"))
+
+        #expect(state.transcript == "authoritative final")
+    }
+
+    @Test func gptLiveRecordingAcceptsAccumulatedTranscriptSnapshots() {
+        let state = AppState(clipboardWriter: MockClipboardWriter())
+        state.activeRecordingStrategy = .gptLiveTranscribe
+        state.recordingStatus = .recording
+
+        state.handleStreamEvent(.partialTranscript("The first "))
+        state.handleStreamEvent(.partialTranscript("The first sentence."))
+
+        #expect(state.transcript == "The first sentence.")
+    }
+
+    @Test func realtimeRecordingStillSuppressesTranscriptEvents() {
+        let state = AppState(clipboardWriter: MockClipboardWriter())
+        state.activeRecordingStrategy = .openAIRealtime
+        state.recordingStatus = .recording
+
+        state.handleStreamEvent(.partialTranscript("should remain hidden"))
+
+        #expect(state.transcript.isEmpty)
+    }
+
+    @Test func allRecordingStrategiesRoundTripThroughUserDefaults() {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+
+        for strategy in VoiceFlowRecordingStrategy.allCases {
+            UserDefaults.standard.set(strategy.rawValue, forKey: "transcriptionStrategy")
+            #expect(AppState().transcriptionStrategy == strategy)
+        }
     }
 
     @Test func resendUsesTheStrategyThatCreatedTheRecording() async throws {
@@ -1314,6 +1597,105 @@ private extension Array where Element == RecordingDiagnosticEvent {
 
 private enum ClipboardTestError: Error {
     case writeFailed
+}
+
+private final class StopRacingAudioRecorder: AudioRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private let callbackDelivery = AudioTapCallbackDeliveryCoordinator()
+    private let outputURL: URL
+    private let initialPCM: Data
+    private let finalPCM: Data
+    private var pcmData = Data()
+    private var chunkHandler: (@Sendable (Data) -> Void)?
+    private var finalCallbackLease: AudioTapCallbackDeliveryCoordinator.Lease?
+    private var stopBegan = false
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(outputURL: URL, initialPCM: Data, finalPCM: Data) {
+        self.outputURL = outputURL
+        self.initialPCM = initialPCM
+        self.finalPCM = finalPCM
+    }
+
+    func requestPermission() async -> Bool {
+        true
+    }
+
+    func startRecording(onPCMChunk: (@Sendable (Data) -> Void)?) async throws {
+        try await startRecording(strategy: .openAIRealtime, onPCMChunk: onPCMChunk)
+    }
+
+    func startRecording(
+        strategy: VoiceFlowRecordingStrategy,
+        onPCMChunk: (@Sendable (Data) -> Void)?
+    ) async throws {
+        lock.lock()
+        chunkHandler = onPCMChunk
+        lock.unlock()
+        deliver(initialPCM)
+    }
+
+    func beginFinalCallback() -> Bool {
+        guard let lease = callbackDelivery.beginCallback() else { return false }
+        lock.lock()
+        finalCallbackLease = lease
+        lock.unlock()
+        return true
+    }
+
+    func releaseFinalCallback() {
+        lock.lock()
+        let lease = finalCallbackLease
+        finalCallbackLease = nil
+        lock.unlock()
+        lease?.deliver(finalPCM) { [weak self] data in
+            self?.deliver(data)
+        }
+    }
+
+    func stopRecording() async throws -> URL {
+        let waiters: [CheckedContinuation<Void, Never>]
+        lock.lock()
+        stopBegan = true
+        waiters = stopWaiters
+        stopWaiters.removeAll()
+        lock.unlock()
+        waiters.forEach { $0.resume() }
+
+        await callbackDelivery.finish()
+        lock.lock()
+        let snapshot = pcmData
+        lock.unlock()
+        try PCM16WAVWriter.write(pcmData: snapshot, to: outputURL)
+        return outputURL
+    }
+
+    func waitUntilStopBegan() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if stopBegan {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                stopWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    func discardRecording() {
+        callbackDelivery.finishBlocking()
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+
+    private func deliver(_ data: Data) {
+        let handler: (@Sendable (Data) -> Void)?
+        lock.lock()
+        pcmData.append(data)
+        handler = chunkHandler
+        lock.unlock()
+        handler?(data)
+    }
 }
 
 final class MockURLProtocol: URLProtocol {

@@ -122,22 +122,22 @@ struct RealtimeTranscriptionTests {
         #expect(RealtimeTranscriptionConfig.minCommitAudioBytes == 4_800)
     }
 
-    @Test func resolveFinalizeTranscriptPrefersLongerPartialOverShorterCompleted() {
+    @Test func resolveFinalizeTranscriptUsesAuthoritativeCompletedSnapshot() {
         let partial = "The first sentence. The second sentence."
         let completed = "The second sentence."
         #expect(
             RealtimeTranscriptionSupport.resolveFinalizeTranscript(partial: partial, completed: completed)
-            == partial
+            == completed
         )
     }
 
-    @Test func resolveFinalizeTranscriptAppendSemanticsPreserveFullText() {
+    @Test func resolveFinalizeTranscriptFallsBackToPartialWithoutCompletedSnapshot() {
         var partial = ""
         partial += "Hello "
         partial += "world"
         let resolved = RealtimeTranscriptionSupport.resolveFinalizeTranscript(
             partial: partial,
-            completed: "world"
+            completed: nil
         )
         #expect(resolved == "Hello world")
     }
@@ -208,7 +208,7 @@ struct RealtimeTranscriptionTests {
 /// Observed wire protocol (2026-05-26, ticket-based realtime API):
 /// - POST `https://space.ai-builders.com/backend/v1/audio/realtime/sessions` with Bearer token
 /// - WebSocket `wss://space.ai-builders.com/backend/v1/audio/realtime/ws?ticket=...` (ticket auth, no Bearer on WS)
-/// - Server → client: `session_ready`, `transcript_delta`, `transcript_completed`, `session_stopped`
+/// - Server → client: `session_ready`, `transcript_delta`, `transcript_completed`, `turn_completed`, `session_stopped`
 /// - Client → server: `start`, binary PCM16 mono 24 kHz, `commit`, `stop`
 @Suite(.serialized)
 @MainActor
@@ -300,5 +300,91 @@ struct LiveWebSocketIntegrationTests {
         }
 
         await session.cancel()
+    }
+
+    @Test func gptLiveTranscribesShortFixtureThroughLiveFinalize() async throws {
+        guard let credentials = try LiveIntegrationTestSupport.resolveCredentials(),
+              let fixtureURL = LiveIntegrationTestSupport.fixtureURL(
+                  environmentKey: "VOICEFLOW_GPT_LIVE_SHORT_WAV"
+              ) else {
+            return
+        }
+
+        let pcmData = try PCM16WAVWriter.readPCM(from: fixtureURL)
+        let client = RealtimeTranscriptionClient()
+        let session = try await client.beginLiveSession(
+            baseURL: credentials.endpoint,
+            token: credentials.token,
+            model: "gpt-live-transcribe",
+            strategy: .gptLiveTranscribe,
+            onEvent: { _ in }
+        )
+
+        do {
+            _ = try await LiveIntegrationTestSupport.waitUntilConnected(session: session)
+            for start in stride(from: 0, to: pcmData.count, by: RealtimeTranscriptionConfig.replayChunkSize) {
+                let end = min(start + RealtimeTranscriptionConfig.replayChunkSize, pcmData.count)
+                await session.appendAudioChunk(pcmData.subdata(in: start..<end))
+            }
+            let transcript = try await session.finalize(onPartialTranscript: nil)
+            #expect(!transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } catch {
+            await session.cancel()
+            throw error
+        }
+    }
+
+    @Test func gptLiveTranscribesSixtySecondFixtureThroughBulk() async throws {
+        guard let credentials = try LiveIntegrationTestSupport.resolveCredentials(),
+              let fixtureURL = LiveIntegrationTestSupport.fixtureURL(
+                  environmentKey: "VOICEFLOW_GPT_LIVE_60S_WAV"
+              ) else {
+            return
+        }
+
+        let pcmData = try PCM16WAVWriter.readPCM(from: fixtureURL)
+        let transcript = try await RealtimeTranscriptionClient().transcribeBulkPCM(
+            pcmData: pcmData,
+            baseURL: credentials.endpoint,
+            token: credentials.token,
+            model: "gpt-live-transcribe",
+            strategy: .gptLiveTranscribe,
+            onPartialTranscript: nil
+        )
+
+        #expect(!transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @Test func gptLiveTranscribesFiveMinuteFixtureThroughPreservedRetry() async throws {
+        guard let credentials = try LiveIntegrationTestSupport.resolveCredentials(),
+              let fixtureURL = LiveIntegrationTestSupport.fixtureURL(
+                  environmentKey: "VOICEFLOW_GPT_LIVE_5MIN_WAV"
+              ) else {
+            return
+        }
+
+        let pcmData = try PCM16WAVWriter.readPCM(from: fixtureURL)
+        let preservedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-gpt-live-5min-\(UUID().uuidString).pcm")
+        try pcmData.write(to: preservedURL)
+        let preserved = VoiceFlowPreservedAudio(
+            fileURL: preservedURL,
+            byteCount: pcmData.count,
+            strategy: .gptLiveTranscribe,
+            model: "gpt-live-transcribe"
+        )
+        let client = VoiceFlowClient(config: VoiceFlowConfig(
+            endpoint: try #require(URL(string: credentials.endpoint)),
+            tokenProvider: { credentials.token }
+        ))
+
+        do {
+            let result = try await client.transcribe(preservedAudio: preserved)
+            await client.discardPreservedAudio(preserved)
+            #expect(!result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } catch {
+            await client.discardPreservedAudio(preserved)
+            throw error
+        }
     }
 }

@@ -14,6 +14,7 @@ public enum VoiceFlowError: Error, Sendable, Equatable {
     case audioConversionFailed
     case emptyTranscript
     case microphoneUnavailable
+    case unsupportedRecordingStrategy(VoiceFlowRecordingStrategy)
     case underlying(String)
 }
 

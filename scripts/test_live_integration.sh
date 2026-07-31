@@ -28,10 +28,45 @@ if [[ -z "$TOKEN" || "$TOKEN" == "replace-with-your-real-token" ]]; then
   exit 1
 fi
 
+mkdir -p "$ROOT/.voiceflow/live-fixtures"
+MODEL_BENCHMARK_DIR="${VOICEFLOW_MODEL_BENCHMARK_DIR:-$ROOT/../model_benchmark}"
+prepare_gpt_live_fixture() {
+  local environment_key="$1"
+  local default_source="$2"
+  local output_name="$3"
+  local source_path="${!environment_key:-$default_source}"
+  local output_path="$ROOT/.voiceflow/live-fixtures/$output_name"
+
+  if [[ ! -f "$source_path" ]]; then
+    echo "Skipping $environment_key: fixture not found at $source_path" >&2
+    return
+  fi
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "Skipping $environment_key: ffmpeg is required to normalize the fixture" >&2
+    return
+  fi
+
+  ffmpeg -nostdin -loglevel error -y -i "$source_path" -ar 24000 -ac 1 -c:a pcm_s16le "$output_path"
+  export "TEST_RUNNER_${environment_key}=$output_path"
+}
+
+prepare_gpt_live_fixture \
+  VOICEFLOW_GPT_LIVE_SHORT_WAV \
+  "$MODEL_BENCHMARK_DIR/data/instruction_following/recording_2026-02-28_11-13-40.wav" \
+  gpt-live-short.wav
+prepare_gpt_live_fixture \
+  VOICEFLOW_GPT_LIVE_60S_WAV \
+  "$MODEL_BENCHMARK_DIR/data/sample_1min_single.mp3" \
+  gpt-live-60s.wav
+prepare_gpt_live_fixture \
+  VOICEFLOW_GPT_LIVE_5MIN_WAV \
+  "$MODEL_BENCHMARK_DIR/data/multi_speaker_5min.mp3" \
+  gpt-live-5min.wav
+
 echo "Running live WebSocket integration tests (consumes AI Builder API credits)."
+echo "GPT Live fixtures can take more than six minutes and consume transcription credits."
 echo "Endpoint: ${AI_BUILDER_SPACE_ENDPOINT:-https://space.ai-builders.com/backend}"
 
-mkdir -p "$ROOT/.voiceflow"
 touch "$ROOT/.voiceflow/live-ws-opt-in"
 cleanup_live_marker() {
   rm -f "$ROOT/.voiceflow/live-ws-opt-in"

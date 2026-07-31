@@ -13,12 +13,41 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 | Stop / commit | `commit` → receive deltas → `transcript_completed` → `stop` → return on `session_stopped` | Same wire sequence; `sendCommit` defers `stop` until completed | Aligned after VAD-off + min-bytes guard |
 | Partial transcript merge | `partialAccumulator += delta` (append only) | `TranscriptDeltaReducer` / `FinalizeTranscriptMergerState` **replaced** on `isNewResponse` | **Truncation root cause** — second epoch wiped first half |
 | UI thread on partial | `Task { @MainActor in inputText = ... }` in ChatTabView | Finalize callback set `self.transcript` **directly** from WS actor | **Main-thread violations** on TextEditor / `@Published` |
-| Return value | `finalTranscript ?? ""` from receive loop | `finalize()` returns `String` from accumulator (now `max(partial, completed)`) | VoiceFlow slightly safer when completed snapshot is shorter |
+| Return value | `finalTranscript ?? ""` from receive loop | `finalize()` treats `transcript_completed` as authoritative and uses deltas only when no completed snapshot exists | Aligned with the protocol's terminal snapshot |
 | Error handling | Single `catch` → one alert | Stream error + bulk fallback could each alert; teardown could race | Partially unified in #23; finalize path now single success/failure exit |
 
 **Why porting felt harder than OpenCode:** VoiceFlow added live-transcript suppression, event indirection (`deliverLiveSessionEvent` → `Task` → `onEvent`), and split commit/wait across actors without consistently hopping to `@MainActor` for UI mutations. OpenCode keeps commit + receive + return in one synchronous loop with an explicit MainActor partial callback.
 
 ## Changelog
+
+### 2026-07-31 (GPT Live default strategy)
+
+- New installations and invalid/missing saved strategy values now default to GPT Live Transcribe. Existing users' valid saved choices remain unchanged; VoiceFlowKit's no-argument public API still defaults to GPT Realtime for source compatibility.
+- Verification: `./scripts/test_unit.sh` passed all 91 tests; live backend tests were not run.
+
+### 2026-07-31 (GPT Live recording-time transcript snapshots)
+
+- GPT Live now retains `transcript_delta` frames received before Stop and publishes accumulated snapshots through `VoiceFlowSession.events`; hosts never receive raw fragments. Finalize preserves that accumulator, continues snapshots through its callback, and still replaces the result with the authoritative `transcript_completed` payload.
+- The reference app displays those snapshots while GPT Live is recording. GPT Realtime keeps its existing recording-time suppression, and stale post-attempt partials remain ownership-gated.
+- Added deterministic Kit and App regressions for recording deltas, Stop-boundary accumulation, authoritative completion, and unchanged GPT Realtime behavior. Verification: full Kit tests 35/35 and rebuilt iOS app tests 91/91 passed.
+
+### 2026-07-31 (GPT Live finalize / audio / Resend race hardening)
+
+- **Initial connection ownership**: the live-session handle now owns an explicit initial-connection task and result. Finalize waits for a pending handshake and reuses that session instead of entering recovery and opening a concurrent second ticket. GPT Live never auto-recovers onto another ticket after initial, audio-send, heartbeat, disconnect, sync, or finalize failure; the app preserves the recording for explicit Resend. GPT Realtime retains cache-replay recovery.
+- **Tap/Stop serialization**: each AVAudioEngine callback acquires a callback lease before conversion, then hands local PCM/WAV delivery to one serial queue. Stop removes the tap, asynchronously closes the callback gate, and waits for all acquired leases before snapshotting WAV data; the callback never performs network work, and AppState still drains the ordered sender before finalize.
+- **Finalize wait**: replaced the task-group + bare continuation race with an attempt-scoped coordinator. It registers the waiter before launching commit, buffers an early terminal result, and resumes independently on terminal, operation error, timeout, or caller cancellation. Timeout/cancellation cancels owned work without waiting for a non-cooperative commit task to exit.
+- **Terminal contract**: GPT Live sends `stop` only after both `transcript_completed` and `turn_completed`; neither GPT strategy reports completion until a subsequent server `session_stopped` arrives. A premature `session_stopped` becomes an error instead of local success. Removed the synthetic GPT Live `.idle` event.
+- **Transcript/retry contract**: `transcript_completed` is authoritative even when a prior partial is longer. A full-audio GPT Realtime replay resets the prior attempt accumulator, so attempts cannot concatenate. GPT Live never opens a second ticket after finalize fails; the app keeps the persisted WAV and waits for explicit Resend rather than automatically falling back to bulk.
+- **Ordered microphone delivery**: replaced one untracked `Task` per audio callback with one tracked consumer and a 32-entry synchronized queue. When full, adjacent tail chunks coalesce without dropping or reordering bytes. Stop closes and fully drains this queue before signal evaluation and commit.
+- **App ownership**: Stop and Resend acquire a single attempt ID. Partial/final transcript, history, clipboard, and status writes require current ownership; late partials lose write permission before final completion. Resend is disabled while an attempt owns the result, preventing original finalize and repeated Resend from racing.
+- **Regression coverage**: added execution-path tests for immediate terminal delivery, non-cooperative commit timeout, caller cancellation, slow initial handshake + quick finalize ownership, GPT Live no-second-ticket behavior after transport/finalize failure, authoritative replay output, terminal sequencing, callback-vs-Stop PCM parity, ordered/drained PCM, explicit GPT Live Resend, and concurrent/repeated Resend ownership. Verification: `swift test` 34/34 and rebuilt `./scripts/test_unit.sh` 89/89 passed.
+
+### 2026-07-31 (GPT Live Transcribe 第三录音策略)
+
+- **Kit API 与路由**：新增 `.gptLiveTranscribe`，保留已有 raw value 与默认 `.openAIRealtime`；`usesRealtimeTransport` 统一两个 GPT strategy 的 capture/transport 判断。GPT Live 精确路由 `gpt-live-transcribe`，GPT Realtime 继续使用 `VoiceFlowConfig.model`，Grok realtime start 返回 typed strategy error。
+- **录音、finalize 与 retry**：两个 GPT strategy 都使用 WAV/PCM16 mono 24 kHz。session、preserved audio 和 App 的 active/last snapshot 保留 originating strategy；preserved handle 还保留 resolved model，Settings/config 改动不会改变 retry 路由。GPT Live timeout 为 `max(60s, pcmBytes / 48000 + 60s)`，GPT Realtime 保持 30s；partial-only deadline 继续报 timeout。GPT Live 收齐 `transcript_completed` 与 `turn_completed` 后才发送 `stop`，inbound event 在 receive loop 中串行交付。
+- **App/UI**：Settings 改为三项 menu picker，GPT Realtime 与 GPT Live 都显示 prompt/terms；中英文名称与帮助文案同步。Start 时 snapshot strategy，PCM、Stop、WAV 保存和 Resend 都按 capability/originating strategy 路由。
+- **验证**：`swift test` 25/25 通过；`./scripts/test_unit.sh` 83/83 通过（一次 rebuilt run 命中已有 zero-signal scheduling flake，原构建重跑通过）；`VOICEFLOW_TEST_REBUILD=1 ./scripts/test_ui_full.sh` 13/13 通过。iOS Simulator 构建随 UI suite 通过。opt-in live suite 已加入 GPT Live 短音频、60 秒 bulk 和 5 分钟 preserved retry，但未用真实凭据运行。visionOS build 未执行成功，因为本机 Xcode 未安装 visionOS 26.5 platform；真机麦克风 gate 未运行。
 
 ### 2026-07-30 (Grok Batch 5-minute latency baseline + 0.3.0 release prep)
 

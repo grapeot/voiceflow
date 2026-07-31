@@ -24,7 +24,7 @@ VoiceFlow 是面向 iOS 和 visionOS 的语音记录 app。仓库内容按可发
 
 1. 不提交真实 token、`.env`、录音文件、日志、构建产物或设备私有配置。
 2. 对外文档只描述 VoiceFlow 的最终产品状态，不写内部来源、私有项目、私有账号或不可公开的历史上下文。
-3. V0 只保留 Record 和 Settings 两个 tab，不加入编辑器、第二大脑、自动修正、自定义按钮或 Watch 功能。Settings 可选择已支持的完整录音策略（OpenAI Realtime / Grok Batch），但不开放任意模型名。
+3. V0 只保留 Record 和 Settings 两个 tab，不加入编辑器、第二大脑、自动修正、自定义按钮或 Watch 功能。Settings 可选择已支持的完整录音策略（GPT Realtime / GPT Live Transcribe / Grok Batch），但不开放任意模型名。
 4. Settings 只允许用户输入 AI Builder Space API token。默认 endpoint 由应用固定，不在 UI 中开放修改。
 5. 每次非平凡变更后更新 `docs/working.md`，记录完成内容、验证结果和影响后续实现的决策。
 6. 初始化或修改 Xcode 工程后，`xcodebuild build` 和 `xcodebuild test` 必须串行执行。
