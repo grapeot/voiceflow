@@ -41,6 +41,7 @@ extension AppState {
         }
         let source = transcript
         let instructions = customActionConfig.trimmedInstructions
+        let modelId = customActionConfig.modelId
         let actionName = customActionDisplayLabel
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
@@ -48,8 +49,7 @@ extension AppState {
         customActionSourceSnapshot = source
         customActionState = .running(id: id, actionName: actionName)
         recordDiagnostic("custom_action_started", metadata: [
-            "characterCount": "\(source.count)",
-            "actionName": actionName
+            "characterCount": "\(source.count)"
         ])
 
         customActionTask?.cancel()
@@ -58,6 +58,7 @@ extension AppState {
                 id: id,
                 source: source,
                 instructions: instructions,
+                modelId: modelId,
                 token: token,
                 actionName: actionName
             )
@@ -85,6 +86,7 @@ extension AppState {
         id: UUID,
         source: String,
         instructions: String,
+        modelId: String,
         token: String,
         actionName: String
     ) async {
@@ -92,6 +94,7 @@ extension AppState {
             let result = try await customActionClient.transform(
                 transcript: source,
                 instructions: instructions,
+                modelId: modelId,
                 baseURL: aiBuilderEndpoint,
                 token: token
             )
@@ -115,6 +118,16 @@ extension AppState {
     private func commitCustomActionSuccess(id: UUID, result: String, actionName: String) {
         guard case .running(let runningID, _) = customActionState, runningID == id else { return }
         guard let source = customActionSourceSnapshot else { return }
+        // Defense-in-depth: if the user edited the transcript while the
+        // request was in flight, do not overwrite their new text. The editor
+        // is also disabled during running, but this guards against any path
+        // that bypassed the UI lock.
+        guard transcript == source else {
+            customActionState = .idle
+            customActionSourceSnapshot = nil
+            customActionTask = nil
+            return
+        }
 
         // 1. Preserve source + result in history (result newest, source next).
         transcriptHistory.addTransform(result: result, source: source)
@@ -125,14 +138,12 @@ extension AppState {
             try clipboardWriter.write(result)
             lastClipboardStatusKey = "record.clipboard.copied"
             recordDiagnostic("custom_action_succeeded", metadata: [
-                "characterCount": "\(result.count)",
-                "actionName": actionName
+                "characterCount": "\(result.count)"
             ])
         } catch {
             lastClipboardStatusKey = "record.clipboard.failed"
             recordDiagnostic("custom_action_succeeded_clipboard_failed", metadata: [
-                "characterCount": "\(result.count)",
-                "actionName": actionName
+                "characterCount": "\(result.count)"
             ])
         }
         customActionState = .idle
@@ -147,9 +158,10 @@ extension AppState {
         customActionState = .failed(messageKey: messageKey)
         customActionSourceSnapshot = nil
         customActionTask = nil
+        // Do not log raw error description or actionName (user content) —
+        // only the whitelisted error category key.
         recordDiagnostic("custom_action_failed", metadata: [
-            "actionName": actionName,
-            "error": String(describing: error)
+            "errorCategory": messageKey
         ])
     }
 

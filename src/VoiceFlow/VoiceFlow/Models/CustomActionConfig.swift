@@ -6,6 +6,10 @@ import Foundation
 struct CustomActionConfig: Equatable, Codable {
     var actionName: String
     var instructions: String
+    /// Model id sent to AI Builder Space. V1 lets the user pick between a
+    /// small fixed set (see `CustomActionModel.choices`); older configs that
+    /// predate this field default to DeepSeek V4 Flash.
+    var modelId: String
 
     var trimmedActionName: String {
         actionName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15,11 +19,12 @@ struct CustomActionConfig: Equatable, Codable {
         instructions.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// A config is usable only when both the action name and instructions are
-    /// non-empty after trimming. The model is fixed (not user-selectable in
-    /// V1), so it is not part of this check.
+    /// A config is usable only when the action name, instructions, and a
+    /// known model id are all non-empty after trimming.
     var isConfigured: Bool {
-        !trimmedActionName.isEmpty && !trimmedInstructions.isEmpty
+        !trimmedActionName.isEmpty
+            && !trimmedInstructions.isEmpty
+            && CustomActionModel.choices.contains(where: { $0.id == modelId })
     }
 
     static let defaultActionName = "Polish"
@@ -29,20 +34,69 @@ struct CustomActionConfig: Equatable, Codable {
     language, tone, and level of detail. Return only the revised text.
     """
 
+    /// Localized default config. Called at init time when no saved config
+    /// exists; once the user edits and persists, their choice is kept
+    /// regardless of language changes.
+    static func localizedDefault(for language: AppLanguage) -> CustomActionConfig {
+        switch language {
+        case .simplifiedChinese:
+            return CustomActionConfig(
+                actionName: "润色",
+                instructions: "改写转写文本，使其更清晰。去掉口头禅和重复语句，在合适处分段，保留原意、语言、语气和细节。只返回改写后的文本。",
+                modelId: CustomActionModel.defaultId
+            )
+        case .system, .english:
+            return CustomActionConfig(
+                actionName: defaultActionName,
+                instructions: defaultInstructions,
+                modelId: CustomActionModel.defaultId
+            )
+        }
+    }
+
     static let `default` = CustomActionConfig(
         actionName: defaultActionName,
-        instructions: defaultInstructions
+        instructions: defaultInstructions,
+        modelId: CustomActionModel.defaultId
     )
+
+    private enum CodingKeys: String, CodingKey {
+        case actionName, instructions, modelId
+    }
+
+    init(actionName: String, instructions: String, modelId: String = CustomActionModel.defaultId) {
+        self.actionName = actionName
+        self.instructions = instructions
+        self.modelId = modelId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.actionName = try c.decode(String.self, forKey: .actionName)
+        self.instructions = try c.decode(String.self, forKey: .instructions)
+        // Older persisted configs have no modelId — fall back to the default.
+        self.modelId = try c.decodeIfPresent(String.self, forKey: .modelId) ?? CustomActionModel.defaultId
+    }
 }
 
-/// The fixed model id used by the custom action in V1. "deepseek-v4-flash"
-/// is the direct-access id for DeepSeek V4 Flash on AI Builder Space; the
-/// alias "deepseek" points at the same model. Hardcoded rather than
-/// user-selectable; a future version can swap the read-only caption for a
-/// GET /v1/models-driven picker.
+/// The fixed set of models the custom action can use in V1. Each choice is a
+/// chat-completion model verified against AI Builder Space's `/v1/chat/completions`.
 enum CustomActionModel {
-    static let id = "deepseek-v4-flash"
-    /// Display name shown in Settings (a proper noun — identical in both
-    /// localizations; only the leading label localizes).
-    static let displayName = "DeepSeek V4 Flash"
+    struct Choice: Identifiable, Equatable {
+        let id: String
+        let displayName: String
+    }
+
+    /// DeepSeek V4 Flash — fast and cheap; the default.
+    static let deepseekV4Flash = Choice(id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash")
+    /// Grok 4.3 (non-reasoning) — `grok-4-fast` on AI Builder Space.
+    static let grok43NonReasoning = Choice(id: "grok-4-fast", displayName: "Grok 4.3 (non-reasoning)")
+
+    static let choices: [Choice] = [deepseekV4Flash, grok43NonReasoning]
+
+    static let defaultId = deepseekV4Flash.id
+
+    static func displayName(for id: String) -> String {
+        choices.first(where: { $0.id == id })?.displayName ?? id
+    }
 }

@@ -1616,7 +1616,7 @@ struct VoiceFlowTests {
         final class BlockingClient: CustomActionSending, @unchecked Sendable {
             let resumeBox: AsyncBox<CheckedContinuation<String, Error>>
             init(_ resumeBox: AsyncBox<CheckedContinuation<String, Error>>) { self.resumeBox = resumeBox }
-            func transform(transcript: String, instructions: String, baseURL: String, token: String) async throws -> String {
+            func transform(transcript: String, instructions: String, modelId: String, baseURL: String, token: String) async throws -> String {
                 try await withCheckedThrowingContinuation { cont in resumeBox.value = cont }
             }
         }
@@ -1649,7 +1649,7 @@ struct VoiceFlowTests {
         final class BlockingClient: CustomActionSending, @unchecked Sendable {
             let resumeBox: AsyncBox<CheckedContinuation<String, Error>>
             init(_ resumeBox: AsyncBox<CheckedContinuation<String, Error>>) { self.resumeBox = resumeBox }
-            func transform(transcript: String, instructions: String, baseURL: String, token: String) async throws -> String {
+            func transform(transcript: String, instructions: String, modelId: String, baseURL: String, token: String) async throws -> String {
                 try await withCheckedThrowingContinuation { cont in resumeBox.value = cont }
             }
         }
@@ -1764,7 +1764,7 @@ struct VoiceFlowTests {
         let client = MockCustomActionClient(result: .success("ok"))
         let state = AppState(keychainStore: keychain, customActionClient: client)
         state.saveAIBuilderToken("my-token")
-        state.customActionConfig = CustomActionConfig(actionName: "Polish", instructions: "Rewrite clearly.")
+        state.customActionConfig = CustomActionConfig(actionName: "Polish", instructions: "Rewrite clearly.", modelId: "grok-4-fast")
         state.transcript = "the transcript"
 
         state.runCustomAction()
@@ -1774,6 +1774,7 @@ struct VoiceFlowTests {
         #expect(client.lastToken == "my-token")
         #expect(client.lastTranscript == "the transcript")
         #expect(client.lastInstructions == "Rewrite clearly.")
+        #expect(client.lastModelId == "grok-4-fast")
         #expect(client.lastBaseURL == "https://space.ai-builders.com/backend")
     }
 
@@ -1782,7 +1783,7 @@ struct VoiceFlowTests {
         final class BlockingClient: CustomActionSending, @unchecked Sendable {
             let resumeBox: AsyncBox<CheckedContinuation<String, Error>>
             init(_ resumeBox: AsyncBox<CheckedContinuation<String, Error>>) { self.resumeBox = resumeBox }
-            func transform(transcript: String, instructions: String, baseURL: String, token: String) async throws -> String {
+            func transform(transcript: String, instructions: String, modelId: String, baseURL: String, token: String) async throws -> String {
                 try await withCheckedThrowingContinuation { cont in resumeBox.value = cont }
             }
         }
@@ -1803,6 +1804,68 @@ struct VoiceFlowTests {
         try? await Task.sleep(for: .milliseconds(50))
         #expect(state.transcript == "raw")
         #expect(clipboard.writeCount == 0)
+    }
+
+    @Test func customActionLateSuccessDoesNotOverwriteUserEditDuringRequest() async throws {
+        let resumeBox = AsyncBox<CheckedContinuation<String, Error>>()
+        final class BlockingClient: CustomActionSending, @unchecked Sendable {
+            let resumeBox: AsyncBox<CheckedContinuation<String, Error>>
+            init(_ resumeBox: AsyncBox<CheckedContinuation<String, Error>>) { self.resumeBox = resumeBox }
+            func transform(transcript: String, instructions: String, modelId: String, baseURL: String, token: String) async throws -> String {
+                try await withCheckedThrowingContinuation { cont in resumeBox.value = cont }
+            }
+        }
+        let keychain = InMemoryKeychainStore()
+        let clipboard = MockClipboardWriter()
+        let state = AppState(keychainStore: keychain, clipboardWriter: clipboard, customActionClient: BlockingClient(resumeBox))
+        state.saveAIBuilderToken("fake-token")
+        state.customActionConfig = .default
+        state.transcript = "raw"
+
+        state.runCustomAction()
+        // Yield once so the blocking task has actually suspended inside
+        // transform() before we mutate the transcript.
+        try? await Task.sleep(for: .milliseconds(30))
+        // Simulate the user changing the transcript while the request is
+        // in flight (e.g. through some path that bypassed the UI lock).
+        state.transcript = "user typed something new"
+        // Now let the late response arrive.
+        if let cont = resumeBox.value { cont.resume(returning: "late result") }
+        try? await Task.sleep(for: .milliseconds(150))
+
+        // The user's edit must survive — the result must not overwrite it.
+        #expect(state.transcript == "user typed something new")
+        #expect(clipboard.writeCount == 0)
+        #expect(state.customActionState == .idle)
+    }
+
+    @Test func historyNavigationGuardedDuringCustomActionRun() async throws {
+        let resumeBox = AsyncBox<CheckedContinuation<String, Error>>()
+        final class BlockingClient: CustomActionSending, @unchecked Sendable {
+            let resumeBox: AsyncBox<CheckedContinuation<String, Error>>
+            init(_ resumeBox: AsyncBox<CheckedContinuation<String, Error>>) { self.resumeBox = resumeBox }
+            func transform(transcript: String, instructions: String, modelId: String, baseURL: String, token: String) async throws -> String {
+                try await withCheckedThrowingContinuation { cont in resumeBox.value = cont }
+            }
+        }
+        let keychain = InMemoryKeychainStore()
+        let state = AppState(keychainStore: keychain, customActionClient: BlockingClient(resumeBox))
+        state.saveAIBuilderToken("fake-token")
+        state.customActionConfig = .default
+        state.transcriptHistory.add("older entry")
+        state.transcript = "current"
+        state.recordingStatus = .ready
+
+        state.runCustomAction()
+        // Direct calls to navigation methods must be guarded internally,
+        // not just via disabled UI buttons.
+        state.navigatePreviousTranscript()
+        state.navigateNextTranscript()
+        #expect(state.transcript == "current")
+
+        state.cancelCustomAction()
+        if let cont = resumeBox.value { cont.resume(throwing: CancellationError()) }
+        try? await Task.sleep(for: .milliseconds(50))
     }
 
 

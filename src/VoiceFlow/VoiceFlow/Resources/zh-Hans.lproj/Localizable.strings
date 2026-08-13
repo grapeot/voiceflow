@@ -117,3 +117,4 @@
 "record.customAction.error.truncated" = "模型提前结束，结果未采用。";
 "record.customAction.error.network" = "网络错误，请检查连接后重试。";
 "record.customAction.error.generic" = "动作失败，请重试。";
+"record.customAction.cancel" = "取消";

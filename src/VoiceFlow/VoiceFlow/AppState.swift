@@ -241,7 +241,12 @@ final class AppState: ObservableObject {
         guard let data = UserDefaults.standard.data(forKey: customActionConfigDefaultsKey),
               let decoded = try? JSONDecoder().decode(CustomActionConfig.self, from: data)
         else {
-            return .default
+            // No saved config: use a localized default based on the current
+            // app language so first-run users see their language's name and
+            // instructions. Once the user edits and persists, their choice
+            // sticks regardless of later language changes.
+            let savedLanguage = UserDefaults.standard.string(forKey: appLanguageDefaultsKey).flatMap(AppLanguage.init(rawValue:)) ?? .system
+            return CustomActionConfig.localizedDefault(for: savedLanguage)
         }
         return decoded
     }
@@ -266,6 +271,7 @@ final class AppState: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
             UserDefaults.standard.removeObject(forKey: Self.transcriptionStrategyDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.customActionConfigDefaultsKey)
         }
         self.openCodeServerURL = UserDefaults.standard.string(forKey: Self.openCodeServerURLDefaultsKey) ?? OpenCodeClient.defaultServerURL
         self.openCodeUsername = UserDefaults.standard.string(forKey: Self.openCodeUsernameDefaultsKey) ?? OpenCodeClient.defaultUsername

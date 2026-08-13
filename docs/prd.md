@@ -157,7 +157,7 @@ Deep link：`voiceflow://record` 已注册。打开 app 后切到 Record tab 并
 
 V0 不包含文档编辑器、自动修正按钮、自定义 prompt 按钮、转写模型选择、Apple Watch app、网页登录、账号系统、云端历史同步、录音库长期管理和复杂工作流编排。
 
-> **V1 已新增 Custom Action**：一个可配置的文本处理动作（润色/总结/翻译等由用户定义）。转写区下沿工具条左侧是自定义动作按钮（图标 + 用户命名的动作名），右侧是 Copy 小图标；Record 仍居中、仍为唯一主命令。Settings 新增 Custom Action Section，含动作名、指令，模型定死 DeepSeek V4 Flash（未来可开放下拉）。详见 `docs/design.md` 与 `docs/rfc.md`。V0 的"自动修正按钮"和"自定义 prompt 按钮"由此进入 V1，但只支持单一动作，不含多动作菜单、云端历史和复杂工作流编排。
+> **V1 已新增 Custom Action**：一个可配置的文本处理动作（润色/总结/翻译等由用户定义）。转写区下沿工具条左侧是自定义动作按钮（图标 + 用户命名的动作名），右侧是 Copy 小图标；Record 仍居中、仍为唯一主命令。Settings 新增 Custom Action Section，含动作名、指令，以及模型 Picker（DeepSeek V4 Flash / Grok 4.3 non-reasoning，默认 DeepSeek）。详见 `docs/design.md` 与 `docs/rfc.md`。V0 的"自动修正按钮"和"自定义 prompt 按钮"由此进入 V1，但只支持单一动作，不含多动作菜单、云端历史和复杂工作流编排。
 
 菜单中的「保存录音」是把最近一次录音导出到 app Documents（`recording_yyyy-MM-dd_HH-mm-ss.wav`），并在 Files → 我的 iPhone → VoiceFlow 中可见；不是内置录音库。保存后弹窗说明文件名与 Files 路径（iOS 无法一键跳转到该目录）。Deep link 只服务于直接开始录音，不扩展成通用自动化接口。
 

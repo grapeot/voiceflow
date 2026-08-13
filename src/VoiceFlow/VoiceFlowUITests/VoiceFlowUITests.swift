@@ -338,10 +338,10 @@ final class VoiceFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["record.customActionButton"].exists)
 
         // Settings: the Custom Action section should be present with its
-        // fields and the read-only model caption.
+        // fields and the model picker.
         openSettings(in: app, label: "Settings")
         XCTAssertTrue(reveal(app.textFields["settings.customActionNameField"], in: app, attempts: 8))
         XCTAssertTrue(app.textFields["settings.customActionInstructionsField"].exists)
-        XCTAssertTrue(app.staticTexts["DeepSeek V4 Flash"].exists)
+        XCTAssertTrue(app.buttons["settings.customActionModelPicker"].exists)
     }
 }

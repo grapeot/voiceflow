@@ -117,3 +117,4 @@
 "record.customAction.error.truncated" = "The model stopped early; the result was not used.";
 "record.customAction.error.network" = "Network error. Check your connection and try again.";
 "record.customAction.error.generic" = "The action failed. Try again.";
+"record.customAction.cancel" = "Cancel";

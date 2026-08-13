@@ -24,7 +24,7 @@ VoiceFlow 是面向 iOS 和 visionOS 的语音记录 app。仓库内容按可发
 
 1. 不提交真实 token、`.env`、录音文件、日志、构建产物或设备私有配置。
 2. 对外文档只描述 VoiceFlow 的最终产品状态，不写内部来源、私有项目、私有账号或不可公开的历史上下文。
-3. V0 只保留 Record 和 Settings 两个 tab，不加入编辑器、第二大脑、Watch 功能。V1 已新增一个 Custom Action（转写区下沿工具条的自定义文本处理按钮 + Settings 里的动作名/指令/只读模型），详见 `docs/prd.md`、`docs/rfc.md`、`docs/design.md`。Settings 仍只允许用户输入 AI Builder Space API token，不开放任意模型名（Custom Action 模型定死 `deepseek-v4-flash`）。
+3. V0 只保留 Record 和 Settings 两个 tab，不加入编辑器、第二大脑、Watch 功能。V1 已新增一个 Custom Action（转写区下沿工具条的自定义文本处理按钮 + Settings 里的动作名/指令/模型 Picker），详见 `docs/prd.md`、`docs/rfc.md`、`docs/design.md`。Settings 仍只允许用户输入 AI Builder Space API token；Custom Action 模型限定在 DeepSeek V4 Flash 和 Grok 4.3 non-reasoning 之间选。
 4. Settings 只允许用户输入 AI Builder Space API token。默认 endpoint 由应用固定，不在 UI 中开放修改。
 5. 每次非平凡变更后更新 `docs/working.md`，记录完成内容、验证结果和影响后续实现的决策。
 6. 初始化或修改 Xcode 工程后，`xcodebuild build` 和 `xcodebuild test` 必须串行执行。

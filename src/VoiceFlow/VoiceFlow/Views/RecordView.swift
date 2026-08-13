@@ -130,7 +130,8 @@ struct RecordView: View {
             }
             TranscriptEditor(
                 text: $appState.transcript,
-                placeholder: localized("record.transcript.placeholder")
+                placeholder: localized("record.transcript.placeholder"),
+                isLocked: appState.customActionState.isRunning
             )
 
             transcriptToolbar
@@ -143,10 +144,19 @@ struct RecordView: View {
     /// they never compete with the Record capsule below. Record's center axis
     /// is untouched — this row belongs to the text, not the transport.
     private var transcriptToolbar: some View {
-        HStack {
-            customActionButton
-            Spacer()
-            copyButton
+        VStack(spacing: DesignTokens.Spacing.xs) {
+            HStack {
+                customActionButton
+                Spacer()
+                copyButton
+            }
+            if case .failed(let messageKey) = appState.customActionState {
+                Text(localized(messageKey))
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("record.customActionError")
+            }
         }
         .padding(.horizontal, DesignTokens.Spacing.xl)
         .padding(.top, DesignTokens.Spacing.s)
@@ -161,7 +171,11 @@ struct RecordView: View {
         let isRunning = appState.customActionState.isRunning
 
         return Button {
-            appState.runCustomAction()
+            if isRunning {
+                appState.cancelCustomAction()
+            } else {
+                appState.runCustomAction()
+            }
         } label: {
             HStack(spacing: DesignTokens.Spacing.xs) {
                 if isRunning {
@@ -172,7 +186,7 @@ struct RecordView: View {
                 } else {
                     Image(systemName: "wand.and.stars")
                 }
-                Text(actionName)
+                Text(isRunning ? localized("record.customAction.cancel") : actionName)
                     .lineLimit(1)
             }
             .font(DesignTokens.Typography.caption)
@@ -183,12 +197,14 @@ struct RecordView: View {
         .buttonStyle(.plain)
         .disabled(!appState.canRunCustomAction && !isRunning)
         .accessibilityIdentifier("record.customActionButton")
-        .accessibilityLabel(Text(actionName))
+        .accessibilityLabel(Text(isRunning ? localized("record.customAction.cancel") : actionName))
     }
 
     private var copyButton: some View {
         Button {
             appState.copyTranscript()
+            let didCopy = appState.lastClipboardStatusKey == "record.clipboard.copied"
+            guard didCopy else { return }
             showCopyCheckmark = true
             copyFeedbackTask?.cancel()
             copyFeedbackTask = Task { @MainActor in
@@ -406,10 +422,11 @@ struct RecordView: View {
 private struct TranscriptEditor: View {
     @Binding var text: String
     let placeholder: String
+    var isLocked: Bool = false
 
     var body: some View {
         ZStack {
-            AutoScrollingTextEditor(text: $text)
+            AutoScrollingTextEditor(text: $text, isLocked: isLocked)
                 .padding(.horizontal, DesignTokens.Spacing.xl)
                 .accessibilityIdentifier("record.transcript")
 
@@ -429,6 +446,7 @@ private struct TranscriptEditor: View {
 #if canImport(UIKit)
 private struct AutoScrollingTextEditor: UIViewRepresentable {
     @Binding var text: String
+    var isLocked: Bool = false
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -445,9 +463,19 @@ private struct AutoScrollingTextEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
-        guard textView.text != text else { return }
+        textView.isEditable = !isLocked
+        let oldText = textView.text ?? ""
+        guard oldText != text else { return }
         textView.text = text
-        scrollToBottom(textView)
+        // Streaming append (new text extends the old) scrolls to the bottom
+        // so the user follows the growing transcript. A whole-document
+        // replacement (e.g. custom action result) scrolls to the top so the
+        // user starts reading from the beginning.
+        if !oldText.isEmpty, text.hasPrefix(oldText) {
+            scrollToBottom(textView)
+        } else {
+            scrollToTop(textView)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -460,6 +488,12 @@ private struct AutoScrollingTextEditor: UIViewRepresentable {
             let length = (textView.text as NSString).length
             let endRange = NSRange(location: max(length - 1, 0), length: 1)
             textView.scrollRangeToVisible(endRange)
+        }
+    }
+
+    private func scrollToTop(_ textView: UITextView) {
+        DispatchQueue.main.async {
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         }
     }
 

@@ -303,10 +303,14 @@ struct SettingsView: View {
                 Text(localized("settings.customAction.model"))
                     .font(DesignTokens.Typography.captionSub)
                     .foregroundStyle(DesignTokens.Palette.textSecondary)
-                Text(CustomActionModel.displayName)
-                    .font(DesignTokens.Typography.caption)
-                    .foregroundStyle(DesignTokens.Palette.textTertiary)
-                    .accessibilityIdentifier("settings.customActionModelValue")
+                Picker("Model", selection: $appState.customActionConfig.modelId) {
+                    ForEach(CustomActionModel.choices) { choice in
+                        Text(choice.displayName)
+                            .tag(choice.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.customActionModelPicker")
             }
 
             Text(localized("settings.customAction.hint"))

@@ -57,13 +57,12 @@ struct TranscriptHistory: Equatable {
     mutating func addTransform(result: String, source: String) -> String? {
         let trimmedResult = result.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedResult.isEmpty else { return nil }
+        guard !trimmedResult.isEmpty, !trimmedSource.isEmpty else { return nil }
 
         entries.insert(TranscriptEntry(text: trimmedResult), at: 0)
         // Avoid duplicating the source if it is already the (now index-1)
-        // head, or empty.
-        if !trimmedSource.isEmpty,
-           !(entries.count >= 2 && entries[1].text == trimmedSource) {
+        // head.
+        if !(entries.count >= 2 && entries[1].text == trimmedSource) {
             entries.insert(TranscriptEntry(text: trimmedSource), at: 1)
         }
         if entries.count > limit {

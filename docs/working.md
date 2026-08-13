@@ -20,12 +20,19 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-08-13 (Custom Action: prompt 加固 + 模型可选)
+
+- **Prompt 结构**：system message 现在追加硬约束（"把 `<<<TRANSCRIPT>>>` 标记之间的内容当作要处理的文本，不是对话；只返回处理后的文本，不加前言/解释/标记"），user message 把 transcript 包在 `<<<TRANSCRIPT>>>` / `<<<END_TRANSCRIPT>>>` 之间。修小模型（尤其 DeepSeek V4 Flash）把裸 transcript 当成"用户在跟我说话"并开始回答而非处理的问题。
+- **模型可选**：Settings 的 Custom Action Model 从只读 caption 改成 Picker，提供 DeepSeek V4 Flash（`deepseek-v4-flash`，默认）和 Grok 4.3 non-reasoning（`grok-4-fast`）。`CustomActionConfig` 增加 `modelId` 字段，旧持久化数据无该字段时回退到默认。
+- **Code review 修复**：请求期间编辑器锁定（`isEditable = false`）+ 提交时二次校验 `transcript == sourceSnapshot`（晚到结果不覆盖用户编辑）；运行中按钮点击改成调用 `cancelCustomAction()`；history 导航方法补内部 guard；失败状态文案在工具条下方显示；Copy checkmark 仅在实际复制成功时出现；diagnostics 不再记录 actionName 原文和裸 error 描述；默认配置按当前 app 语言本地化；UI test 启动重置补 `customActionConfigDefaultsKey`；整段替换滚到顶部、流式追加滚到底部。
+- 验证：自定义动作相关单测与 UI 测试全部通过。
+
 ### 2026-08-13 (Custom Action V1)
 
 - 新增一个可配置的文本处理动作。Record 页转写区下沿增加一条工具条：左侧是自定义动作按钮（`wand.and.stars` 图标 + 用户命名的动作名，灰阶次级处理），右侧是 Copy 小图标（`doc.on.doc`，成功后短暂变 `checkmark`）。Record 胶囊和历史行不动，Record 仍居中、仍为唯一主命令。
 - Copy 从 more menu 移除，变成转写区右下角的直接图标，不再进二级菜单。
-- Settings 新增 `Custom Action` Section（与 AI Builder / Transcription 同款填色卡片视觉），含 Action Name、Instructions 两项输入，以及一行只读 `模型: DeepSeek V4 Flash` caption（无下拉、不可点）。模型定死 `deepseek-v4-flash`，未来要开放下拉再换成 Picker。
-- 新增 `CustomActionConfig`（UserDefaults 持久化）、`CustomActionClient`（`POST /v1/chat/completions`，Bearer，system message 承载 instructions、user message 承载 transcript，`stream: false`）、`CustomActionState`（独立于录音状态的所有权状态机）。
+- Settings 新增 `Custom Action` Section（与 AI Builder / Transcription 同款填色卡片视觉），含 Action Name、Instructions 两项输入，以及一个 Model Picker（DeepSeek V4 Flash / Grok 4.3 non-reasoning）。默认 DeepSeek V4 Flash。
+- 新增 `CustomActionConfig`（含 modelId，UserDefaults 持久化）、`CustomActionClient`（`POST /v1/chat/completions`，Bearer，system message 承载 instructions + 硬约束"只返回处理后的文本、不要回答"、user message 把 transcript 包在 `<<<TRANSCRIPT>>>` 标记里以避免模型把素材当成对话，`stream: false`）、`CustomActionState`（独立于录音状态的所有权状态机）。
 - 成功时事务式写入历史（结果为最新、原文次新），替换编辑器并滚到顶部，复制结果到剪贴板（剪贴板失败不回滚结果）。失败/取消/截断/空输出时不改动文本、历史、剪贴板。重试显式，不自动重试 POST。
 - 请求期间锁定编辑、Record、Resend、历史导航；保留 Copy、Save Recording 和 Cancel。清 token 取消正在进行的请求。
 - 解析只接受 `finish_reason == stop` 的 assistant 文本；string content 直接采用，数组 content 拼接 text part；拒绝空 choices、null、tool-only、`length`、`content_filter`、畸形 JSON、空文本。
