@@ -20,6 +20,7 @@ extension AppState {
     }
 
     func navigatePreviousTranscript() {
+        guard canNavigateTranscriptHistory else { return }
         guard let previousText = transcriptHistory.navigatePrevious() else { return }
         transcript = previousText
         openCodeSendStatus = .idle
@@ -27,6 +28,7 @@ extension AppState {
     }
 
     func navigateNextTranscript() {
+        guard canNavigateTranscriptHistory else { return }
         guard let nextText = transcriptHistory.navigateNext() else { return }
         transcript = nextText
         openCodeSendStatus = .idle

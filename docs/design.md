@@ -373,3 +373,41 @@ struct StatusText: View {
 - **保留像素**的只剩轻量元素：状态字（Listening）、波形像素方块、Tab mic/gear、logo/AppIcon。
 - 波形 bar 15 → **23**（更细腻），bar 宽 14 → 9pt 以排得下。
 - 规律：像素只作 hint，落在小号/轻量元素上。两端（iOS/Android）一致。
+
+## 转写区工具条（Custom Action V1）
+
+转写文本区下沿增加一条紧凑工具条，属于文本表面、不属于录音 transport。Record 胶囊和历史行的布局完全不动，Record 仍是屏幕唯一主命令、仍居中。
+
+```text
+┌─────────────────────────────────┐
+│  Editable transcript text       │
+│  (可滚动)                       │
+│                                 │
+│  [✨ Polish]          [copy]     │  ← 文本下沿工具条
+├─────────────────────────────────┤
+│           [ Record ]            │  ← Record，居中，不动
+│      ‹       ···       ›        │  ← 历史，不动
+└─────────────────────────────────┘
+```
+
+**左侧：自定义动作按钮**。`wand.and.stars` 图标 + 用户在 Settings 起的动作名（例如 `Polish`、`整理文本`），灰阶次级处理（`text.secondary`），不使用琥珀色——琥珀只留给 Record、录音中波形反馈、选中 tab。处理中图标换成 `ProgressView`（small），失败换成 `exclamationmark.triangle`。首版固定 `wand.and.stars`，不允许用户改图标；必须显示动作名，因为一个通用图标区分不了润色/总结/翻译。
+
+**右侧：Copy**。`doc.on.doc` 小图标，44pt 命中区，`text.secondary`。点击复制，成功后 crossfade 成 `checkmark` 约 1.2 秒再回到原图标。从 more menu 移除旧 Copy 项。
+
+**可见性**：转写文本 trim 后为空时整条工具条隐藏（opacity 0 + 不响应点击）。
+
+**处理中锁定**：请求持有结果期间锁定文本编辑、Record、Resend、历史导航；Copy 仍可用（复制原文）；Save Recording 仍可用（有音频时）；自定义动作位置变成可取消入口。
+
+**成功**：编辑器被结果原子替换并滚到顶部（整段替换 ≠ 流式追加，不复用"滚到底"）；历史按 `[结果, 原文, 更早…]` 顺序写入；复制结果到剪贴板，剪贴板失败不回滚结果。**失败/取消**：原文、历史、剪贴板都不动，显示可行动内联状态与 Retry。
+
+**无障碍与布局契约**：
+
+- 所有控件至少 44pt 命中区。
+- 复制在 checkmark 可见期间播报"已复制"并更新 accessibility value；checkmark 只在实际复制成功时出现。
+- 自定义动作的 accessibility label 包含动作名和当前状态（运行中显示 Cancel）。
+- 历史按钮应使用 `Previous transcript` / `Next transcript` 这类有区别的 label（当前两个 chevron 共用通用 label，而历史是找回原文的路径，待后续修正）。
+- Dynamic Type 可以加宽或换行动作名，但不能挤压或移位 Record。
+- Reduced Motion 只用 opacity crossfade。
+- 中英文文案一起出。
+- 层级在 iPhone、iPad、visionOS 一致；宽窗口可以加宽文本，但不把自定义动作挪到 Record 旁边之外的位置。
+- 空文本时整条工具条从辅助功能树隐藏（opacity 0 + allowsHitTesting false），不只靠透明度。

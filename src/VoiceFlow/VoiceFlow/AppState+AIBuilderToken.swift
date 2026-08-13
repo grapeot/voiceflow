@@ -34,6 +34,9 @@ extension AppState {
         }
         hasSavedAIBuilderToken = false
         connectionStatus = .untested
+        // An in-flight custom action uses this token; cancel it so a late
+        // response cannot complete after the token is gone.
+        cancelCustomAction()
     }
 
     func testAIBuilderConnection() async {

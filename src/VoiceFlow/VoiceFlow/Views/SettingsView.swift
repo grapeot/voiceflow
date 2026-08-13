@@ -17,6 +17,7 @@ struct SettingsView: View {
                 Form {
                     aiBuilderSection
                     transcriptionSection
+                    customActionSection
                     openCodeSection
                     languageSection
                     uiTestSection
@@ -276,6 +277,52 @@ struct SettingsView: View {
             }
             .listRowBackground(DesignTokens.Palette.bgSecondary)
         }
+    }
+
+    private var customActionSection: some View {
+        Section {
+            inputField(
+                label: "settings.customAction.actionName",
+                placeholder: "settings.customAction.actionName.placeholder",
+                text: $appState.customActionConfig.actionName,
+                accessibilityIdentifier: "settings.customActionNameField",
+                multiline: false,
+                capitalize: true
+            )
+
+            inputField(
+                label: "settings.customAction.instructions",
+                placeholder: "settings.customAction.instructions.placeholder",
+                text: $appState.customActionConfig.instructions,
+                accessibilityIdentifier: "settings.customActionInstructionsField",
+                multiline: true,
+                capitalize: true
+            )
+
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+                Text(localized("settings.customAction.model"))
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
+                Picker("Model", selection: $appState.customActionConfig.modelId) {
+                    ForEach(CustomActionModel.choices) { choice in
+                        Text(choice.displayName)
+                            .tag(choice.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.customActionModelPicker")
+            }
+
+            Text(localized("settings.customAction.hint"))
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(DesignTokens.Palette.textTertiary)
+        } header: {
+            Text(localized("settings.customAction.title"))
+                .font(DesignTokens.Typography.bodyBold)
+                .foregroundStyle(DesignTokens.Palette.textPrimary)
+                .textCase(nil)
+        }
+        .listRowBackground(DesignTokens.Palette.bgSecondary)
     }
 
     private var transcriptionSection: some View {
