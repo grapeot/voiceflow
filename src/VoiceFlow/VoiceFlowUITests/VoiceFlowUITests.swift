@@ -16,8 +16,8 @@ final class VoiceFlowUITests: XCTestCase {
         openSettings(in: app, label: "Settings")
         XCTAssertTrue(app.secureTextFields["settings.apiTokenField"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
         XCTAssertTrue(app.staticTexts["https://space.ai-builders.com/backend"].exists)
-        XCTAssertTrue(reveal(app.textFields["settings.openCodeServerURLField"], in: app))
-        XCTAssertTrue(app.textFields["settings.openCodeUsernameField"].exists)
+        XCTAssertTrue(reveal(app.textFields["settings.openCodeServerURLField"], in: app, attempts: 8))
+        XCTAssertTrue(reveal(app.textFields["settings.openCodeUsernameField"], in: app, attempts: 8))
     }
 
     func testTokenCanBeSavedReplacedAndCleared() throws {
@@ -314,5 +314,34 @@ final class VoiceFlowUITests: XCTestCase {
         picker.tap()
         app.buttons["Grok STT"].tap()
         XCTAssertFalse(app.textFields["settings.transcriptionPromptField"].exists)
+    }
+
+    func testCustomActionToolbarAndSettingsSectionExist() throws {
+        let app = launchVoiceFlowApp(
+            language: "en",
+            locale: "en_US",
+            extraArguments: ["-uiTestMode", "-uiTestSavedToken"]
+        )
+
+        // With a saved token but no transcript yet, the toolbar should be
+        // hidden (opacity 0). Record a mock transcript first.
+        let startButton = app.buttons["record.startButton"]
+        XCTAssertTrue(startButton.waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        startButton.tap()
+        XCTAssertTrue(waitForRecordingState(.recording, in: app, timeout: 8))
+        app.buttons["record.stopButton"].tap()
+        XCTAssertTrue(waitForRecordingState(.ready, in: app, timeout: 8))
+
+        // After a transcript exists, the copy button and the custom action
+        // button should appear in the transcript toolbar.
+        XCTAssertTrue(app.buttons["record.copyButton"].waitForExistence(timeout: VoiceFlowUITestSuite.defaultTimeout))
+        XCTAssertTrue(app.buttons["record.customActionButton"].exists)
+
+        // Settings: the Custom Action section should be present with its
+        // fields and the read-only model caption.
+        openSettings(in: app, label: "Settings")
+        XCTAssertTrue(reveal(app.textFields["settings.customActionNameField"], in: app, attempts: 8))
+        XCTAssertTrue(app.textFields["settings.customActionInstructionsField"].exists)
+        XCTAssertTrue(app.staticTexts["DeepSeek V4 Flash"].exists)
     }
 }

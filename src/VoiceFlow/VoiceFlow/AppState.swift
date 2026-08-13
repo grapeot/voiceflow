@@ -167,6 +167,28 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(transcriptionStrategy.rawValue, forKey: Self.transcriptionStrategyDefaultsKey) }
     }
 
+    // MARK: - Custom Action
+
+    /// User-defined text transformation config (action name + instructions).
+    /// Persisted in UserDefaults; the AI Builder token stays in Keychain.
+    @Published var customActionConfig: CustomActionConfig {
+        didSet {
+            UserDefaults.standard.set(
+                (try? JSONEncoder().encode(customActionConfig)) ?? Data(),
+                forKey: Self.customActionConfigDefaultsKey
+            )
+        }
+    }
+    /// Live state of the custom action request. Independent from recording
+    /// state so a transform cannot race with a new recording or Resend.
+    @Published internal(set) var customActionState: CustomActionState = .idle
+    /// Snapshot of the source transcript captured at request start. Used so
+    /// a late response cannot overwrite text the user changed after tapping.
+    internal var customActionSourceSnapshot: String?
+    internal var customActionTask: Task<Void, Never>?
+
+    let customActionClient: CustomActionSending
+
     let aiBuilderEndpoint = "https://space.ai-builders.com/backend"
     let keychainStore: KeychainStoring
     let aiBuilderClient: AIBuilderConnectionTesting
@@ -185,6 +207,7 @@ final class AppState: ObservableObject {
     static let transcriptionPromptDefaultsKey = "transcriptionPrompt"  // UserDefaults
     static let transcriptionTermsDefaultsKey = "transcriptionTerms"    // UserDefaults
     static let transcriptionStrategyDefaultsKey = "transcriptionStrategy"  // UserDefaults
+    static let customActionConfigDefaultsKey = "customActionConfig"  // UserDefaults
     static let streamHeartbeatIntervalSeconds: UInt64 = 12
     var lastRecordingURL: URL?
     var recordingTimerStartDate: Date?
@@ -214,6 +237,15 @@ final class AppState: ObservableObject {
         VoiceFlowClient.makeStub(liveTranscript: "Mock transcription")
     }
 
+    private static func loadCustomActionConfig() -> CustomActionConfig {
+        guard let data = UserDefaults.standard.data(forKey: customActionConfigDefaultsKey),
+              let decoded = try? JSONDecoder().decode(CustomActionConfig.self, from: data)
+        else {
+            return .default
+        }
+        return decoded
+    }
+
     init(
         keychainStore: KeychainStoring? = nil,
         aiBuilderClient: AIBuilderConnectionTesting? = nil,
@@ -222,7 +254,8 @@ final class AppState: ObservableObject {
         voiceFlowClient: VoiceFlowClient? = nil,
         clipboardWriter: ClipboardWriting? = nil,
         openCodeClient: OpenCodeSending? = nil,
-        diagnostics: RecordingDiagnosticsReporting? = nil
+        diagnostics: RecordingDiagnosticsReporting? = nil,
+        customActionClient: CustomActionSending? = nil
     ) {
         let isUITestMode = ProcessInfo.processInfo.arguments.contains("-uiTestMode")
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestResetPreferences") {
@@ -242,6 +275,8 @@ final class AppState: ObservableObject {
         self.transcriptionTerms = UserDefaults.standard.string(forKey: Self.transcriptionTermsDefaultsKey) ?? ""
         self.transcriptionStrategy = UserDefaults.standard.string(forKey: Self.transcriptionStrategyDefaultsKey)
             .flatMap(VoiceFlowRecordingStrategy.init(rawValue:)) ?? .gptLiveTranscribe
+        self.customActionConfig = Self.loadCustomActionConfig()
+        self.customActionClient = customActionClient ?? (isUITestMode ? MockCustomActionClient(result: .success("Mock polish result")) : CustomActionClient())
         self.keychainStore = keychainStore ?? (isUITestMode ? InMemoryKeychainStore() : KeychainStore())
         if let aiBuilderClient {
             self.aiBuilderClient = aiBuilderClient
@@ -357,12 +392,18 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.transcriptionPromptDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.transcriptionTermsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.transcriptionStrategyDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.customActionConfigDefaultsKey)
         openCodeServerURL = OpenCodeClient.defaultServerURL
         openCodeUsername = OpenCodeClient.defaultUsername
         appLanguage = .system
         transcriptionPrompt = ""
         transcriptionTerms = ""
         transcriptionStrategy = .gptLiveTranscribe
+        customActionConfig = .default
+        customActionState = .idle
+        customActionSourceSnapshot = nil
+        customActionTask?.cancel()
+        customActionTask = nil
         activeRecordingStrategy = .gptLiveTranscribe
         lastRecordingStrategy = .gptLiveTranscribe
 
@@ -398,7 +439,8 @@ final class AppState: ObservableObject {
     }
 
     var canStartRecording: Bool {
-        recordingStatus == .idle || recordingStatus == .ready
+        (recordingStatus == .idle || recordingStatus == .ready)
+            && !customActionState.isRunning
     }
 
     var canStopRecording: Bool {
@@ -406,7 +448,8 @@ final class AppState: ObservableObject {
     }
 
     var canNavigateTranscriptHistory: Bool {
-        recordingStatus == .idle || recordingStatus == .ready
+        (recordingStatus == .idle || recordingStatus == .ready)
+            && !customActionState.isRunning
     }
 
     var canNavigatePreviousTranscript: Bool {
@@ -433,6 +476,7 @@ final class AppState: ObservableObject {
     // `canNavigateTranscriptHistory`.
     var canResendRecording: Bool {
         activeTranscriptionAttemptID == nil
+            && !customActionState.isRunning
             && hasSavedAIBuilderToken
             && (recordingStatus == .recording || lastRecordingFileExists)
     }
@@ -443,6 +487,7 @@ final class AppState: ObservableObject {
     }
 
     func startRecording() async {
+        guard !customActionState.isRunning else { return }
         guard hasSavedAIBuilderToken else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
             presentRecordError("record.error.missingToken")

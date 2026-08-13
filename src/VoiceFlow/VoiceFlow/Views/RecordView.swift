@@ -10,6 +10,8 @@ struct RecordView: View {
     @Environment(\.localizationBundle) private var localizationBundle
     @Environment(\.colorScheme) private var colorScheme
     @State private var showOpenCodeInfo = false
+    @State private var copyFeedbackTask: Task<Void, Never>?
+    @State private var showCopyCheckmark = false
 
     var body: some View {
         ZStack {
@@ -130,8 +132,82 @@ struct RecordView: View {
                 text: $appState.transcript,
                 placeholder: localized("record.transcript.placeholder")
             )
+
+            transcriptToolbar
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// Compact output-action toolbar attached to the transcript surface:
+    /// custom action on the left, copy on the right. Both are muted gray so
+    /// they never compete with the Record capsule below. Record's center axis
+    /// is untouched — this row belongs to the text, not the transport.
+    private var transcriptToolbar: some View {
+        HStack {
+            customActionButton
+            Spacer()
+            copyButton
+        }
+        .padding(.horizontal, DesignTokens.Spacing.xl)
+        .padding(.top, DesignTokens.Spacing.s)
+        .opacity(appState.canCopyTranscript ? 1 : 0)
+        .allowsHitTesting(appState.canCopyTranscript)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("record.transcriptToolbar")
+    }
+
+    private var customActionButton: some View {
+        let actionName = appState.customActionDisplayLabel
+        let isRunning = appState.customActionState.isRunning
+
+        return Button {
+            appState.runCustomAction()
+        } label: {
+            HStack(spacing: DesignTokens.Spacing.xs) {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if case .failed = appState.customActionState {
+                    Image(systemName: "exclamationmark.triangle")
+                } else {
+                    Image(systemName: "wand.and.stars")
+                }
+                Text(actionName)
+                    .lineLimit(1)
+            }
+            .font(DesignTokens.Typography.caption)
+            .foregroundStyle(DesignTokens.Palette.textSecondary)
+            .padding(.horizontal, DesignTokens.Spacing.s)
+            .padding(.vertical, DesignTokens.Spacing.xs)
+        }
+        .buttonStyle(.plain)
+        .disabled(!appState.canRunCustomAction && !isRunning)
+        .accessibilityIdentifier("record.customActionButton")
+        .accessibilityLabel(Text(actionName))
+    }
+
+    private var copyButton: some View {
+        Button {
+            appState.copyTranscript()
+            showCopyCheckmark = true
+            copyFeedbackTask?.cancel()
+            copyFeedbackTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.2))
+                if !Task.isCancelled {
+                    showCopyCheckmark = false
+                }
+            }
+        } label: {
+            Image(systemName: showCopyCheckmark ? "checkmark" : "doc.on.doc")
+                .font(.system(size: DesignTokens.Sizing.ghostIcon, weight: .regular))
+                .frame(width: 44, height: 44)
+                .foregroundStyle(DesignTokens.Palette.textSecondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!appState.canCopyTranscript)
+        .accessibilityIdentifier("record.copyButton")
+        .accessibilityLabel(Text(localized("record.copy")))
     }
 
     private var primaryAction: some View {
@@ -155,16 +231,6 @@ struct RecordView: View {
             .accessibilityIdentifier("record.historyPreviousButton")
 
             Menu {
-                Button(action: appState.copyTranscript) {
-                    Label {
-                        Text(localized("record.copy"))
-                    } icon: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                }
-                .disabled(!appState.canCopyTranscript)
-                .accessibilityIdentifier("record.copyButton")
-
                 Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
                     Label {
                         Text(openCodeMenuLabel)

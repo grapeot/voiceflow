@@ -43,6 +43,36 @@ struct TranscriptHistory: Equatable {
         currentIndex = 0
     }
 
+    /// Transactional insertion for a text transformation. The result becomes
+    /// the newest entry (index 0); the source text follows it (index 1) so
+    /// the user can navigate back to the original. If the source is already
+    /// the current head, it is not inserted twice. Unlike `add`, this does
+    /// NOT globally remove older matching entries — equal text can be a
+    /// legitimate later recording or operation. The five-entry limit is
+    /// applied after both insertions.
+    ///
+    /// Returns the text the editor should show next (the result), or nil if
+    /// either input was empty after trimming.
+    @discardableResult
+    mutating func addTransform(result: String, source: String) -> String? {
+        let trimmedResult = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedResult.isEmpty else { return nil }
+
+        entries.insert(TranscriptEntry(text: trimmedResult), at: 0)
+        // Avoid duplicating the source if it is already the (now index-1)
+        // head, or empty.
+        if !trimmedSource.isEmpty,
+           !(entries.count >= 2 && entries[1].text == trimmedSource) {
+            entries.insert(TranscriptEntry(text: trimmedSource), at: 1)
+        }
+        if entries.count > limit {
+            entries = Array(entries.prefix(limit))
+        }
+        currentIndex = 0
+        return trimmedResult
+    }
+
     mutating func navigatePrevious() -> String? {
         guard hasPrevious else { return nil }
         currentIndex += 1

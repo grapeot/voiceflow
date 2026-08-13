@@ -20,6 +20,22 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-08-13 (Custom Action V1)
+
+- 新增一个可配置的文本处理动作。Record 页转写区下沿增加一条工具条：左侧是自定义动作按钮（`wand.and.stars` 图标 + 用户命名的动作名，灰阶次级处理），右侧是 Copy 小图标（`doc.on.doc`，成功后短暂变 `checkmark`）。Record 胶囊和历史行不动，Record 仍居中、仍为唯一主命令。
+- Copy 从 more menu 移除，变成转写区右下角的直接图标，不再进二级菜单。
+- Settings 新增 `Custom Action` Section（与 AI Builder / Transcription 同款填色卡片视觉），含 Action Name、Instructions 两项输入，以及一行只读 `模型: DeepSeek V4 Flash` caption（无下拉、不可点）。模型定死 `deepseek-v4-flash`，未来要开放下拉再换成 Picker。
+- 新增 `CustomActionConfig`（UserDefaults 持久化）、`CustomActionClient`（`POST /v1/chat/completions`，Bearer，system message 承载 instructions、user message 承载 transcript，`stream: false`）、`CustomActionState`（独立于录音状态的所有权状态机）。
+- 成功时事务式写入历史（结果为最新、原文次新），替换编辑器并滚到顶部，复制结果到剪贴板（剪贴板失败不回滚结果）。失败/取消/截断/空输出时不改动文本、历史、剪贴板。重试显式，不自动重试 POST。
+- 请求期间锁定编辑、Record、Resend、历史导航；保留 Copy、Save Recording 和 Cancel。清 token 取消正在进行的请求。
+- 解析只接受 `finish_reason == stop` 的 assistant 文本；string content 直接采用，数组 content 拼接 text part；拒绝空 choices、null、tool-only、`length`、`content_filter`、畸形 JSON、空文本。
+- 新增单测覆盖配置持久化、解析（string/数组/空/截断/tool-only/空 choices）、请求契约（Bearer、分离 system/user、model、stream:false）、成功（历史顺序 + 一次剪贴板）、失败（三者不动）、取消（晚到成功不提交）、运行中 guard（Record/历史/Resend 禁用）、清 token 取消、历史事务式插入（顺序/去重/5 条上限）。
+- 验证：`swift test` 与 `./scripts/test_unit.sh` 自定义动作相关用例全部通过；两条既有 diagnostics 用例（`recordingDiagnosticsCapturePermissionAndTranscriptionFailures`、`recordingDiagnosticsCaptureTranscriptionResponseAndOpenCodeEvents`）在 master 上同样失败，属本机 iOS 26.5 SDK 与测试预期 26.3.1 的环境差异，与本改动无关。
+
+### 2026-07-31 (iOS deployment target correction)
+
+- Corrected the VoiceFlow App and test targets from the Xcode-generated iOS 26.2 deployment target to iOS 17.0, matching VoiceFlowKit's documented platform support. The visionOS deployment target remains unchanged.
+
 ### 2026-07-31 (VoiceFlowKit 0.4.0 release prep)
 
 - Bumped `VoiceFlowKit.version` and the documented exact Swift Package pin to `0.4.0`. The release includes GPT Live Transcribe, accumulated recording-time transcript snapshots, and GPT Live as the reference App default for new installations.

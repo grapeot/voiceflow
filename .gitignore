@@ -37,6 +37,7 @@ Secrets.plist
 logs/
 recordings/
 tmp/
+tmp_*
 *.wav
 *.m4a
 *.caf
