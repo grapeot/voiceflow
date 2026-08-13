@@ -399,3 +399,15 @@ struct StatusText: View {
 **处理中锁定**：请求持有结果期间锁定文本编辑、Record、Resend、历史导航；Copy 仍可用（复制原文）；Save Recording 仍可用（有音频时）；自定义动作位置变成可取消入口。
 
 **成功**：编辑器被结果原子替换并滚到顶部（整段替换 ≠ 流式追加，不复用"滚到底"）；历史按 `[结果, 原文, 更早…]` 顺序写入；复制结果到剪贴板，剪贴板失败不回滚结果。**失败/取消**：原文、历史、剪贴板都不动，显示可行动内联状态与 Retry。
+
+**无障碍与布局契约**：
+
+- 所有控件至少 44pt 命中区。
+- 复制在 checkmark 可见期间播报"已复制"并更新 accessibility value；checkmark 只在实际复制成功时出现。
+- 自定义动作的 accessibility label 包含动作名和当前状态（运行中显示 Cancel）。
+- 历史按钮应使用 `Previous transcript` / `Next transcript` 这类有区别的 label（当前两个 chevron 共用通用 label，而历史是找回原文的路径，待后续修正）。
+- Dynamic Type 可以加宽或换行动作名，但不能挤压或移位 Record。
+- Reduced Motion 只用 opacity crossfade。
+- 中英文文案一起出。
+- 层级在 iPhone、iPad、visionOS 一致；宽窗口可以加宽文本，但不把自定义动作挪到 Record 旁边之外的位置。
+- 空文本时整条工具条从辅助功能树隐藏（opacity 0 + allowsHitTesting false），不只靠透明度。

@@ -379,6 +379,8 @@ rg -n '(o[p]://|/U[s]ers/[^ ]+|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9]
 
 **Settings**：新增 `Custom Action` Section（同款填色卡片），含 Action Name、Instructions 两项输入 + Model Picker。无二级页面。
 
+**安全**：在"用户自带 AI Builder token"模式下直接调 AI Builder Space，不需要新增代理 backend；token 只在 Keychain 和 Authorization header，不进 UserDefaults/retry 状态/请求体/诊断日志（diagnostics 只记字符数和错误类别，不记 actionName 原文、transcript、响应或裸 error 描述）。若未来改成内置一个共享平台 token 分发，移动端直连不再合适，需把 token 挪到有鉴权、配额和限流的服务端。
+
 ## 后续可选
 
 - Custom Action：多动作菜单、动态模型 Picker（`GET /v1/models` + capability allowlist）
