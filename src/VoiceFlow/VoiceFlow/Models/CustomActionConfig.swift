@@ -87,14 +87,14 @@ enum CustomActionModel {
         let displayName: String
     }
 
-    /// DeepSeek V4 Flash — fast and cheap; the default.
+    /// DeepSeek V4 Flash — fast and cheap.
     static let deepseekV4Flash = Choice(id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash")
-    /// Grok 4.3 (non-reasoning) — `grok-4-fast` on AI Builder Space.
+    /// Grok 4.3 (non-reasoning) — `grok-4-fast` on AI Builder Space; the default.
     static let grok43NonReasoning = Choice(id: "grok-4-fast", displayName: "Grok 4.3 (non-reasoning)")
 
     static let choices: [Choice] = [deepseekV4Flash, grok43NonReasoning]
 
-    static let defaultId = deepseekV4Flash.id
+    static let defaultId = grok43NonReasoning.id
 
     static func displayName(for id: String) -> String {
         choices.first(where: { $0.id == id })?.displayName ?? id

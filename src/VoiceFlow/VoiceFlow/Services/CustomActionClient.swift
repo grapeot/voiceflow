@@ -8,7 +8,7 @@ import Foundation
 /// V1 sends only the common, model-agnostic request body (model, messages,
 /// stream:false). No tools, no debug, no temperature — avoids known
 /// per-model differences (e.g. gpt-5 forces temperature=1.0, kimi forces
-/// 1.0). The fixed model is `deepseek-v4-flash`.
+/// 1.0). The default model is `grok-4-fast`.
 protocol CustomActionSending: Sendable {
     func transform(
         transcript: String,
