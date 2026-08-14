@@ -12,17 +12,22 @@ struct RecordView: View {
     @State private var showOpenCodeInfo = false
     @State private var copyFeedbackTask: Task<Void, Never>?
     @State private var showCopyCheckmark = false
+    @State private var isEditingTranscript = false
 
     var body: some View {
         ZStack {
             DesignTokens.Palette.bgPrimary.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                Spacer().frame(height: DesignTokens.Spacing.xxl)
+                Spacer().frame(height: isEditingTranscript
+                    ? DesignTokens.Spacing.s
+                    : DesignTokens.Spacing.xxl)
 
                 timerHeader
 
-                Spacer().frame(height: DesignTokens.Spacing.l)
+                Spacer().frame(height: isEditingTranscript
+                    ? DesignTokens.Spacing.s
+                    : DesignTokens.Spacing.l)
 
                 WaveformView(
                     mode: waveformMode,
@@ -31,8 +36,12 @@ struct RecordView: View {
                 )
                 .padding(.horizontal, DesignTokens.Spacing.xl)
                 .accessibilityIdentifier("record.waveform")
+                .frame(height: isEditingTranscript ? 0 : DesignTokens.Sizing.waveformHeight)
+                .opacity(isEditingTranscript ? 0 : 1)
 
-                Spacer().frame(height: DesignTokens.Spacing.xxl)
+                Spacer().frame(height: isEditingTranscript
+                    ? DesignTokens.Spacing.s
+                    : DesignTokens.Spacing.xxl)
 
                 transcriptArea
 
@@ -46,6 +55,7 @@ struct RecordView: View {
 
                 Spacer().frame(height: DesignTokens.Spacing.l)
             }
+            .animation(.easeInOut(duration: 0.3), value: isEditingTranscript)
         }
         .toolbar(.hidden, for: .navigationBar)
         #if os(visionOS)
@@ -101,8 +111,12 @@ struct RecordView: View {
             // Timer uses the regular system face (56pt thin) — the Pixelate
             // look is dialed back to a hint, so the big timer stays neutral.
             // monospacedDigit keeps the digits from jittering as they tick.
+            // In editing mode the timer shrinks to captionSub to reclaim
+            // vertical space for the keyboard-compacted transcript area.
             Text(appState.recordingTimerText)
-                .font(DesignTokens.Typography.timer)
+                .font(isEditingTranscript
+                    ? DesignTokens.Typography.captionSub
+                    : DesignTokens.Typography.timer)
                 .foregroundStyle(DesignTokens.Palette.textPrimary)
                 .monospacedDigit()
                 .accessibilityIdentifier("record.recordingTimer")
@@ -131,7 +145,8 @@ struct RecordView: View {
             TranscriptEditor(
                 text: $appState.transcript,
                 placeholder: localized("record.transcript.placeholder"),
-                isLocked: appState.customActionState.isRunning
+                isLocked: appState.customActionState.isRunning,
+                isEditing: $isEditingTranscript
             )
 
             transcriptToolbar
@@ -423,10 +438,11 @@ private struct TranscriptEditor: View {
     @Binding var text: String
     let placeholder: String
     var isLocked: Bool = false
+    @Binding var isEditing: Bool
 
     var body: some View {
         ZStack {
-            AutoScrollingTextEditor(text: $text, isLocked: isLocked)
+            AutoScrollingTextEditor(text: $text, isLocked: isLocked, isEditing: $isEditing)
                 .padding(.horizontal, DesignTokens.Spacing.xl)
                 .accessibilityIdentifier("record.transcript")
 
@@ -447,6 +463,7 @@ private struct TranscriptEditor: View {
 private struct AutoScrollingTextEditor: UIViewRepresentable {
     @Binding var text: String
     var isLocked: Bool = false
+    @Binding var isEditing: Bool
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -479,7 +496,7 @@ private struct AutoScrollingTextEditor: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, isEditing: $isEditing)
     }
 
     private func scrollToBottom(_ textView: UITextView) {
@@ -499,19 +516,30 @@ private struct AutoScrollingTextEditor: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         private var text: Binding<String>
+        private var isEditing: Binding<Bool>
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, isEditing: Binding<Bool>) {
             self.text = text
+            self.isEditing = isEditing
         }
 
         func textViewDidChange(_ textView: UITextView) {
             text.wrappedValue = textView.text
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            isEditing.wrappedValue = true
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            isEditing.wrappedValue = false
         }
     }
 }
 #else
 private struct AutoScrollingTextEditor: View {
     @Binding var text: String
+    @Binding var isEditing: Bool
 
     var body: some View {
         TextEditor(text: $text)
