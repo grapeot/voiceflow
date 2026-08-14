@@ -411,3 +411,38 @@ struct StatusText: View {
 - 中英文文案一起出。
 - 层级在 iPhone、iPad、visionOS 一致；宽窗口可以加宽文本，但不把自定义动作挪到 Record 旁边之外的位置。
 - 空文本时整条工具条从辅助功能树隐藏（opacity 0 + allowsHitTesting false），不只靠透明度。
+
+## 编辑态紧凑布局（键盘重排）
+
+### 问题
+
+用户点进转写文本框编辑时，系统键盘弹起后约占 336pt 可用高度。RecordView 顶部固定 chrome（计时器 56pt + 波形 80pt + 各 spacer 约 209pt）合计约 437pt，在 iPhone 17 Pro 上键盘态可用区只剩约 430pt，`transcriptArea`（`.frame(maxHeight: .infinity)` 弹性块）被压到仅两行，无法有效编辑。
+
+### 设计原则
+
+波形是"唯一视觉锚点"这条原则针对录音/就绪态。用户进入编辑态时，主任务从"录音"切到"改文字"，波形此时是 idle 静态细线，对当前任务没有信息价值，反而占据 80pt 抢空间。同理 56pt 大计时器在编辑态是装饰而非工作面。按信息层级原则——视觉锚点必须是用户当前要操作的东西——编辑态的锚点应该是文本本身。隐藏波形 + 缩小计时器不是妥协，而是让视觉层级跟随主任务切换，与现有设计哲学一致。
+
+### 编辑态变化
+
+由 `isEditingTranscript` 状态驱动（`UITextView` 的 `didBeginEditing` / `didEndEditing` 回调经 `Binding<Bool>` 传回 RecordView）。在 iOS 上键盘弹起时触发；visionOS 无系统键盘，此状态不会触发，布局保持原样，无需特判。
+
+- **波形**：opacity crossfade 到 0，height collapse 到 0（不是只隐藏可见性，要真把高度收回释放空间）。回收约 80pt + 上下 spacer 共约 72pt。
+- **计时器**：从 56pt thin 缩到 13pt captionSub（`Typography.captionSub`），保留秒数。录音刚结束用户可能想对一眼时长再改字，秒数仍有参考价值，只是不需要 56pt 那么大。回收约 43pt。
+- **顶部 spacer**：48pt → 8pt。回收约 40pt。
+
+三项合计回收约 235pt，键盘态下文本区从约 2 行扩到约 8–9 行。
+
+### 保持不变
+
+- Record 胶囊 + 历史/more 行不动。它们是 app 的稳定结构骨架，编辑时突然消失会让人失去方向感，且用户改完可能马上要 Record，保留入口反而顺。
+- transcriptToolbar（Custom Action + Copy）保留——它们是文本操作，编辑时更有用。
+
+### 动效
+
+遵循 design.md 的 250–350ms ease-in-out opacity crossfade，高度用 `.animation(.easeInOut(duration: 0.3))` 跟随。collapse 与键盘上推动画并行，文本区一拿到焦点就开始扩张，不等键盘完全到位。Reduced Motion 只用 opacity crossfade，高度变化可瞬切。
+
+### 实现要点
+
+1. `AutoScrollingTextEditor` 的 `Coordinator` 加 `textViewDidBeginEditing` / `textViewDidEndEditing`，通过 `Binding<Bool>` 把 isEditing 传回 RecordView（`@State private var isEditingTranscript = false`）。
+2. RecordView 顶部基于 `isEditingTranscript` 控制：波形用 `.frame(height: isEditing ? 0 : 80)` + `.opacity(isEditing ? 0 : 1)`；计时器用三元切换 `Typography.timer` / `Typography.captionSub`；顶部 spacer 用 `isEditing ? Spacing.s : Spacing.xxl`。
+3. transcriptArea 的 `.frame(maxHeight: .infinity)` 保持，它是弹性吸收者，重排后多出的空间自动归它。
