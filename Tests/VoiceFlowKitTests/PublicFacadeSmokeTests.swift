@@ -10,7 +10,7 @@ struct PublicFacadeSmokeTests {
         #expect(config.model == VoiceFlowConfig.defaultModel)
         #expect(config.prompt == nil)
         #expect(config.terms.isEmpty)
-        #expect(VoiceFlowRecordingStrategy.allCases == [.openAIRealtime, .gptLiveTranscribe, .grokBatch])
+        #expect(VoiceFlowRecordingStrategy.allCases == [.openAIRealtime, .gptLiveTranscribe, .grokBatch, .localQwen3ASR])
     }
 
     @Test func captionStoreLayersFlash() async throws {

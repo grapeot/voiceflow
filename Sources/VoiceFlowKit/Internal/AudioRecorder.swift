@@ -260,7 +260,7 @@ public final class AudioRecorder: NSObject, AudioRecording, AVAudioRecorderDeleg
             let data = Data(bytes: channelData, count: bufferLength * bytesPerFrame)
             callbackLease.deliver(data) { [weak self] data in
                 guard let self else { return }
-                if strategy.usesRealtimeTransport {
+                if strategy.recordsPCM {
                     self.pcmBuffer.append(data)
                 } else {
                     self.aacWriter?.enqueue(pcmData: data)

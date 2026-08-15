@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 import VoiceFlowKit
 
 final class OrderedPCMChunkBuffer: @unchecked Sendable {
@@ -183,6 +186,33 @@ extension AppState {
             return nil
         }
 
+        let strategy = lastRecordingStrategy
+
+        // On-device path: no token, no network. The engine transcribes the
+        // persisted recording directly and returns the final text.
+        if strategy == .localQwen3ASR {
+            do {
+                recordDiagnostic("transcription_started", metadata: ["mode": "local_asr"])
+                let text = try await localAsrEngine.transcribe(audioFile: audioURL)
+                guard ownsTranscriptionAttempt(attemptID) else { return nil }
+                recordDiagnostic(
+                    "transcription_succeeded",
+                    metadata: ["characterCount": "\(text.count)", "mode": "local_asr"]
+                )
+                return text
+            } catch {
+                guard ownsTranscriptionAttempt(attemptID) else { return nil }
+                recordDiagnostic(
+                    "transcription_local_failed",
+                    metadata: ["reason": String(describing: error)]
+                )
+                if presentErrorOnFailure {
+                    presentRecordError("record.error.localTranscriptionFailed")
+                }
+                return nil
+            }
+        }
+
         guard let token = try? keychainStore.readString(for: Self.tokenKey), !token.isEmpty else {
             recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
             if presentErrorOnFailure {
@@ -192,7 +222,6 @@ extension AppState {
         }
 
         do {
-            let strategy = lastRecordingStrategy
             recordDiagnostic("transcription_started", metadata: ["hasToken": "true", "mode": strategy == .grokBatch ? "grok_batch" : "bulk"])
             await applyCurrentTranscriptionConfig(token: token)
             guard ownsTranscriptionAttempt(attemptID) else { return nil }
@@ -442,15 +471,128 @@ extension AppState {
 
     func finishBatchTranscription(attemptID: UUID) async {
         guard ownsTranscriptionAttempt(attemptID) else { return }
-        if let text = await finishTranscriptionFromLastRecording(
+        let isLocal = lastRecordingStrategy == .localQwen3ASR
+        // Local ASR often returns 1–2 CJK characters ("你好", "好的"). The
+        // cloud >3-character gate would treat those as failures.
+        let usable: (String) -> Bool = isLocal
+            ? { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            : isUsableTranscript
+        let text = await finishTranscriptionFromLastRecording(
             attemptID: attemptID,
             presentErrorOnFailure: false
-        ),
-           isUsableTranscript(text) {
-            completeStopTranscriptionSuccess(text: text, mode: "grok_batch", attemptID: attemptID)
-        } else {
-            completeStopTranscriptionFailure(reason: "grokBatchFailed", attemptID: attemptID)
+        )
+        if let text, usable(text) {
+            completeStopTranscriptionSuccess(
+                text: text,
+                mode: isLocal ? "local_asr" : "grok_batch",
+                attemptID: attemptID
+            )
+        } else if isLocal, ownsTranscriptionAttempt(attemptID) {
+            let reason = text == nil ? "localAsrFailed" : "localEmptyTranscript"
+            recordDiagnostic("transcription_stop_failed", metadata: ["reason": reason])
+            presentRecordError(
+                text == nil
+                    ? "record.error.localTranscriptionFailed"
+                    : "record.error.localEmptyTranscript"
+            )
+        } else if !isLocal {
+            completeStopTranscriptionFailure(
+                reason: "grokBatchFailed",
+                attemptID: attemptID
+            )
         }
+    }
+
+    // MARK: - Local model download
+
+    /// Download the on-device model weights with progress reporting.
+    /// A healthy in-flight download ignores further taps. A stalled one
+    /// (no progress for 20s) is cancelled and restarted so Retry after a
+    /// background kill cannot sit at 0% forever.
+    func downloadLocalModel() {
+        if case .ready = localModelStatus { return }
+        if localModelStatus.isInFlight, localModelDownloadTask != nil, !isLocalModelDownloadStalled {
+            return
+        }
+        localModelDownloadTask?.cancel()
+        localModelDownloadTask = nil
+
+        let seeded = max(0, min(1, localAsrEngine.existingDownloadProgress()))
+        localModelStatus = seeded > 0 ? .downloading(progress: seeded) : .preparing
+        localModelLastProgressAt = Date()
+        recordDiagnostic("local_model_download_started")
+
+        #if os(iOS)
+        var backgroundTask = UIBackgroundTaskIdentifier.invalid
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "local-asr-model-download") { [weak self] in
+            self?.interruptLocalModelDownload(reason: .interrupted)
+            if backgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTask)
+                backgroundTask = .invalid
+            }
+        }
+        #endif
+
+        localModelDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.localAsrEngine.downloadModel { update in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.localModelStatus.isInFlight else { return }
+                        self.localModelLastProgressAt = Date()
+                        if update.isPreparing, update.fraction <= 0 {
+                            self.localModelStatus = .preparing
+                        } else {
+                            self.localModelStatus = .downloading(progress: max(0, min(1, update.fraction)))
+                        }
+                    }
+                }
+                await MainActor.run { [weak self] in
+                    guard let self, self.localModelStatus.isInFlight else { return }
+                    self.localModelStatus = .ready
+                    self.recordDiagnostic("local_model_download_succeeded")
+                }
+            } catch is CancellationError {
+                await MainActor.run { [weak self] in
+                    self?.finishCancelledLocalModelDownload()
+                }
+            } catch LocalAsrEngineError.interrupted {
+                await MainActor.run { [weak self] in
+                    self?.finishCancelledLocalModelDownload()
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self, self.localModelStatus.isInFlight else { return }
+                    self.localModelStatus = .failed(message: String(describing: error))
+                    self.recordDiagnostic(
+                        "local_model_download_failed",
+                        metadata: ["reason": String(describing: error)]
+                    )
+                }
+            }
+            await MainActor.run { [weak self] in
+                self?.localModelDownloadTask = nil
+                self?.localModelLastProgressAt = nil
+                #if os(iOS)
+                if backgroundTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTask)
+                    backgroundTask = .invalid
+                }
+                #endif
+            }
+        }
+    }
+
+    func interruptLocalModelDownload(reason: LocalAsrEngineError = .interrupted) {
+        guard localModelStatus.isInFlight else { return }
+        localModelDownloadTask?.cancel()
+        recordDiagnostic("local_model_download_paused", metadata: ["reason": String(describing: reason)])
+    }
+
+    private func finishCancelledLocalModelDownload() {
+        guard localModelStatus.isInFlight else { return }
+        localModelStatus = .paused
+        localModelLastProgressAt = nil
     }
 
     private func isUsableTranscript(_ text: String) -> Bool {

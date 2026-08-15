@@ -167,6 +167,24 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(transcriptionStrategy.rawValue, forKey: Self.transcriptionStrategyDefaultsKey) }
     }
 
+    // MARK: - Local ASR (on-device Qwen3-ASR)
+
+    /// Download/readiness state of the on-device model weights. Surfaced in
+    /// Settings and gated before Start when the Local strategy is selected.
+    /// Written by the download flow in `AppState+LiveSession` and UI-test
+    /// resets; treat the setter as framework-internal.
+    @Published var localModelStatus: LocalAsrModelStatus = .notDownloaded
+    var localModelDownloadTask: Task<Void, Never>?
+    var localModelLastProgressAt: Date?
+    /// Whether this device/OS can run the on-device engine at all (iOS 18+).
+    var isLocalAsrSupported: Bool { localAsrEngine.isSupportedOnThisDevice }
+    var canResumeLocalModelDownload: Bool { localAsrEngine.hasResumableDownload() }
+    var isLocalModelDownloadStalled: Bool {
+        guard localModelStatus.isInFlight, localModelDownloadTask != nil else { return false }
+        guard let last = localModelLastProgressAt else { return false }
+        return Date().timeIntervalSince(last) > 20
+    }
+
     // MARK: - Custom Action
 
     /// User-defined text transformation config (action name + instructions).
@@ -197,6 +215,7 @@ final class AppState: ObservableObject {
     let voiceFlowClient: VoiceFlowClient
     let clipboardWriter: ClipboardWriting
     let openCodeClient: OpenCodeSending
+    let localAsrEngine: LocalAsrTranscribing
     let diagnostics: RecordingDiagnosticsReporting
     static let tokenKey = "aiBuilderToken"               // Keychain
     static let openCodePasswordKey = "openCodePassword"  // Keychain
@@ -259,6 +278,7 @@ final class AppState: ObservableObject {
         voiceFlowClient: VoiceFlowClient? = nil,
         clipboardWriter: ClipboardWriting? = nil,
         openCodeClient: OpenCodeSending? = nil,
+        localAsrEngine: LocalAsrTranscribing? = nil,
         diagnostics: RecordingDiagnosticsReporting? = nil,
         customActionClient: CustomActionSending? = nil
     ) {
@@ -322,6 +342,10 @@ final class AppState: ObservableObject {
         } else {
             self.openCodeClient = OpenCodeClient()
         }
+        self.localAsrEngine = localAsrEngine ?? (isUITestMode || Self.isRunningUnitTests ? MockLocalAsrEngine() : FluidAudioLocalAsrEngine())
+        if self.localAsrEngine.isSupportedOnThisDevice, self.localAsrEngine.isModelReady() {
+            self.localModelStatus = .ready
+        }
         self.diagnostics = diagnostics ?? (isUITestMode ? InMemoryRecordingDiagnostics() : OSRecordingDiagnostics())
         if isUITestMode {
             applyUITestLaunchArgumentSeeds()
@@ -371,6 +395,9 @@ final class AppState: ObservableObject {
         await cancelCapturedPCMConsumer()
         await cancelLiveTranscriptionSession()
         stopRecordingTimer()
+        localModelDownloadTask?.cancel()
+        localModelDownloadTask = nil
+        localModelStatus = .notDownloaded
         recordErrorAlertKey = nil
         pendingDeepLinkStartRecording = false
         transcript = ""
@@ -483,7 +510,9 @@ final class AppState: ObservableObject {
     var canResendRecording: Bool {
         activeTranscriptionAttemptID == nil
             && !customActionState.isRunning
-            && hasSavedAIBuilderToken
+            // Local recordings can be re-transcribed fully offline; cloud
+            // strategies still need the AI Builder token.
+            && (hasSavedAIBuilderToken || lastRecordingStrategy == .localQwen3ASR)
             && (recordingStatus == .recording || lastRecordingFileExists)
     }
 
@@ -494,19 +523,32 @@ final class AppState: ObservableObject {
 
     func startRecording() async {
         guard !customActionState.isRunning else { return }
-        guard hasSavedAIBuilderToken else {
-            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            presentRecordError("record.error.missingToken")
-            return
-        }
-
-        guard let token = try? keychainStore.readString(for: Self.tokenKey), !token.isEmpty else {
-            recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
-            presentRecordError("record.error.missingToken")
-            return
-        }
 
         let strategy = transcriptionStrategy
+
+        // The Local strategy is fully on-device: no AI Builder token is
+        // needed, but the model weights must have been downloaded first.
+        var cloudToken: String?
+        if strategy == .localQwen3ASR {
+            guard localModelStatus.isReady else {
+                recordDiagnostic("recording_local_model_not_ready")
+                presentRecordError("record.error.localModelNotDownloaded")
+                return
+            }
+        } else {
+            guard hasSavedAIBuilderToken else {
+                recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
+                presentRecordError("record.error.missingToken")
+                return
+            }
+
+            guard let token = try? keychainStore.readString(for: Self.tokenKey), !token.isEmpty else {
+                recordDiagnostic("recording_missing_token", metadata: ["hasToken": "false"])
+                presentRecordError("record.error.missingToken")
+                return
+            }
+            cloudToken = token
+        }
 
         recordingStatus = .requestingPermission
         recordDiagnostic("recording_permission_request_started")
@@ -532,7 +574,8 @@ final class AppState: ObservableObject {
             recordDiagnostic("recording_start_requested", metadata: ["hasToken": "true", "mode": strategy.diagnosticMode])
 
             if strategy.usesRealtimeTransport {
-                await applyCurrentTranscriptionConfig(token: token)
+                guard let cloudToken else { return }
+                await applyCurrentTranscriptionConfig(token: cloudToken)
                 let session = try await voiceFlowClient.startSession(strategy: strategy)
                 liveTranscriptionSession = session
                 startLiveEventConsumer(for: session)
@@ -633,6 +676,9 @@ final class AppState: ObservableObject {
         if strategy.usesRealtimeTransport {
             await finishLiveTranscriptionSession(attemptID: attemptID)
         } else {
+            // Grok Batch (cloud upload) and Local (on-device) both finalize
+            // from the persisted file; `finishBatchTranscription` dispatches
+            // per-strategy inside `finishTranscriptionFromLastRecording`.
             await finishBatchTranscription(attemptID: attemptID)
         }
     }
@@ -735,6 +781,7 @@ private extension VoiceFlowRecordingStrategy {
         case .openAIRealtime: "stream"
         case .gptLiveTranscribe: "gpt_live_transcribe"
         case .grokBatch: "grok_batch"
+        case .localQwen3ASR: "local_asr"
         }
     }
 }
