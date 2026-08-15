@@ -599,6 +599,232 @@ struct VoiceFlowTests {
         #expect(state.recordingStatus == .ready)
     }
 
+    @Test func localStrategyBlocksStartUntilModelIsDownloaded() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let engine = MockLocalAsrEngine()
+        engine.modelReady = false
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(),
+            localAsrEngine: engine
+        )
+
+        state.transcriptionStrategy = .localQwen3ASR
+        await state.startRecording()
+
+        #expect(state.recordErrorAlertKey == "record.error.localModelNotDownloaded")
+        #expect(state.recordingStatus == .idle)
+        #expect(engine.transcribedFiles.isEmpty)
+    }
+
+    @Test func localStrategyStartsWithoutTokenWhenModelIsReady() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let engine = MockLocalAsrEngine()
+        engine.modelReady = true
+        let recorder = MockAudioRecorder()
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: recorder,
+            localAsrEngine: engine
+        )
+
+        state.transcriptionStrategy = .localQwen3ASR
+        await state.startRecording()
+
+        #expect(state.recordErrorAlertKey == nil)
+        #expect(state.recordingStatus == .recording)
+        #expect(recorder.recordingStrategy == .localQwen3ASR)
+        #expect(state.liveTranscriptionSession == nil)
+        #expect(state.streamConnectionPhase == .disconnected)
+        #expect(state.hasSavedAIBuilderToken == false)
+    }
+
+    @Test func localStrategyTranscribesOnDeviceAfterStop() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-local-asr-stop-test.wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let engine = MockLocalAsrEngine()
+        engine.modelReady = true
+        engine.transcribeResult = .success("local engine text")
+        let recorder = MockAudioRecorder(outputURL: fileURL)
+        let (client, realtimeMock) = makeStubVoiceFlowClient()
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter(),
+            localAsrEngine: engine
+        )
+
+        state.transcriptionStrategy = .localQwen3ASR
+        await state.startRecording()
+        await state.stopRecording()
+
+        #expect(state.transcript == "local engine text")
+        #expect(engine.transcribedFiles == [state.lastRecordingURL].compactMap { $0 })
+        #expect(state.lastRecordingURL?.pathExtension == "wav")
+        #expect(state.lastRecordingStrategy == .localQwen3ASR)
+        #expect(await realtimeMock.didFinalize == false)
+        #expect(await realtimeMock.appendedChunkCount == 0)
+        #expect(state.recordingStatus == .ready)
+    }
+
+    @Test func localStrategyAcceptsShortCJKTranscript() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let engine = MockLocalAsrEngine()
+        engine.modelReady = true
+        engine.transcribeResult = .success("你好")
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(),
+            clipboardWriter: MockClipboardWriter(),
+            localAsrEngine: engine
+        )
+
+        state.transcriptionStrategy = .localQwen3ASR
+        await state.startRecording()
+        await state.stopRecording()
+
+        #expect(state.transcript == "你好")
+        #expect(state.recordErrorAlertKey == nil)
+    }
+
+    @Test func localResendDoesNotNeedTokenAndKeepsStartStrategy() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-local-asr-resend-test.wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let engine = MockLocalAsrEngine()
+        engine.modelReady = true
+        engine.transcribeResult = .success("first local text")
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(outputURL: fileURL),
+            clipboardWriter: MockClipboardWriter(),
+            localAsrEngine: engine
+        )
+
+        state.transcriptionStrategy = .localQwen3ASR
+        await state.startRecording()
+        await state.stopRecording()
+
+        engine.transcribeResult = .success("resent local text")
+        state.transcriptionStrategy = .grokBatch
+        #expect(state.canResendRecording)
+        await state.resendLastRecording()
+
+        #expect(state.transcript == "resent local text")
+        #expect(state.lastRecordingStrategy == .localQwen3ASR)
+        #expect(engine.transcribedFiles.count == 2)
+        #expect(state.hasSavedAIBuilderToken == false)
+    }
+
+    @Test func downloadLocalModelReportsReadyAndIsIdempotent() async throws {
+        let engine = MockLocalAsrEngine()
+        engine.modelReady = false
+        engine.downloadProgressEmitted = [
+            LocalAsrDownloadUpdate(fraction: 0.4, isPreparing: false),
+            LocalAsrDownloadUpdate(fraction: 1.0, isPreparing: false),
+        ]
+        let state = AppState(localAsrEngine: engine)
+
+        #expect(state.localModelStatus == .notDownloaded)
+        state.downloadLocalModel()
+        await state.localModelDownloadTask?.value
+
+        #expect(state.localModelStatus == .ready)
+        #expect(engine.downloadCallCount == 1)
+        #expect(engine.modelReady)
+
+        state.downloadLocalModel()
+        await state.localModelDownloadTask?.value
+        #expect(engine.downloadCallCount == 1)
+    }
+
+    @Test func downloadLocalModelSurfacesFailure() async throws {
+        let engine = MockLocalAsrEngine()
+        engine.downloadError = LocalAsrEngineError.modelNotDownloaded
+        let state = AppState(localAsrEngine: engine)
+
+        state.downloadLocalModel()
+        await state.localModelDownloadTask?.value
+
+        guard case .failed = state.localModelStatus else {
+            Issue.record("expected failed download status, got \(state.localModelStatus)")
+            return
+        }
+        #expect(engine.modelReady == false)
+        #expect(engine.downloadCallCount == 1)
+    }
+
+    @Test func localFileTransferPlannerSkipsCompleteAndResumesPartial() {
+        #expect(LocalAsrFileTransferPlanner.plan(completeSize: 100, partialSize: 0, remoteSize: 100) == .skip)
+        #expect(LocalAsrFileTransferPlanner.plan(completeSize: 100, partialSize: 0, remoteSize: -1) == .skip)
+        #expect(LocalAsrFileTransferPlanner.plan(completeSize: 80, partialSize: 0, remoteSize: 100) == .fresh)
+        #expect(LocalAsrFileTransferPlanner.plan(completeSize: nil, partialSize: 40, remoteSize: 100) == .resume(from: 40))
+        #expect(LocalAsrFileTransferPlanner.plan(completeSize: nil, partialSize: 100, remoteSize: 100) == .fresh)
+        #expect(LocalAsrFileTransferPlanner.plan(completeSize: nil, partialSize: 0, remoteSize: 100) == .fresh)
+    }
+
+    @Test func localCacheIntegrityTreatsEmptyBundleAsPartial() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceflow-local-asr-integrity-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        #expect(LocalAsrModelCache.integrity(at: root) == .missing)
+
+        let firstBundle = try #require(LocalAsrModelCache.requiredNames().first { $0.hasSuffix(".mlmodelc") })
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(firstBundle),
+            withIntermediateDirectories: true
+        )
+        #expect(LocalAsrModelCache.integrity(at: root) == .partial)
+
+        for name in LocalAsrModelCache.requiredNames() {
+            let url = root.appendingPathComponent(name)
+            if name.hasSuffix(".mlmodelc") {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                try Data("core".utf8).write(to: url.appendingPathComponent("coremldata.bin"))
+            } else {
+                try Data("ok".utf8).write(to: url)
+            }
+        }
+        #expect(LocalAsrModelCache.integrity(at: root) == .complete)
+    }
+
+    @Test func downloadLocalModelCanRestartAfterInterrupt() async throws {
+        let engine = MockLocalAsrEngine()
+        engine.resumable = true
+        engine.existingProgress = 0.35
+        engine.downloadDelayNanos = 300_000_000
+        let state = AppState(localAsrEngine: engine)
+
+        #expect(state.canResumeLocalModelDownload)
+        state.downloadLocalModel()
+        state.interruptLocalModelDownload()
+        await state.localModelDownloadTask?.value
+
+        #expect(state.localModelStatus == .paused)
+
+        engine.downloadProgressEmitted = [
+            LocalAsrDownloadUpdate(fraction: 0.35, isPreparing: false),
+            LocalAsrDownloadUpdate(fraction: 1.0, isPreparing: false),
+        ]
+        state.downloadLocalModel()
+        await state.localModelDownloadTask?.value
+        #expect(state.localModelStatus == .ready)
+        #expect(engine.downloadCallCount == 2)
+    }
+
     @Test func recordingStrategyIsSnapshottedAtStart() async throws {
         resetTranscriptionStrategyDefault()
         defer { resetTranscriptionStrategyDefault() }

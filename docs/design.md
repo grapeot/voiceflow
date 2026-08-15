@@ -161,6 +161,17 @@
 
 适用范围：所有 multi-line 输入（Settings 的 prompt / terms）、所有 single-line 输入（token / password / OpenCode 服务器地址）都走同一套。Picker、Toggle、Button 不用这个 pattern——它们已经有自己的 affordance。
 
+### Settings · Local 模型下载
+
+选中 `Local · Qwen3-ASR 0.6B` 后，picker 下方出现一块克制的状态区，不另开二级页：
+
+- 未下载 / 失败：一条琥珀 `borderless` 文字按钮（「下载模型权重」/「重试下载」），失败时附一行 tertiary 说明。iOS 17 设备按钮禁用，改显示「需要 iOS 18」。
+- 下载中：一行 caption + 等宽百分比，下面一条琥珀色 `ProgressView`。百分比用 monospaced caption，避免数字跳动挤版。
+- 就绪：一行 secondary caption「模型已就绪，可完全离线转写」。
+- 底部始终保留一行 tertiary hint（约 0.7 GB、一次性下载）。
+
+这块 UI 走 caption / secondary / tertiary 层级，按钮用 `accent`，进度条 `.tint(accent)`。不套输入卡片——下载不是文本输入。visionOS 不展示 Local 档，因此也不会出现这块区域。
+
 这套规则是 **PR 2 阶段（2026-05-28）** 加进来的修正，对应 `SettingsView.swift` 里的 `inputField(label:placeholder:text:...)` helper。后续 V2 完整重做 Settings 时，这个 input card 视觉应该保留——它是 Settings 区域的稳定视觉语言。
 
 ## 组件级规格

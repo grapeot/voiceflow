@@ -20,6 +20,36 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-08-14 (Local decoder 只能走 CPU)
+
+- ANE：`ANECCompile` / `std::bad_cast`。GPU：模型能加载，prefill 之后 Metal attention assertion（`threadgroup memory exceeded`），进程直接死，无法 catch。
+- iPhone 上固定 `MLComputeUnits.cpuOnly`。作废上一版写入的 `cpuAndGPU` 偏好，避免下次启动再走 GPU 秒崩。
+
+### 2026-08-14 (Local decoder ANE 编译失败)
+
+- 真机日志：encoder 加载成功，`qwen3_asr_decoder_stateful.mlmodelc` 走默认 `MLComputeUnits.all` 时 ANE 编译报 `ANECCompile` / `std::bad_cast` / CoreML -14。
+- 加载改为只试 `.cpuAndGPU` → `.cpuOnly`，成功的档位写入 UserDefaults，下次跳过 ANE。
+
+### 2026-08-14 (Local 短中文被当成转写失败)
+
+- 云端路径用 `count > 3` 过滤垃圾结果。「你好」「好的」只有 2 个字符，本地模型识别成功也会走失败弹窗。本地改为：只要 trim 后非空就算成功。引擎抛错和空文本拆成两条文案。
+
+### 2026-08-14 (Local 模型下载：断点续传 + 0% 假死)
+
+- **原因**：FluidAudio 自带下载器 listing 阶段进度恒为 0，下载阶段只映射到 0–50%；`URLSession` 默认配置在切后台后会被挂起。用户切走再回来点 Retry，会重新走 listing，界面一直停在 0%。另外 `modelsExist` 只看顶层文件名，中断留下的半截 `.mlmodelc` 目录会被当成已就绪。
+- **改动**：自己走 HuggingFace 拉取，写进同一 cache 目录。完整文件跳过，`.partial` 用 HTTP `Range` 续传；listing 显示「正在准备下载…」不定条，传输按字节 0–100%。切后台用 `beginBackgroundTask` 续一会儿，到期取消并标成「已暂停」，已下完的文件保留。卡住超过 20 秒的任务允许再次点击重启。
+- 完整性检查要求 `.mlmodelc` 里有 `coremldata.bin` / `model.mil`，避免半截包被当成 ready。
+- 验证：下载续传与真机转写已在 iPhone 16 Pro Max 上确认可用（推理走 CPU）。
+
+### 2026-08-14 (Local · Qwen3-ASR 0.6B 端上转写)
+
+- Settings → Transcription picker 新增第四档 `Local · Qwen3-ASR 0.6B`。选中后显示模型权重下载按钮、进度条和就绪状态；未下载时按 Start 弹窗提示先去下载。录音走 PCM/WAV，Stop 后一次性本机转写，不做 live streaming。不需要 AI Builder token，也不使用 prompt / terms。
+- Kit：`VoiceFlowRecordingStrategy.localQwen3ASR`；`usesRealtimeTransport` 改为显式 switch；新增 `recordsPCM`（Grok 以外都累积 PCM）。AudioRecorder tap 条件从 `usesRealtimeTransport` 改为 `recordsPCM`。
+- App：`LocalAsrTranscribing` + `FluidAudioLocalAsrEngine`（int8，iOS 18 `#available` gate，共享 `Qwen3AsrManager` actor 缓存）+ `MockLocalAsrEngine`。`AppState` 注入引擎；Start 对 Local 免 token、gate 模型就绪；Stop / Resend 在 `finishTranscriptionFromLastRecording` 分派到本机引擎。FluidAudio 以 exact `0.15.0` 加进 Xcode 工程（之后的 release 已移除 Qwen3）。
+- visionOS picker 过滤 Local。中英文字符串同步。
+- 单测覆盖：未下载拦截、无 token 可录、Stop 走本机引擎、Resend 免 token 且沿用原策略、下载成功/失败/幂等。
+- 验证：`xcodebuild build` 通过。`./scripts/test_unit.sh` 中 6 条 Local 用例全部通过；全套 115 测里另有 2 条既有 diagnostics 失败（`transcription_response_failed` 事件名，working 2026-08-13 已记，与本次无关）。真机需 iOS 18+。
+
 ### 2026-08-13 (编辑态紧凑布局：键盘弹起时重排顶部 chrome)
 
 - **问题**：用户点进转写文本框编辑时，键盘弹起后约占 336pt 可用高度，顶部固定 chrome（计时器 56pt + 波形 80pt + 各 spacer 约 209pt ≈ 437pt）把 `transcriptArea`（`.frame(maxHeight: .infinity)` 弹性块）压到仅两行，无法有效编辑。

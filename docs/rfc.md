@@ -163,7 +163,7 @@ https://space.ai-builders.com/backend
 
 Record：顶部 VoiceFlow 标题 + 状态灯、录音计时（`MM:SS`）、控制区（左/右历史、Start/Stop 宽 120pt、保存/重发菜单）、大文本区、底部 Copy 与 Send to OpenCode（旁有 info 按钮）。
 
-Settings：表单式 AI Builder token、只读 endpoint、GPT Realtime / GPT Live Transcribe / Grok Batch menu picker、转写提示、OpenCode URL/username/password、连接测试与失败 detail、语言 picker。点击文本框外收起键盘。
+Settings：表单式 AI Builder token、只读 endpoint、GPT Realtime / GPT Live Transcribe / Grok Batch / Local · Qwen3-ASR 0.6B menu picker、转写提示、OpenCode URL/username/password、连接测试与失败 detail、语言 picker。选中 Local 时显示模型权重下载按钮与进度，并隐藏 prompt / terms。点击文本框外收起键盘。
 
 ## 转写方案
 
@@ -175,9 +175,19 @@ Settings：表单式 AI Builder token、只读 endpoint、GPT Realtime / GPT Liv
 
 目标：边录边发，Stop 只 finalize，文本随服务端 push 增量显示。主录音路径已从 V0 batch HTTP 切换为 WebSocket stream；`AIBuilderTranscriptionClient` 保留供 HTTP 单测与潜在 fallback，重发录音走 bulk WebSocket。
 
-### 三策略（已交付）：GPT Realtime / GPT Live Transcribe / Grok Batch
+### 四策略（已交付）：GPT Realtime / GPT Live Transcribe / Grok Batch / Local
 
 Start 时 snapshot `VoiceFlowRecordingStrategy`。两个 GPT 路径建立 realtime session 后录制 PCM16 / 24 kHz / mono，并在 Stop finalize；GPT Live 精确使用 `gpt-live-transcribe`，GPT Realtime 保留 `VoiceFlowConfig.model`。Grok 路径在录音期间只把 PCM 经串行 writer 编码为 AAC-LC M4A（24 kHz、mono、32 kbps），不调用 session API、不启动 heartbeat、不上传音频。Stop 关闭 writer并重新打开文件验证后，multipart `POST /v1/audio/grok-transcription`，字段为 `audio_file` 与可选逗号分隔 `terms`。
+
+#### Local · Qwen3-ASR 0.6B
+
+`VoiceFlowRecordingStrategy.localQwen3ASR` 是应用层策略，不走 `VoiceFlowClient.transcribe`（该 API 对无 `realtimeModel` 的策略会抛 `unsupportedRecordingStrategy`）。App 在 `finishTranscriptionFromLastRecording` 开头分派到 `LocalAsrTranscribing`。
+
+录音与两个 GPT 策略相同：`recordsPCM == true`，落盘 WAV。Start 不检查 AI Builder token，但要求 `localModelStatus == .ready`；否则弹 `record.error.localModelNotDownloaded`。Stop 后 `AudioConverter` 把 WAV 重采样到 16 kHz mono Float32，交给 FluidAudio `Qwen3AsrManager.transcribe`。不做 live streaming、不消费 prompt/terms。
+
+模型权重通过 FluidAudio `Qwen3AsrModels.download(variant:progressHandler:)` 拉取，默认 **int8**（约 0.7 GB），缓存在 Application Support。下载进度写入 `@Published localModelStatus`，Settings 显示百分比与 `ProgressView`。引擎类型标注 `@available(iOS 18.0, *)`（stateful CoreML）；deployment target 仍是 iOS 17，运行时 `#available` gate。visionOS 从 picker 中过滤此选项。
+
+FluidAudio 必须 pin **exact 0.15.0**。Qwen3-ASR 支持已从 main 和 0.15.5 移除；0.15.0 是仍包含该 pipeline 的最后正式版。包 platforms 声明 `.iOS(.v17)`，可与当前工程链接。
 
 2026-07-30 的 direct-to-xAI 基线中，300.02 秒、4.80 MB 的双人 MP3 开启 diarization 后，完整 REST 响应耗时 3.343 秒，RTF 0.0111（89.75× realtime）。该单样本不包含移动端编码、AI Builder Space relay，也不代表生产 P95；它只说明当前 Batch latency 的量级不足以单独证明新增 Grok WebSocket 路径合理。是否升级 streaming 应以后续真实 Stop-to-text P50/P95 和是否需要录音中 partial transcript 为准。
 

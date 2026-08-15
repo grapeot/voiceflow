@@ -52,15 +52,16 @@ VoiceFlowKit 按 [generative kernel](https://yage.ai/ai-software-engineering.htm
 - recover 带指数退避重试；Stop 等待 recover 后再 finalize。
 - 单元测试 51+ 项（含 epoch merger 与 recovery caption 测试）。
 
-## 三录音策略（2026-07-31）
+## 录音策略（2026-07-31，Local 档 2026-08-14）
 
-Settings → Transcription 提供三个持久化选项，并在用户按 Start 时锁定本次录音策略；录音中修改 Settings 只影响下一次录音。
+Settings → Transcription 提供四个持久化选项，并在用户按 Start 时锁定本次录音策略；录音中修改 Settings 只影响下一次录音。
 
 - **GPT Realtime**：保持现有 PCM16 / 24 kHz / mono、ticket WebSocket、heartbeat、断线恢复、Stop finalize 和 WAV 重发路径，并继续使用 `VoiceFlowConfig.model`。
 - **GPT Live Transcribe**：复用同一 realtime transport 和 WAV/PCM 路径，精确路由到 `gpt-live-transcribe`；服务端负责 1x pacing，客户端按音频时长扩展 finalize/retry timeout。
 - **Grok Batch**：Start 后只在本机录制 AAC-LC M4A（24 kHz、mono、32 kbps），不创建 ticket、不连接 WebSocket、不上传音频；Stop 后才把完整 M4A multipart 上传到 `/v1/audio/grok-transcription`。
+- **Local · Qwen3-ASR 0.6B**：完全端上转写。选中后 Settings 出现「下载模型权重」按钮（约 0.7 GB，一次性）；未下载时按 Start 会提示先去下载。录音走与 GPT 相同的 PCM / WAV 路径，但不建 session、不上传；Stop 后在本机一次性转写。不需要 AI Builder token，也不使用 Context prompt / Terms。需要 iOS 18 或更高；visionOS 不提供此选项。首版只做 one-shot，不做录音中 live streaming。
 
-两个 GPT 策略使用 Context prompt + Terms；Grok 请求只使用 Terms。用户切回 GPT 后原 prompt 仍保留。保存和重发会保留录音产生时的策略与文件格式，避免 Settings 改动后改变旧录音的模型或 transport。
+两个 GPT 策略使用 Context prompt + Terms；Grok 请求只使用 Terms；Local 两者都不使用。用户切回 GPT 后原 prompt 仍保留。保存和重发会保留录音产生时的策略与文件格式，避免 Settings 改动后改变旧录音的模型或 transport。Local 录音的重发同样在本机完成，不需要 token。
 
 ## 工程变更（2026-05-28）：VoiceFlowKit 抽取 + 转写上下文 UI
 

@@ -93,7 +93,8 @@ Swift Testing + mock。当前覆盖包括但不限于：
 - Deep link 解析、`voiceflow://record` 触发录音、未知 URL 忽略
 - Multipart 上传 body 格式
 - **V1 实时转写**：`RealtimeMessageParser`、`TranscriptDeltaReducer`、`TranscriptEpochMerger`、recovery caption（录音中无 modal）、`AudioChunkEncoder`、WAV PCM roundtrip、mock live session、preserved audio abort + retry facade
-- **三策略**：raw value/Codable/capability、GPT Live exact model/payload/WAV/preserved retry/dynamic timeout/terminal ordering、Grok multipart route/body/MIME/terms、Start strategy snapshot、WAV/M4A 动态持久化、Settings 改动后重发仍使用原策略
+- **四策略**：raw value/Codable/capability、GPT Live exact model/payload/WAV/preserved retry/dynamic timeout/terminal ordering、Grok multipart route/body/MIME/terms、Start strategy snapshot、WAV/M4A 动态持久化、Settings 改动后重发仍使用原策略
+- **Local · Qwen3-ASR**：未下载拦截、无 token 可录、Stop 走本机引擎、Resend 免 token 且沿用原策略、下载成功/失败/幂等、中断后可 Resume、文件计划 skip/Range resume/fresh、半截 `.mlmodelc` 不算 ready、短中文（如「你好」）算成功
 
 共享 HTTP mock 的 suite 使用 `@Suite(.serialized)`。
 
@@ -185,7 +186,14 @@ XCUITest，`-uiTestMode` 启用内存 Keychain 与 mock 服务；每次用例冷
 
 - 首次启动 → Settings 保存 token → Test Connection
 - Record 录音 → 停止 → 转写 → 自动复制
-- 分别选择 GPT Realtime / GPT Live Transcribe / Grok Batch 录音；确认两个 GPT 策略保存 WAV，Grok 录音期无网络活动、Stop 后才上传并保存 M4A
+- 分别选择 GPT Realtime / GPT Live Transcribe / Grok Batch / Local · Qwen3-ASR 0.6B 录音；确认两个 GPT 策略保存 WAV，Grok 录音期无网络活动、Stop 后才上传并保存 M4A
+- **Local 真机（iOS 18+，已在 iPhone 16 Pro Max 验过）**：
+  - Settings 选 Local 后先下载约 0.7 GB；listing 显示「正在准备下载…」，传输按字节 0–100%
+  - 切走 App 再回来：未完成应显示继续/重试，已下完的文件保留，点继续能续传而不是卡在 0%
+  - 未下载时按 Start 提示先去下载；下完后不需要 token
+  - Stop 后本机转写，保存 WAV；短中文（「你好」）应出字，不要被当成失败
+  - 第一次加载大约数秒；推理固定 CPU（ANE 编不过，GPU attention 会 assertion 闪退）
+  - 引擎失败与空文本是两条不同弹窗
 - 历史 chevron、保存/重发菜单
 - OpenCode 配置、连接测试、发送（或 mock 环境验证按钮状态）
 - 语言切换

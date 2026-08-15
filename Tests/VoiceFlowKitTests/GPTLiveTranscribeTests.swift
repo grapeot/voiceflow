@@ -8,9 +8,14 @@ struct GPTLiveTranscribeTests {
         #expect(VoiceFlowRecordingStrategy.openAIRealtime.rawValue == "openAIRealtime")
         #expect(VoiceFlowRecordingStrategy.gptLiveTranscribe.rawValue == "gptLiveTranscribe")
         #expect(VoiceFlowRecordingStrategy.grokBatch.rawValue == "grokBatch")
+        #expect(VoiceFlowRecordingStrategy.localQwen3ASR.rawValue == "localQwen3ASR")
         #expect(VoiceFlowRecordingStrategy.openAIRealtime.usesRealtimeTransport)
         #expect(VoiceFlowRecordingStrategy.gptLiveTranscribe.usesRealtimeTransport)
         #expect(!VoiceFlowRecordingStrategy.grokBatch.usesRealtimeTransport)
+        #expect(!VoiceFlowRecordingStrategy.localQwen3ASR.usesRealtimeTransport)
+        #expect(VoiceFlowRecordingStrategy.localQwen3ASR.recordsPCM)
+        #expect(VoiceFlowRecordingStrategy.grokBatch.recordsPCM == false)
+        #expect(VoiceFlowRecordingStrategy.localQwen3ASR.realtimeModel(configuredModel: "x") == nil)
 
         for strategy in VoiceFlowRecordingStrategy.allCases {
             let data = try JSONEncoder().encode(strategy)

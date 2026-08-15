@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A1B2C3D4E5F60001A0000001 /* VoiceFlowKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002A0000002 /* VoiceFlowKit */; };
 		A1B2C3D4E5F60001A0000003 /* VoiceFlowKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002A0000004 /* VoiceFlowKit */; };
+		A1B2C3D4E5F60001A0000005 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002A0000006 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +59,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4E5F60001A0000001 /* VoiceFlowKit in Frameworks */,
+				A1B2C3D4E5F60001A0000005 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -120,6 +122,7 @@
 			name = VoiceFlow;
 			packageProductDependencies = (
 				A1B2C3D4E5F60002A0000002 /* VoiceFlowKit */,
+				A1B2C3D4E5F60002A0000006 /* FluidAudio */,
 			);
 			productName = VoiceFlow;
 			productReference = 3B245FDA2FC667AD0092237A /* VoiceFlow.app */;
@@ -207,6 +210,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A1B2C3D4E5F60003A0000005 /* XCLocalSwiftPackageReference "../.." */,
+				A1B2C3D4E5F60003B0000006 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3B245FDB2FC667AD0092237A /* Products */;
@@ -615,6 +619,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A1B2C3D4E5F60003B0000006 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio";
+			requirement = {
+				kind = exactVersion;
+				version = 0.15.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A1B2C3D4E5F60002A0000002 /* VoiceFlowKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -623,6 +638,10 @@
 		A1B2C3D4E5F60002A0000004 /* VoiceFlowKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = VoiceFlowKit;
+		};
+		A1B2C3D4E5F60002A0000006 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

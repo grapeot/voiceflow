@@ -350,12 +350,25 @@ struct SettingsView: View {
 
                 Picker("Strategy", selection: $appState.transcriptionStrategy) {
                     ForEach(VoiceFlowRecordingStrategy.allCases, id: \.rawValue) { strategy in
+                        #if os(visionOS)
+                        // The on-device engine relies on iOS 18 CoreML
+                        // stateful-model behavior; keep it off visionOS.
+                        if strategy != .localQwen3ASR {
+                            Text(localized(strategy.localizedTitleKey))
+                                .tag(strategy)
+                        }
+                        #else
                         Text(localized(strategy.localizedTitleKey))
                             .tag(strategy)
+                        #endif
                     }
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("settings.transcriptionStrategyPicker")
+
+                if appState.transcriptionStrategy == .localQwen3ASR {
+                    localModelSection
+                }
 
                 if appState.transcriptionStrategy.usesRealtimeTransport {
                     inputField(
@@ -368,14 +381,16 @@ struct SettingsView: View {
                     )
                 }
 
-                inputField(
-                    label: "settings.transcription.terms",
-                    placeholder: "settings.transcription.terms.placeholder",
-                    text: $appState.transcriptionTerms,
-                    accessibilityIdentifier: "settings.transcriptionTermsField",
-                    multiline: true,
-                    capitalize: false
-                )
+                if appState.transcriptionStrategy != .localQwen3ASR {
+                    inputField(
+                        label: "settings.transcription.terms",
+                        placeholder: "settings.transcription.terms.placeholder",
+                        text: $appState.transcriptionTerms,
+                        accessibilityIdentifier: "settings.transcriptionTermsField",
+                        multiline: true,
+                        capitalize: false
+                    )
+                }
             }
             .padding(.vertical, DesignTokens.Spacing.xs)
         } header: {
@@ -430,6 +445,97 @@ struct SettingsView: View {
                 .autocorrectionDisabled(!capitalize)
                 .inputCardSurface()
                 .accessibilityIdentifier(identifier)
+        }
+    }
+
+    /// On-device model management rows, shown only when the Local strategy
+    /// is selected: download button with live progress, or readiness state.
+    @ViewBuilder
+    private var localModelSection: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+            Text(localized("settings.localModel.title"))
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(DesignTokens.Palette.textSecondary)
+
+            switch appState.localModelStatus {
+            case .notDownloaded, .paused, .failed:
+                Button {
+                    appState.downloadLocalModel()
+                } label: {
+                    Text(localized(localModelActionKey))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(DesignTokens.Palette.accent)
+                .disabled(!appState.isLocalAsrSupported)
+                .accessibilityIdentifier("settings.localModelDownloadButton")
+
+                if !appState.isLocalAsrSupported {
+                    Text(localized("settings.localModel.requiresIOS18"))
+                        .font(DesignTokens.Typography.captionSub)
+                        .foregroundStyle(DesignTokens.Palette.textTertiary)
+                } else if case .failed = appState.localModelStatus {
+                    Text(localized("settings.localModel.failed"))
+                        .font(DesignTokens.Typography.captionSub)
+                        .foregroundStyle(DesignTokens.Palette.textTertiary)
+                } else if case .paused = appState.localModelStatus {
+                    Text(localized("settings.localModel.paused"))
+                        .font(DesignTokens.Typography.captionSub)
+                        .foregroundStyle(DesignTokens.Palette.textTertiary)
+                }
+            case .preparing:
+                HStack(spacing: DesignTokens.Spacing.xs) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(localized("settings.localModel.preparing"))
+                        .font(DesignTokens.Typography.captionSub)
+                        .foregroundStyle(DesignTokens.Palette.textSecondary)
+                }
+                .accessibilityIdentifier("settings.localModelPreparing")
+            case .downloading(let progress):
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+                    HStack {
+                        Text(localized("settings.localModel.downloading"))
+                            .font(DesignTokens.Typography.captionSub)
+                            .foregroundStyle(DesignTokens.Palette.textSecondary)
+                        Spacer()
+                        Text("\(Int((progress * 100).rounded()))%")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(DesignTokens.Palette.textSecondary)
+                            .accessibilityIdentifier("settings.localModelDownloadProgressLabel")
+                    }
+                    ProgressView(value: progress)
+                        .tint(DesignTokens.Palette.accent)
+                        .accessibilityIdentifier("settings.localModelDownloadProgressBar")
+                }
+            case .ready:
+                Text(localized("settings.localModel.ready"))
+                    .font(DesignTokens.Typography.captionSub)
+                    .foregroundStyle(DesignTokens.Palette.textSecondary)
+                    .accessibilityIdentifier("settings.localModelStatusReady")
+            }
+
+            Text(localized("settings.localModel.hint"))
+                .font(DesignTokens.Typography.captionSub)
+                .foregroundStyle(DesignTokens.Palette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, DesignTokens.Spacing.xs)
+    }
+
+    private var localModelActionKey: String {
+        switch appState.localModelStatus {
+        case .paused:
+            return "settings.localModel.resume"
+        case .failed:
+            return appState.canResumeLocalModelDownload
+                ? "settings.localModel.resume"
+                : "settings.localModel.retry"
+        case .notDownloaded:
+            return appState.canResumeLocalModelDownload
+                ? "settings.localModel.resume"
+                : "settings.localModel.download"
+        default:
+            return "settings.localModel.download"
         }
     }
 
@@ -498,6 +604,7 @@ private extension VoiceFlowRecordingStrategy {
         case .openAIRealtime: "settings.transcription.strategy.openAIRealtime"
         case .gptLiveTranscribe: "settings.transcription.strategy.gptLiveTranscribe"
         case .grokBatch: "settings.transcription.strategy.grokBatch"
+        case .localQwen3ASR: "settings.transcription.strategy.localQwen3ASR"
         }
     }
 }
