@@ -146,7 +146,7 @@ V0 支持 iOS、iPadOS 和 visionOS。三端共享 SwiftUI 代码和业务逻辑
 
 应用只有两个 tab。
 
-Record tab 包含开始录音、停止录音、录音状态、转写文本显示、自动复制到剪贴板、左右 chevron 浏览最近历史、手动复制文本、三点菜单中的保存录音与重发录音。用户配置 OpenCode 并通过连接测试后，Record tab 额外显示发送到 OpenCode 的入口。历史只保存在本机，默认保留最近 5 条。
+Record tab 包含开始录音、停止录音、录音状态、转写文本显示、自动复制到剪贴板、左右 chevron 浏览最近历史、手动复制文本、三点菜单中的保存录音与重发录音。录音期间 iPhone / iPad 保持屏幕常亮，停止录音或进入后台后恢复系统自动锁屏。用户配置 OpenCode 并通过连接测试后，Record tab 额外显示发送到 OpenCode 的入口。历史只保存在本机，默认保留最近 5 条。
 
 Settings tab 包含 AI Builder Space API token 输入、保存状态、连接测试结果和默认 endpoint 说明。endpoint 固定为 AI Builder Space 默认地址，不提供编辑入口。Settings 还包含可选 OpenCode 配置（server URL、username、Keychain password）；清除操作只删除 password，URL 和 username 保留。OpenCode 连接测试失败时展示具体错误信息。
 

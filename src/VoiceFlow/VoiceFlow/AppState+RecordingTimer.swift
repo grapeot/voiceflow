@@ -31,5 +31,8 @@ extension AppState {
         guard let recordingTimerStartDate else { return }
         let elapsed = Int(Date().timeIntervalSince(recordingTimerStartDate))
         recordingTimerText = RecordingTimerFormatter.format(elapsedSeconds: elapsed)
+        if recordingStatus == .recording, elapsed > 0, elapsed % 30 == 0 {
+            setScreenIdleTimer(disabled: true)
+        }
     }
 }

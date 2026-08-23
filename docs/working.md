@@ -20,6 +20,11 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-08-23 (录音中保持屏幕常亮)
+
+- iOS 参考 app 在 `.recording` 期间设置 `isIdleTimerDisabled`，Stop / 错误 / 进后台恢复系统锁屏；回前台且仍在录再打开。放在 `AppState`，不进 VoiceFlowKit。visionOS 不设。
+- 用可注入的 `ScreenIdleControlling` 覆盖启停、前后台和缺 token 路径。验证：`./scripts/test_unit.sh`。
+
 ### 2026-08-14 (Local decoder 只能走 CPU)
 
 - ANE：`ANECCompile` / `std::bad_cast`。GPU：模型能加载，prefill 之后 Metal attention assertion（`threadgroup memory exceeded`），进程直接死，无法 catch。

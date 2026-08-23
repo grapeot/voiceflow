@@ -88,6 +88,7 @@ Swift Testing + mock。当前覆盖包括但不限于：
 - AI Builder / OpenCode 连接测试与发送（含 mock HTTP、`URLProtocol`）
 - OpenCode URL 校验（HTTPS、Tailscale HTTP、拒绝 remote HTTP）
 - 录音主路径（mock recorder/transcriber/clipboard）
+- 录音防熄屏：Start 打开、Stop / 缺 token 关闭、后台关闭、回前台且仍在录再打开
 - 录音诊断事件与安全摘要（不含 token/transcript）
 - TranscriptHistory 双向导航、保存/重发录音
 - Deep link 解析、`voiceflow://record` 触发录音、未知 URL 忽略
