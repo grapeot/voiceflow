@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 import Testing
 @testable import VoiceFlowKit
 @testable import VoiceFlow
@@ -74,6 +75,63 @@ struct VoiceFlowTests {
         #expect(RecordingTimerFormatter.format(elapsedSeconds: 5) == "00:05")
         #expect(RecordingTimerFormatter.format(elapsedSeconds: 65) == "01:05")
         #expect(RecordingTimerFormatter.format(elapsedSeconds: 3599) == "59:59")
+    }
+
+    @Test func recordingKeepsScreenAwakeUntilStop() async throws {
+        let idle = MockScreenIdleController()
+        let (client, _) = makeStubVoiceFlowClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(),
+            voiceFlowClient: client,
+            screenIdleController: idle
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        #expect(idle.isIdleTimerDisabled == false)
+
+        await state.startRecording()
+        #expect(state.recordingStatus == .recording)
+        #expect(idle.isIdleTimerDisabled == true)
+
+        await state.stopRecording()
+        #expect(idle.isIdleTimerDisabled == false)
+    }
+
+    @Test func backgroundReleasesIdleTimerAndForegroundRestoresIfRecording() async throws {
+        let idle = MockScreenIdleController()
+        let (client, _) = makeStubVoiceFlowClient(liveResult: .success("voice text"))
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(),
+            voiceFlowClient: client,
+            screenIdleController: idle
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        await state.startRecording()
+        #expect(idle.isIdleTimerDisabled == true)
+
+        await state.handleScenePhaseChange(to: .background)
+        #expect(idle.isIdleTimerDisabled == false)
+
+        await state.handleScenePhaseChange(to: .active)
+        #expect(state.recordingStatus == .recording)
+        #expect(idle.isIdleTimerDisabled == true)
+    }
+
+    @Test func missingTokenDoesNotKeepScreenAwake() async throws {
+        let idle = MockScreenIdleController()
+        let state = AppState(
+            keychainStore: InMemoryKeychainStore(),
+            audioRecorder: MockAudioRecorder(),
+            screenIdleController: idle
+        )
+
+        await state.startRecording()
+        #expect(state.recordingStatus == .idle)
+        #expect(idle.isIdleTimerDisabled == false)
+        #expect(!idle.values.contains(true))
     }
 
     @Test func languagePreferenceUsesUserDefaultsAndLocaleMapping() async throws {

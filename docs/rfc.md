@@ -300,6 +300,10 @@ ready -> (start again) -> requestingPermission -> ...
 
 `RecordingDiagnostics`（OSLog 或可注入 mock）在 token、权限、录音启停、音频大小、转写、剪贴板、OpenCode、deep link 等节点记安全摘要。单元测试断言不含 token/transcript。
 
+## 录音防熄屏
+
+只在参考 app 层处理，不进 VoiceFlowKit。`AppState` 通过可注入的 `ScreenIdleControlling` 在 iOS 上设置 `UIApplication.shared.isIdleTimerDisabled`。录音成功进入 `.recording` 后打开，Stop、错误回滚、UI test reset、进后台时关闭。回前台且仍在录音时再打开。录音计时每 30 秒重写一次，防止系统把 flag 冲掉。visionOS 没有同一套 auto-lock，实现用 `#if os(iOS)` 裁掉。
+
 ## 剪贴板
 
 转写成功后自动写入系统剪贴板；失败保留 transcript 并提示，可手动 Copy。

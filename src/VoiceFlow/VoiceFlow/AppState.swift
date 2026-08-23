@@ -217,6 +217,7 @@ final class AppState: ObservableObject {
     let openCodeClient: OpenCodeSending
     let localAsrEngine: LocalAsrTranscribing
     let diagnostics: RecordingDiagnosticsReporting
+    let screenIdleController: ScreenIdleControlling
     static let tokenKey = "aiBuilderToken"               // Keychain
     static let openCodePasswordKey = "openCodePassword"  // Keychain
     static let openCodeServerURLDefaultsKey = "openCodeServerURL"      // UserDefaults
@@ -280,7 +281,8 @@ final class AppState: ObservableObject {
         openCodeClient: OpenCodeSending? = nil,
         localAsrEngine: LocalAsrTranscribing? = nil,
         diagnostics: RecordingDiagnosticsReporting? = nil,
-        customActionClient: CustomActionSending? = nil
+        customActionClient: CustomActionSending? = nil,
+        screenIdleController: ScreenIdleControlling? = nil
     ) {
         let isUITestMode = ProcessInfo.processInfo.arguments.contains("-uiTestMode")
         if isUITestMode, ProcessInfo.processInfo.arguments.contains("-uiTestResetPreferences") {
@@ -347,6 +349,7 @@ final class AppState: ObservableObject {
             self.localModelStatus = .ready
         }
         self.diagnostics = diagnostics ?? (isUITestMode ? InMemoryRecordingDiagnostics() : OSRecordingDiagnostics())
+        self.screenIdleController = screenIdleController ?? SystemScreenIdleController()
         if isUITestMode {
             applyUITestLaunchArgumentSeeds()
         }
@@ -395,6 +398,7 @@ final class AppState: ObservableObject {
         await cancelCapturedPCMConsumer()
         await cancelLiveTranscriptionSession()
         stopRecordingTimer()
+        setScreenIdleTimer(disabled: false)
         localModelDownloadTask?.cancel()
         localModelDownloadTask = nil
         localModelStatus = .notDownloaded
@@ -590,6 +594,7 @@ final class AppState: ObservableObject {
             resetRecordingTimer()
             startRecordingTimer()
             recordingStatus = .recording
+            setScreenIdleTimer(disabled: true)
             startSignalBannerGraceTimer()
         } catch {
             await cancelCapturedPCMConsumer()
@@ -610,6 +615,7 @@ final class AppState: ObservableObject {
         defer { finishTranscriptionAttempt(attemptID) }
         stopRecordingTimer()
         cancelSignalBannerGraceTimer()
+        setScreenIdleTimer(disabled: false)
         recordingStatus = .transcribing
         recordDiagnostic("recording_stop_requested")
 
@@ -686,8 +692,12 @@ final class AppState: ObservableObject {
     func handleScenePhaseChange(to phase: ScenePhase) async {
         switch phase {
         case .active:
+            if recordingStatus == .recording {
+                setScreenIdleTimer(disabled: true)
+            }
             await liveTranscriptionSession?.ping()
         case .background:
+            setScreenIdleTimer(disabled: false)
             stopStreamHeartbeat()
             await liveTranscriptionSession?.cancel()
             liveEventConsumerTask?.cancel()
@@ -714,6 +724,7 @@ final class AppState: ObservableObject {
             let audioURL: URL
             do {
                 stopRecordingTimer()
+                setScreenIdleTimer(disabled: false)
                 audioURL = try await audioRecorder.stopRecording()
                 await finishCapturedPCMConsumer()
             } catch {
@@ -771,6 +782,11 @@ final class AppState: ObservableObject {
         recordErrorAlertKey = key
         recordingStatus = .idle
         stopRecordingTimer()
+        setScreenIdleTimer(disabled: false)
+    }
+
+    func setScreenIdleTimer(disabled: Bool) {
+        screenIdleController.setIdleTimerDisabled(disabled)
     }
 
 }

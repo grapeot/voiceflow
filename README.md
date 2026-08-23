@@ -81,7 +81,7 @@ Default endpoint is AI Builder Space (`https://space.ai-builders.com/backend`). 
 
 V0 has two tabs: **Record** and **Settings**.
 
-**Record**: start/stop using the strategy selected in Settings, auto-copy on completion, history navigation, save WAV/M4A to Files, resend with the original recording strategy, manual copy, optional push to OpenCode when configured.
+**Record**: start/stop using the strategy selected in Settings, keep the iPhone/iPad screen awake while recording, auto-copy on completion, history navigation, save WAV/M4A to Files, resend with the original recording strategy, manual copy, optional push to OpenCode when configured.
 
 **Settings**: AI Builder Space token (Keychain), default endpoint, optional OpenCode (server URL + username in UserDefaults, password in Keychain), language preference (System / English / 简体中文), transcription prompt + terms inputs for shaping recognizer output.
 
