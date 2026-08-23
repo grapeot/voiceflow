@@ -20,6 +20,11 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-08-23 (诊断测试对齐 GPT Live / Grok 路径)
+
+- `recordingDiagnosticsCapturePermissionAndTranscriptionFailures` 默认走 GPT Live，失败事件是 `transcription_finalize_stream_failed`，不再是旧 bulk 名 `transcription_response_failed`。
+- `recordingDiagnosticsCaptureTranscriptionResponseAndOpenCodeEvents` 同样对齐 GPT Live 的 finalize 失败事件。`transcriptionFailureEventName` 的 upload/response 分类改由单独单测覆盖。
+
 ### 2026-08-23 (录音中保持屏幕常亮)
 
 - iOS 参考 app 在 `.recording` 期间设置 `isIdleTimerDisabled`，Stop / 错误 / 进后台恢复系统锁屏；回前台且仍在录再打开。放在 `AppState`，不进 VoiceFlowKit。visionOS 不设。
