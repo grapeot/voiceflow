@@ -1595,7 +1595,9 @@ struct VoiceFlowTests {
         await failingState.startRecording()
         await failingState.stopRecording()
 
-        #expect(failureDiagnostics.events.map(\.name).contains("transcription_response_failed"))
+        let failureEventNames = failureDiagnostics.events.map(\.name)
+        #expect(failureEventNames.contains("transcription_finalize_stream_failed"))
+        #expect(failureEventNames.contains("transcription_stop_failed"))
         #expect(failureDiagnostics.events.containsSensitiveText(["fake-sensitive-token"]) == false)
     }
 
@@ -1705,6 +1707,14 @@ struct VoiceFlowTests {
         #expect(failedClipboardDiagnostics.events.containsSensitiveText(["private dictated words"]) == false)
     }
 
+    @Test func transcriptionFailureEventNameClassifiesUploadAndResponse() async throws {
+        let state = AppState(keychainStore: InMemoryKeychainStore())
+        #expect(state.transcriptionFailureEventName(for: VoiceFlowError.emptyTranscript) == "transcription_response_failed")
+        #expect(state.transcriptionFailureEventName(for: VoiceFlowError.websocketError("stream failed")) == "transcription_response_failed")
+        #expect(state.transcriptionFailureEventName(for: VoiceFlowError.httpError(statusCode: 500)) == "transcription_upload_failed")
+        #expect(state.transcriptionFailureEventName(for: VoiceFlowError.connectionLost("timeout")) == "transcription_upload_failed")
+    }
+
     @Test func recordingDiagnosticsCaptureTranscriptionResponseAndOpenCodeEvents() async throws {
         let responseFileURL = FileManager.default.temporaryDirectory.appendingPathComponent("voiceflow-diagnostics-response.wav")
         try Data("audio".utf8).write(to: responseFileURL)
@@ -1721,7 +1731,9 @@ struct VoiceFlowTests {
         await responseState.startRecording()
         await responseState.stopRecording()
 
-        #expect(responseDiagnostics.events.map(\.name).contains("transcription_response_failed"))
+        let responseEventNames = responseDiagnostics.events.map(\.name)
+        #expect(responseEventNames.contains("transcription_finalize_stream_failed"))
+        #expect(responseEventNames.contains("transcription_stop_failed"))
 
         let openCodeSuccessDiagnostics = InMemoryRecordingDiagnostics()
         let openCodeSuccessState = AppState(
