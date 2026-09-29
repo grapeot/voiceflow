@@ -20,6 +20,17 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (visionOS 放弃 1.0 支持，FluidAudio 走 fork)
+
+- visionOS build 失败的根因不在自家代码：FluidAudio 0.15.0（本地 ASR）的 `Package.swift` 只声明 macOS 14 / iOS 17，未声明 visionOS，SwiftPM 按默认 floor（visionOS 1.0）编译它，其 streaming ASR 用的 Core ML API（`MLState` / `makeState()` / `stateDescriptionsByName`，visionOS 2.0+）没有 `#available` 保护，直接编译报错。
+- 关键机制：每个 SPM package 按自己 manifest 声明的 floor 编译，app target 的高 floor（`XROS_DEPLOYMENT_TARGET = 26.0`）不会传导给第三方包。已用 Xcode-beta 27.0 + `xrsimulator27.0` 复现。
+- 上游状态：FluidAudio 最新 release 0.17.4 与 main 分支均未声明 visionOS，GitHub 上无任何 visionOS 相关 issue/PR。且 0.16+ 引入的 `NemoTextProcessing` 二进制 xcframework 没有 visionOS 切片，所以 fork 基于 v0.15.0（纯源码）而非最新 tag。
+- 修复：fork `grapeot/FluidAudio`（public，Apache-2.0），`visionos` 分支（基于 v0.15.0）在 `Package.swift` 加 `.visionOS(.v2)`，tag `v0.15.9`；`project.pbxproj` 依赖从 `FluidInference/FluidAudio` exactVersion 0.15.0 切到 `grapeot/FluidAudio` exactVersion 0.15.9。
+- `Package.swift`（VoiceFlowKit）：floor `.visionOS(.v1)` → `.visionOS(.v2)`；`swift-tools-version` 5.10 → 6.0（`.visionOS(.v2)` 只在 6.0 manifest API 可用）；两个 target 加 `swiftSettings: [.swiftLanguageMode(.v5)]`，代码继续按 Swift 5 模式编译，避免 tools 6.0 把既有 Sendable 警告升级成错误。
+- 验证：Xcode-beta 27.0 `xrsimulator27.0` 全量 build 绿（FluidAudio 成功编译为 xros，产物 `Debug-xrsimulator/VoiceFlow.app`）；Xcode 26.6 stable iOS simulator build + 单测（`test_unit.sh`，rebuild）全绿。
+- 流程约定：FluidAudio 的一切改动只走 `grapeot/FluidAudio` 自己的 PR → merge，绝不向 `FluidInference/FluidAudio` 上游发 PR。
+- 踩坑：两个 Xcode 版本（26.6 stable / 27.0 beta）共用同一份按项目名命名的 DerivedData，交替 build 会污染 explicit-modules 缓存（`ExplicitPrecompiledModules/*.pcm` not found）；整份删 DerivedData 后恢复。
+
 ### 2026-08-23 (诊断测试对齐 GPT Live / Grok 路径)
 
 - `recordingDiagnosticsCapturePermissionAndTranscriptionFailures` 默认走 GPT Live，失败事件是 `transcription_finalize_stream_failed`，不再是旧 bulk 名 `transcription_response_failed`。

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
@@ -6,7 +6,7 @@ let package = Package(
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
-        .visionOS(.v1)
+        .visionOS(.v2)
     ],
     products: [
         .library(name: "VoiceFlowKit", targets: ["VoiceFlowKit"])
@@ -17,7 +17,8 @@ let package = Package(
             path: "Sources/VoiceFlowKit",
             resources: [
                 .copy("Resources/PrivacyInfo.xcprivacy")
-            ]
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
             name: "VoiceFlowKitTests",
@@ -25,7 +26,8 @@ let package = Package(
             path: "Tests/VoiceFlowKitTests",
             resources: [
                 .copy("Fixtures/tts_all_caps_24k.wav")
-            ]
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )
