@@ -350,17 +350,8 @@ struct SettingsView: View {
 
                 Picker("Strategy", selection: $appState.transcriptionStrategy) {
                     ForEach(VoiceFlowRecordingStrategy.allCases, id: \.rawValue) { strategy in
-                        #if os(visionOS)
-                        // The on-device engine relies on iOS 18 CoreML
-                        // stateful-model behavior; keep it off visionOS.
-                        if strategy != .localQwen3ASR {
-                            Text(localized(strategy.localizedTitleKey))
-                                .tag(strategy)
-                        }
-                        #else
                         Text(localized(strategy.localizedTitleKey))
                             .tag(strategy)
-                        #endif
                     }
                 }
                 .pickerStyle(.menu)
