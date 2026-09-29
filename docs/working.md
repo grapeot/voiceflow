@@ -31,6 +31,7 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 - 流程约定：FluidAudio 的一切改动只走 `grapeot/FluidAudio` 自己的 PR → merge，绝不向 `FluidInference/FluidAudio` 上游发 PR。
 - 踩坑：两个 Xcode 版本（26.6 stable / 27.0 beta）共用同一份按项目名命名的 DerivedData，交替 build 会污染 explicit-modules 缓存（`ExplicitPrecompiledModules/*.pcm` not found）；整份删 DerivedData 后恢复。
 - 2026-09-29 后续：PR #74 merged。stable Xcode 26.6 archive（`generic/platform=xros`，Release，`-allowProvisioningUpdates`）+ 云托管 App Store 签名导出并上传 ASC（TestFlight 用途，产物在 `tmp/asc-20260929/`）。上传 build = 1.0 (4)：源码 build 2，managed versioning 按 ASC 现状自动 +2，以 IPA 的 `CFBundleVersion` 为准。Cloud Managed Apple Distribution 证书 + App Store profile，`get-task-allow=false`，MinimumOSVersion 26.0。stable Xcode 做 visionOS archive 前需 `xcodebuild -downloadPlatform visionOS` 安装平台组件（SDK 在但 platform runtime 缺失，destination 会报 ineligible）。
+- 2026-09-29 后续：放开 visionOS 上的本地 ASR（Qwen3-ASR）选项。原先 `SettingsView` 的 Strategy Picker 用 `#if os(visionOS)` 把 `.localQwen3ASR` 排除掉（注释称依赖 iOS 18 CoreML stateful-model，keep off visionOS）。fork 修好 FluidAudio 的 visionOS 编译后，该 API 在 visionOS 2.0+ 可用、app floor 是 visionOS 26，编译层面无阻塞，故移除这段门控，让本地 ASR 在 visionOS 也能选。`FluidAudioLocalAsrEngine.isSupportedOnThisDevice` 用 `#available(iOS 18.0, *)` 通配，visionOS 下恒真，不额外拦截。运行时在 Vision Pro 上未验证（ANE/内存/发热未知）。首次使用需下载 ~0.7 GB int8 模型（encoder/decoder/embeddings，支持断点续传）。验证：stable 26.6 xrsimulator Release build 绿 + iOS 单测绿。
 
 ### 2026-08-23 (诊断测试对齐 GPT Live / Grok 路径)
 
