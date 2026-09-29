@@ -1,13 +1,13 @@
 {
-  "originHash" : "51da9db7633530dc9416c5f3bf65d9b80fa05338d0f2ee0c0e2106b6b3675417",
+  "originHash" : "f407d24ed24dd61f1295e3723ac84ce1503267df21c6bf7ce8180042fa5cf13b",
   "pins" : [
     {
       "identity" : "fluidaudio",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/FluidInference/FluidAudio",
+      "location" : "https://github.com/grapeot/FluidAudio",
       "state" : {
-        "revision" : "b1c82cfbfd303698f330b6a347dbfadf093463e4",
-        "version" : "0.15.0"
+        "revision" : "10df300c9703d4866b4672a2394975464c090c25",
+        "version" : "0.15.9"
       }
     }
   ],

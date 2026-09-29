@@ -622,10 +622,10 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		A1B2C3D4E5F60003B0000006 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/FluidInference/FluidAudio";
+			repositoryURL = "https://github.com/grapeot/FluidAudio";
 			requirement = {
 				kind = exactVersion;
-				version = 0.15.0;
+				version = 0.15.9;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
