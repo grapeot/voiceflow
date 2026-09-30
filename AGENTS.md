@@ -12,6 +12,7 @@ VoiceFlow 是面向 iOS 和 visionOS 的语音记录 app。仓库内容按可发
 - `docs/rfc.md`：技术方案和 V0 交付状态
 - `docs/test.md`：测试策略和验收命令
 - `docs/working.md`：每日变更记录和经验教训
+- `docs/design.md`：视觉设计语言 spec（双模式色板 / 组件 / 动效）；历史修订以追加节形式累积，以末尾最新修订节为准
 - `src/VoiceFlow/VoiceFlow.xcodeproj`：Xcode 工程
 - `src/VoiceFlow/VoiceFlow/`：App 源码
 - `src/VoiceFlow/VoiceFlowTests/`：单元测试
