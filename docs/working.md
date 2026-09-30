@@ -20,6 +20,14 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (Append 模式二轮复审修复：失败路径边界归属)
+
+- 二轮 gpt_6_sol 复审发现 2 个 MAJOR，均在失败路径的 `lastChunkLength` 边界归属上，已修复并各加回归测试（146 项全绿）：
+  - [MAJOR] **空基座首条录音失败后边界丢失**：`visibleChunkText()` 原实现遇空基座直接返回空串（append 从空文档开始 / replace 模式下整页即块区域），失败 settle 后 `lastChunkLength` 保持 nil，重发退化为末尾追加，把已上屏 partial 和新结果重复拼在一起。修复：空基座时可见块 = 整个 transcript；分隔符剥离条件补上「非空基座」（空基座 compose 本就不插分隔符）。
+  - [MAJOR] **persist 前失败把新录音 partial 的长度记到旧可重发音频上**：新录音在 stop/信号校验/持久化任一环节失败时（`lastRecordingURL` 未更新），defer 的 `settleFailedChunk()` 仍把可见 partial 长度写入 `lastChunkLength`，下一次对旧音频的重发会按该边界把文档尾部（= 这段不属于旧音频的 partial）裁掉。修复：新增 `chunkAudioIsResendTarget` 状态（start/在飞重发 stop 置 false，两处 persist 成功置 true），settle 仅在 true 时写边界，false 且有可见 partial 时置 nil（partial 保留在文档，重发退化为安全的末尾追加）。
+- 回归测试：`failedFinalizeFromEmptyDocumentRecordsBoundaryForResend`（空基座首条录音失败 → 重发替换 partial）、`failedStopBeforePersistInvalidatesBoundaryAndKeepsPartial`（有旧录音在档时 stop 失败 → 边界失效、partial 保留、重发末尾追加）；既有 `failedSettleKeepsBoundaryWhenBaseEndsInNewline` 补 `chunkAudioIsResendTarget = true`（直接调 settle 的单测需显式声明"音频已 persist"场景）。
+- `docs/rfc.md` 追加转写模式节同步：`chunkAudioIsResendTarget` 状态条目 + settle/`visibleChunkText` 语义更新。
+
 ### 2026-09-29 (Append 模式 UI 细化 + 设计稿并入)
 
 - 模式开关从 ⋯ 菜单的 checkmark 双行改为 **segmented 开关**（Section 标题改「Transcript Mode / 转写模式」）：用户实测反馈两行打勾读不出当前模式在哪个位置，segmented 选中段高亮一眼可读。开关仍只在 ⋯ 菜单里，主屏不放常驻标签（用户明确确认默认不在屏幕上）。

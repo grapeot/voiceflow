@@ -202,6 +202,13 @@ final class AppState: ObservableObject {
     /// (via `transcript.didSet`) and the next resend would append a
     /// duplicate tail instead of replacing it.
     internal var preResendChunkLength: Int?
+    /// True once the in-flight chunk's audio has been persisted and is the
+    /// resend target (`lastRecordingURL`). A failure settle may only write
+    /// a chunk boundary for the resendable audio: while this is false the
+    /// displayed partial belongs to a recording that never became resendable
+    /// (stop/signal/persist failed), and a later resend must not cut it out
+    /// of the document.
+    internal var chunkAudioIsResendTarget: Bool = false
     /// The mode captured when the current recording started. The ⋯ menu
     /// is locked during recording, so this equals `transcriptMode` for the
     /// whole recording; resends re-capture it at resend start.
@@ -485,6 +492,7 @@ final class AppState: ObservableObject {
         activeTranscriptMode = .replace
         composeBase = ""
         chunkInFlight = false
+        chunkAudioIsResendTarget = false
         lastChunkLength = nil
         preResendDocument = nil
         preResendChunkLength = nil
@@ -696,6 +704,10 @@ final class AppState: ObservableObject {
             startRecordingTimer()
             recordingStatus = .recording
             chunkInFlight = true
+            // The new recording's audio does not become the resend target
+            // until `stopRecording` persists it; a failure before that
+            // point must not attribute a chunk boundary to it.
+            chunkAudioIsResendTarget = false
             setScreenIdleTimer(disabled: true)
             startSignalBannerGraceTimer()
         } catch {
@@ -703,6 +715,7 @@ final class AppState: ObservableObject {
             await cancelLiveTranscriptionSession()
             composeBase = ""
             chunkInFlight = false
+            chunkAudioIsResendTarget = false
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
             resetRecordingTimer()
             presentRecordError("record.error.recordingFailed")
@@ -788,6 +801,7 @@ final class AppState: ObservableObject {
             // success merge (or the failure settle with a visible partial)
             // re-establishes the boundary attributed to this audio.
             lastChunkLength = nil
+            chunkAudioIsResendTarget = true
         } catch {
             try? FileManager.default.removeItem(at: audioURL)
             await cancelLiveTranscriptionSession()
@@ -845,6 +859,10 @@ final class AppState: ObservableObject {
                 setScreenIdleTimer(disabled: false)
                 audioURL = try await audioRecorder.stopRecording()
                 await finishCapturedPCMConsumer()
+                // The in-flight chunk's audio is now this just-stopped
+                // recording, which is not the resend target until persist
+                // succeeds below.
+                chunkAudioIsResendTarget = false
             } catch {
                 await cancelCapturedPCMConsumer()
                 await cancelLiveTranscriptionSession()
@@ -876,6 +894,7 @@ final class AppState: ObservableObject {
                 // this audio, so an older merged-chunk boundary no longer
                 // describes it.
                 lastChunkLength = nil
+                chunkAudioIsResendTarget = true
             } catch {
                 try? FileManager.default.removeItem(at: audioURL)
                 await cancelLiveTranscriptionSession()

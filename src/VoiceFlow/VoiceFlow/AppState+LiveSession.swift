@@ -692,31 +692,51 @@ extension AppState {
     /// visible chunk attached. Settling just finalizes that split — the
     /// visible chunk (if any) becomes the document's last chunk, so a
     /// later resend replaces it instead of duplicating it.
+    ///
+    /// Boundary attribution follows `chunkAudioIsResendTarget`: only the
+    /// audio that is actually resendable may own a boundary. When the
+    /// in-flight recording never reached persist (stop, signal check, or
+    /// persistence failed first), the resend target is still an OLDER
+    /// recording — writing the new partial's length as the boundary would
+    /// make the next resend cut that partial out of the document. Invalidating
+    /// it instead keeps the partial visible and degrades the resend to
+    /// end-append (the documented safe fallback).
     internal func settleFailedChunk() {
         guard chunkInFlight else { return }
         let visible = visibleChunkText()
-        if !visible.isEmpty {
-            lastChunkLength = visible.count
+        if chunkAudioIsResendTarget {
+            if !visible.isEmpty {
+                lastChunkLength = visible.count
+            }
+        } else if !visible.isEmpty {
+            lastChunkLength = nil
         }
-        // Empty visible chunk: the document is unchanged, so the previous
-        // chunk boundary (if any) is still valid.
+        // Empty visible chunk: the document is unchanged. A persisted target
+        // already has a niled boundary from persist time; a non-persisted
+        // target keeps the older boundary, which still describes the
+        // document tail.
         composeBase = ""
         chunkInFlight = false
+        chunkAudioIsResendTarget = false
         preResendDocument = nil
         preResendChunkLength = nil
     }
 
     /// The visible in-flight chunk as currently displayed: the transcript
-    /// minus the frozen base, without the composing separator. The
-    /// separator is stripped only when `composeTranscript` actually inserted
-    /// one (a base that already ends in a newline composes without a
-    /// separator, so a leading newline there belongs to the chunk itself).
-    /// Empty when no chunk is visible (or the transcript diverged from the
-    /// base, which the locked editor normally prevents).
+    /// minus the frozen base, without the composing separator. With an
+    /// empty base the whole page is the chunk's territory (append from an
+    /// empty document, or replace mode), so the entire transcript is the
+    /// visible chunk. The separator is stripped only when
+    /// `composeTranscript` actually inserted one (a non-empty base that
+    /// does not end in a newline); a base that already ends in a newline
+    /// and an empty base both compose without a separator, so a leading
+    /// newline there belongs to the chunk itself.
+    /// Empty when the transcript diverged from the base, which the locked
+    /// editor normally prevents.
     internal func visibleChunkText() -> String {
-        guard !composeBase.isEmpty, transcript.hasPrefix(composeBase) else { return "" }
+        guard transcript.hasPrefix(composeBase) else { return "" }
         var visible = String(transcript.dropFirst(composeBase.count))
-        if !composeBase.hasSuffix("\n"), visible.hasPrefix("\n") {
+        if !composeBase.isEmpty, !composeBase.hasSuffix("\n"), visible.hasPrefix("\n") {
             visible.removeFirst()
         }
         return visible

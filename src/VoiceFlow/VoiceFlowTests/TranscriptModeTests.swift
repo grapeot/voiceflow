@@ -264,6 +264,92 @@ struct TranscriptModeTests {
 
     // MARK: - Resend
 
+    @Test func failedFinalizeFromEmptyDocumentRecordsBoundaryForResend() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let (client, mock) = makeStubVoiceFlowClient(
+            liveResult: .failure(VoiceFlowError.connectionLost("finalize failed")),
+            bulkResult: .failure(VoiceFlowError.emptyTranscript)
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptMode = .append
+        // Append mode starting from an EMPTY document: the frozen base is
+        // "" and the whole page is the in-flight chunk's territory.
+        await state.startRecording()
+        state.applyStreamedTranscript("partial words")
+        #expect(state.transcript == "partial words")
+
+        await state.stopRecording()
+        #expect(state.recordingStatus == .idle)
+        #expect(state.transcript == "partial words")
+        // The visible partial must be recorded as this recording's chunk
+        // boundary, so a resend replaces it.
+        #expect(state.lastChunkLength == "partial words".count)
+
+        await mock.setBulkResult(.success("fixed result"))
+        await state.resendLastRecording()
+        #expect(state.recordingStatus == .ready)
+        #expect(state.transcript == "fixed result")
+        #expect(state.lastChunkLength == "fixed result".count)
+    }
+
+    @Test func failedStopBeforePersistInvalidatesBoundaryAndKeepsPartial() async throws {
+        resetTranscriptionStrategyDefault()
+        defer { resetTranscriptionStrategyDefault() }
+        let keychain = InMemoryKeychainStore()
+        let recorder = MockAudioRecorder()
+        let (client, mock) = makeStubVoiceFlowClient(
+            liveResult: .success("second chunk"),
+            bulkResult: .success("second chunk fixed")
+        )
+        let state = AppState(
+            keychainStore: keychain,
+            audioRecorder: recorder,
+            voiceFlowClient: client,
+            clipboardWriter: MockClipboardWriter()
+        )
+
+        state.saveAIBuilderToken("fake-token")
+        state.transcriptMode = .append
+        state.transcript = "first chunk"
+        await state.startRecording()
+        await state.stopRecording()
+        #expect(state.transcript == "first chunk\nsecond chunk")
+        #expect(state.lastChunkLength == "second chunk".count)
+
+        // A second recording shows a live partial, then STOP fails before
+        // the audio is persisted: the resend target is still the OLDER
+        // recording.
+        await state.startRecording()
+        state.applyStreamedTranscript("new partial")
+        #expect(state.transcript == "first chunk\nsecond chunk\nnew partial")
+        recorder.stopError = VoiceFlowError.connectionLost("stop failed")
+        await state.stopRecording()
+        recorder.stopError = nil
+        #expect(state.recordingStatus == .idle)
+        // The partial stays in the document, and the boundary is
+        // invalidated: it must not claim the partial's length for the
+        // older resendable audio.
+        #expect(state.transcript == "first chunk\nsecond chunk\nnew partial")
+        #expect(state.lastChunkLength == nil)
+
+        // Resending the older recording appends at the end instead of
+        // cutting the failed partial out of the document.
+        await state.resendLastRecording()
+        #expect(state.recordingStatus == .ready)
+        #expect(state.transcript == "first chunk\nsecond chunk\nnew partial\nsecond chunk fixed")
+        #expect(state.lastChunkLength == "second chunk fixed".count)
+    }
+
     @Test func resendInAppendModeReplacesTheLastChunk() async throws {
         resetTranscriptionStrategyDefault()
         defer { resetTranscriptionStrategyDefault() }
@@ -441,6 +527,7 @@ struct TranscriptModeTests {
         state.transcript = "A\n"
         state.composeBase = "A\n"
         state.chunkInFlight = true
+        state.chunkAudioIsResendTarget = true
         // The base ends in a newline, so composition inserted no separator:
         // the chunk's leading newline is content, not a separator.
         state.applyStreamedTranscript("\nB")

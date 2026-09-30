@@ -308,12 +308,13 @@ ready -> (start again) -> requestingPermission -> ...
 - `chunkInFlight`：块在飞标记。`applyStreamedTranscript` 以此为前置（结算后的陈旧帧一律忽略）。
 - `lastChunkLength`：最后一次并入的块长（Character 数），语义上**归属于当前可重发的录音**。`transcript.didSet` 一律将其置 nil（用户编辑/导航/清空后边界即失效）；写回点：append 合并（新块长）、replace 成功（整页 = 本次结果长，保证切到 append 后重发仍是整页替换）、settle 有可见 partial（partial 长）、resend 失败恢复（`preResendChunkLength`）。**每次新录音 persist 成功后置 nil**（stop 与录音中重发两处）：重发对象换成新音频后，旧边界不再描述可重发音频，防止重发裁掉上一段已并入的块。
 - `preResendDocument` / `preResendChunkLength`：append 重发前快照，重发失败时原样恢复（含边界，否则下一次重发会重复追加尾段）。
+- `chunkAudioIsResendTarget`：在飞块的音频是否已成为重发目标（persist 成功）。置 false：新录音 Start、在飞重发 stop 后；置 true：stop 与重发两处 persist 成功。失败 settle 只允许为**可重发的音频**写边界：置 false 时的可见 partial 属于一条从未 persist 的录音（stop/信号/持久化先失败），此时写边界会让下一次对**旧音频**的重发把这段 partial 从文档尾部裁掉——settle 改为置 `lastChunkLength = nil`（partial 留在文档里，重发退化为安全的末尾追加）。
 
 **写入路径**：
 
 - `applyStreamedTranscript`：快照先 `composeTranscript(base:composeBase, chunk:)` 合成再套用原有 append-delta / 尾替换 / 整体替换 逻辑；空快照忽略；基座前缀任何时刻不被破坏。`composeTranscript` 分隔规则：空块=基座不变、空基座=块本身、否则补单个换行（基座已以换行结尾则不补）。
 - `completeStopTranscriptionSuccess`：按 `activeTranscriptMode` 分支——replace 整体赋值（原行为）；append 走 `mergeChunkIntoTranscript`（compose 合并 + 记 `lastChunkLength` + 清块状态）。历史 `add(committed)` 与剪贴板 `copyTranscript()` 统一作用于**整篇文档**，零特判。
-- 失败漏斗 `completeStopTranscriptionFailure`、`stopRecording` defer、resend 各早期出口调用 `settleFailedChunk()`：幂等（`chunkInFlight` 守卫）；因流式写入恒在基座上合成，settle **不改写 transcript**（可见 partial 原样保留即等于并入文档），只清块状态解锁编辑器，并把可见 partial 长度写入 `lastChunkLength`（空块则保留现状）。可见块由 `visibleChunkText()` 计算：去掉基座前缀后，仅当合成时确实插入过分隔符（基座不以换行结尾）才剥掉首个换行——基座已以换行结尾时块自身的首个换行是内容，不能剥。
+- 失败漏斗 `completeStopTranscriptionFailure`、`stopRecording` defer、resend 各早期出口调用 `settleFailedChunk()`：幂等（`chunkInFlight` 守卫）；因流式写入恒在基座上合成，settle **不改写 transcript**（可见 partial 原样保留即等于并入文档），只清块状态解锁编辑器。边界写入按 `chunkAudioIsResendTarget` 分支：true 时把可见 partial 长度写入 `lastChunkLength`（空块保留现状）；false 且有可见 partial 时置 `lastChunkLength = nil`（见上条）。可见块由 `visibleChunkText()` 计算：去掉基座前缀后，仅当合成时确实插入过分隔符（**非空**基座且不以换行结尾）才剥掉首个换行——基座已以换行结尾、或基座为空（整页即块区域，如 append 从空文档开始 / replace 模式）时，块自身的首个换行是内容，不能剥。空基座时可见块 = 整个 transcript，失败 settle 后重发替换整页，与 replace 成功记整页边界同语义。
 - resend 重转写失败走 `settleFailedResend()`：恢复 `preResendDocument` 与 `preResendChunkLength`（replace 模式保持旧行为：保留最后 partial）。`preResendChunkLength` 在重发开始时按场景捕获：idle/ready 重发 = 合并边界；录音中/卡死重发 = 当前可见 live 块长（恢复后的文档尾端是 live 块，旧合并边界会指进 live 块内部）。
 - 陈旧事件防护：`startLiveEventConsumer` 为每个消费者记 `liveSessionGeneration` 世代号，事件跳回主 actor 时世代不符即丢弃，取消的旧 session 的滞留快照不会合成到新录音的块上。
 
