@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (Record 屏键盘无法收起 bug 修复)
+
+- 现象：点 Record 屏 transcript 文本框弹出键盘后，点任何位置都收不起来（Settings 没有此问题）。
+- 根因：`dismissKeyboardOnTapOutsideTextInputs()`（window 级 tap recognizer + UIGestureRecognizerDelegate 过滤 UITextField/UITextView/UISearchBar，`cancelsTouchesInView = false`）早已存在且 SettingsView 在用，但 RecordView 从未挂载。
+- 修复：RecordView 根挂上现成 modifier（一行）。行为链：文本框外 tap → `resignFirstResponder` 收键盘，`textViewDidEndEditing` 置 `isEditing = false`，编辑态紧凑布局自动展开（既有动画）；文本框内 tap 被 delegate 放行继续编辑；tap 同时到达原目标（点 Record 按钮 = 收键盘 + 开始录音）；visionOS 走 modifier 的 no-op 分支。
+- 改动面：`Views/RecordView.swift` 一行 + prd/working 文档。无新增测试（window recognizer 行为依赖真实 touch，单测不可达；UI test 未在本轮运行）。
+
 ### 2026-09-29 (Append 模式二轮复审修复：失败路径边界归属)
 
 - 二轮 gpt_6_sol 复审发现 2 个 MAJOR，均在失败路径的 `lastChunkLength` 边界归属上，已修复并各加回归测试（146 项全绿）：

@@ -35,7 +35,7 @@ VoiceFlowKit 按 [generative kernel](https://yage.ai/ai-software-engineering.htm
 
 ## V0 交付状态（2026-05-26）
 
-已在 `master` 交付：Record / Settings 双 tab、GUI 对齐、Keychain token、录完上传转写、自动复制、双向历史导航、保存/重发录音、可选 OpenCode（含连接测试 gating）、录音诊断日志、语言偏好（System / English / 简体中文）、Settings 键盘收起与连接失败 detail、privacy review、GitHub 发布（https://github.com/grapeot/voiceflow）、deep link（`voiceflow://record`）。
+已在 `master` 交付：Record / Settings 双 tab、GUI 对齐、Keychain token、录完上传转写、自动复制、双向历史导航、保存/重发录音、可选 OpenCode（含连接测试 gating）、录音诊断日志、语言偏好（System / English / 简体中文）、Settings / Record 键盘收起（点文本框外任意位置收起，Settings 滚动收起）与连接失败 detail、privacy review、GitHub 发布（https://github.com/grapeot/voiceflow）、deep link（`voiceflow://record`）。
 
 尚未交付：iOS / iPadOS 的 Settings 外观偏好（System / Light / Dark 手动选择）。当前 iOS 跟随系统日间/夜间模式；**visionOS 不在这个偏好的范围内** —— visionOS native app 没有 Light/Dark 概念，Apple 用 glass 材质自适应环境光。Vision Pro 上 Settings → Appearance 里那条 Light/Dark 子标题是 "Compatible Apps Appearance"，只影响 iPad/iPhone compatibility app（不是 visionOS native build），对我们这种 native visionOS target 完全无效。VoiceFlow 在 visionOS 上 pin 到 Light 配色，与 Vision Pro 默认 glass UI 一致。
 
