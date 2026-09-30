@@ -20,6 +20,27 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (UI 测试卡死排查 + simulator preflight)
+
+- 现象：UI 测试单次 10+ 分钟无结果。日志签名：`Restarting after unexpected exit, crash, or test timeout` + `Failure collecting diagnostics from simulator: Timed out after 600.0 seconds`。
+- 排查结论（实测数据）：不是 app bug（A/B 还原 PR #81 改动后症状相同），也不在构建——warm `build-for-testing` 仅 5-15s。根因是多 AI/并发 Xcode 任务驱动同一台 pinned simulator 把它打到卡死（与上一条 archive 记录中"pinned simulator 是共享单点"的教训同源）+ 机器 load 30-60（32 核）；xcodebuild 失败后的诊断收集阶段会再等满 600s，把一次失败放大成 10+ 分钟。
+- 修复（`scripts/lib/simulator.sh`，所有 test 脚本生效）：
+  - **preflight**：boot 后 15s 有界 `simctl io screenshot` 探针，无响应即快速失败并输出三条处理建议（停并发任务 / shutdown 重跑 / 换专属设备）；
+  - **负载警告**：1min load 超核数时打印（只警告不失败）；
+  - **默认 pin 换到 iOS 26.5**（与当前 SDK 对齐 + 与并发任务常用的 26.3 设备错开）；跨 runtime 的构建产物可复用（实测新设备 warm build 12s）。并发环境仍冲突时用 `VOICEFLOW_TEST_DESTINATION` 指定专属设备（一 repo 一 simulator）。
+- 文档：`docs/test.md` 新增「UI 测试卡死 / 变慢排查」节（症状签名 + 手动排查命令 + 处理优先级 + 首跑预热）；AGENTS.md scripts 行加指针。
+- **repo 本地 DerivedData**（`scripts/lib/xcodebuild_test.sh`）：test 脚本默认 `-derivedDataPath .voiceflow/DerivedData`，隔离并发 xcodebuild 的 build 数据库锁（静默排队）；同 repo 内 unit/UI/手动 build 仍共享 warm 缓存。决策：不做 merge 时自动清空（xcodebuild 按 mtime/hash 自愈，清缓存只付冷构建成本）；清空只作为手动恢复手段。首次冷构建约 2-3 分钟（SPM 有全局缓存，主要成本是 FluidAudio 编译）；实测用 `cp -c -R`（APFS clonefile）从 warm 默认存储迁移只需 13s。
+- 排查过程中的两个自我教训：① 长 xcodebuild 必须 `tee` 到文件，`| rg`/`| tail` 吞掉进度后 600s 诊断阶段无法区分在跑还是卡死（盲等 5-6 分钟被用户 abort）；② abort 后 `simctl diagnose --timeout=600` 会作为孤儿进程继续跑满 10 分钟加重机器负载，要 `ps aux | rg "simctl diagnose"` 检查并 kill 自己的。
+- **验收结果**（机器 load ~55、另一 AI session 在跑 OpenCodeClient UI test 的拥堵条件下）：unit 全量 8s（warm）；UI smoke 3 条 81s 全绿（42s/22s/9s，贴近历史基线 ~50s）；warm `build-for-testing` 5-15s；preflight 探针健康路径 1s / 卡死 15s 快失败。
+
+### 2026-09-29 (iOS 1.0 (10) archive + 上传 App Store Connect)
+
+- 多 AI 并行操作 voiceflow / OpenCode iOS client 场景下的发布：archive 用独立 `-derivedDataPath tmp/asc-20260929/dd-ios` 隔离其他 session 的默认 DerivedData；UI/单测验收改用 iOS 26.3 runtime 上另一台闲置模拟器（`VOICEFLOW_TEST_DESTINATION` 覆盖 pinned device），避开其他 AI 占用的 pinned iPhone 17 Pro（8625CF87）；所有 xcodebuild 日志 tee 到文件保证进度可审计。
+- 发布前验证：`swift test`（VoiceFlowKit，35 tests）与 xcodebuild 单测（`test_unit.sh`）绿；UI full 套件在验收中被用户叫停（当时另一 AI 的单条 UI test 在同一 pinned 模拟器上运行异常偏长，切换设备后的 full 套件运行到中途被中断），按用户指令未跑完即继续发布——本轮源码仅 test 改动，主程序自上次发布未变。
+- stable Xcode 26.6 archive（`generic/platform=iOS`，Release，`-allowProvisioningUpdates`），`manageAppVersionAndBuildNumber=false`，上传 build = 1.0 (10)（源码 build 10，与 IPA `CFBundleVersion` 一致；10 大于 iOS 序列既有最大 9，在 ASC 列表排最顶）。Cloud Managed Apple Distribution 证书 + App Store profile，`get-task-allow=false`，MinimumOSVersion 17.0。产物在 `tmp/asc-20260929/`（archive / export-ios-b10 / upload-ios-b10）。
+- 上传状态：`Upload succeeded`，Apple 已接收、进入 processing；未提交 TestFlight 外部分发、未提交审核。
+- 教训：多 AI 同机跑 xcodebuild 时，pinned simulator 是共享单点，`test-without-building` 长时无输出不代表卡死（也可能被 `| tail` 吞掉进度）；先 `ps` 查其他 session 的 in-flight build，再决定共用还是隔离。
+
 ### 2026-09-29 (Record 屏键盘无法收起 bug 修复)
 
 - 现象：点 Record 屏 transcript 文本框弹出键盘后，点任何位置都收不起来（Settings 没有此问题）。

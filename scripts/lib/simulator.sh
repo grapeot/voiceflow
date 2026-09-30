@@ -11,7 +11,43 @@ voiceflow_simulator_init() {
   VOICEFLOW_PIN_DIR="$root/.voiceflow"
   VOICEFLOW_PIN_FILE="$VOICEFLOW_PIN_DIR/simulator-udid"
   VOICEFLOW_SIMULATOR_NAME="${VOICEFLOW_SIMULATOR_NAME:-iPhone 17 Pro}"
-  VOICEFLOW_SIMULATOR_OS="${VOICEFLOW_SIMULATOR_OS:-26.3.1}"
+  VOICEFLOW_SIMULATOR_OS="${VOICEFLOW_SIMULATOR_OS:-26.5}"
+}
+
+# Bounded liveness probe. A simulator that is wedged (typically because a
+# concurrent Xcode job is driving the same device) makes `simctl io` hang
+# indefinitely; xcodebuild would then spend up to 600s on post-failure
+# diagnostics. Failing fast here costs ~15s instead of ~10min.
+voiceflow_simulator_probe() {
+  local udid="$1" timeout_s="${2:-15}"
+  python3 - "$udid" "$timeout_s" <<'PY'
+import subprocess, sys
+udid, timeout_s = sys.argv[1], float(sys.argv[2])
+try:
+    subprocess.run(
+        ["xcrun", "simctl", "io", udid, "screenshot", "/dev/null"],
+        timeout=timeout_s,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    sys.exit(0)
+except subprocess.TimeoutExpired:
+    sys.exit(1)
+PY
+}
+
+# Warn (never fail) when the machine is saturated: a 1-minute load average
+# above the core count means simulator work is queued behind other jobs.
+voiceflow_simulator_load_warn() {
+  local load1 ncpu
+  load1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+  ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  if [[ -n "$load1" ]]; then
+    awk -v l="$load1" -v n="$ncpu" 'BEGIN { if (l > n) exit 1; exit 0 }' || {
+      echo "voiceflow: machine load ${load1} exceeds core count ${ncpu}; simulator-backed tests will be slow and flaky. Consider pausing parallel Xcode jobs first."
+    }
+  fi
+  return 0
 }
 
 voiceflow_simulator_udid_exists() {
@@ -125,14 +161,28 @@ voiceflow_simulator_prepare_destination() {
   local root="$1"
   voiceflow_simulator_init "$root"
 
+  local udid=""
   if [[ -n "${VOICEFLOW_TEST_DESTINATION:-}" ]]; then
     VOICEFLOW_TEST_DESTINATION_SOURCE="override"
-    return 0
+    udid="${VOICEFLOW_TEST_DESTINATION#*id=}"
+  else
+    udid="$(voiceflow_simulator_resolve_udid)"
+    voiceflow_simulator_boot "$udid"
+    export VOICEFLOW_TEST_DESTINATION="platform=iOS Simulator,id=$udid"
+    VOICEFLOW_TEST_DESTINATION_SOURCE="pinned"
   fi
 
-  local udid
-  udid="$(voiceflow_simulator_resolve_udid)"
-  voiceflow_simulator_boot "$udid"
-  export VOICEFLOW_TEST_DESTINATION="platform=iOS Simulator,id=$udid"
-  VOICEFLOW_TEST_DESTINATION_SOURCE="pinned"
+  # Preflight: fail in ~15s when the device is wedged instead of letting
+  # xcodebuild hang on post-failure diagnostics (~600s) after the test
+  # process itself has already died.
+  if [[ "$udid" =~ ^[0-9A-F-]{36}$ ]]; then
+    voiceflow_simulator_load_warn
+    if ! voiceflow_simulator_probe "$udid"; then
+      echo "voiceflow: simulator $udid is unresponsive (probe timed out)." >&2
+      echo "voiceflow: usually a concurrent Xcode job is driving the same simulator, or it is wedged." >&2
+      echo "voiceflow: remedies — pause the parallel job; or run: xcrun simctl shutdown $udid, then re-run; or point VOICEFLOW_TEST_DESTINATION at a dedicated device." >&2
+      return 1
+    fi
+  fi
+  return 0
 }
