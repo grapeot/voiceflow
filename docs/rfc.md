@@ -321,7 +321,7 @@ ready -> (start again) -> requestingPermission -> ...
 
 **垃圾桶按钮**：`clearTranscriptToHistory()` = `transcriptHistory.add(transcript)` + 清空，`canClearTranscript`（非空 + idle/ready + 无 Custom Action + 无在飞块）。空视图恢复规则：transcript 为空且历史非空时，左箭头恢复 `currentEntry`（游标所在条目）而非继续后退；手动全选删除同样适用。`TranscriptHistory.add` 存**原文**（trim 只用于空判断与去重）：垃圾桶把历史变成撤销目标，恢复必须逐字节一致（含末尾换行）。
 
-**UI 入口**：⋯ 菜单顶部「Transcript」Section（Replace / Append + checkmark，录音中禁用）；工具条 Copy 左边 trash 幽灵按钮。本地化 key：`record.transcriptMode.title/.replace/.append`、`record.clear`（en + zh-Hans）。
+**UI 入口**：⋯ 菜单顶部「Transcript Mode / 转写模式」Section，内为 segmented Picker（Replace | Append，选中段高亮；录音中/转写中禁用，与策略锁定一致）。用户实测反馈后从 checkmark 双行改为 segmented——两行打勾需要比对才能读出当前模式，segmented 当前模式一眼可见；主屏不放常驻模式标签（session 级、切换低频，保持 Record 屏干净）。左右箭头随模式变图标与标签：append = `arrow.uturn.backward/forward` + Undo / Redo（文档撤销/重做框架），replace = `chevron.left/right` + History；accessibility identifier 保持 `record.historyPreviousButton` / `record.historyNextButton` 不变（UI test 引用）。工具条 Copy 左边 trash 幽灵按钮。本地化 key：`record.transcriptMode.title/.replace/.append`、`record.undo/.redo`、`record.clear`（en + zh-Hans）。
 
 **测试**：`src/VoiceFlow/VoiceFlowTests/TranscriptModeTests.swift` 覆盖 compose 分隔规则、模式默认与 session 语义、Start 锁定、全链路 append/replace 合并、流式快照只动块区、陈旧帧忽略、失败 settle（有/无可见 partial）、resend 替换尾段/失败恢复/边界丢失退化、垃圾桶 + 空视图恢复。
 

@@ -4,7 +4,7 @@
 //
 //  Covers the append transcript mode: the document + pending-chunk model,
 //  the mode switch, the trash button (clear-to-history), and the failure
-//  settlement rules. See docs/append_transcript_design.md.
+//  settlement rules. See docs/rfc.md「追加转写模式」.
 //
 
 import Foundation

@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (Append 模式 UI 细化 + 设计稿并入)
+
+- 模式开关从 ⋯ 菜单的 checkmark 双行改为 **segmented 开关**（Section 标题改「Transcript Mode / 转写模式」）：用户实测反馈两行打勾读不出当前模式在哪个位置，segmented 选中段高亮一眼可读。开关仍只在 ⋯ 菜单里，主屏不放常驻标签（用户明确确认默认不在屏幕上）。
+- 左右箭头改为模式感知：append 模式 = 撤销/重做回旋箭头（`arrow.uturn.backward/forward`）+ Undo / Redo 标签，replace 模式保持 chevron + History；accessibility identifier 不变（UI test 引用）。新增本地化 key `record.undo` / `record.redo`（en + zh-Hans）。
+- 设计稿 `docs/append_transcript_design.md` 内容确认全部实现（含复审修复），核心内容已并入 `docs/prd.md` 与 `docs/rfc.md` 对应章节，设计稿删除；PRD/RFC 同步记录本次两处 UI 细化（segmented 开关、模式感知箭头）。
+- 验证：`./scripts/test_unit.sh` 全绿（144 项）。UI test 本轮未跑（本机 UI test 执行过慢，原因待调研）。
+
 ### 2026-09-29 (追加转写模式 / Append Transcript Mode)
 
 - 转写区新增 Append 模式：识别结果接到现有文本下方累积成文档，不再覆盖。设计稿 `docs/append_transcript_design.md`（本次随实现定稿提交），产品行为进 `docs/prd.md`「追加转写模式」节，状态机与实现进 `docs/rfc.md` 同名片节。
