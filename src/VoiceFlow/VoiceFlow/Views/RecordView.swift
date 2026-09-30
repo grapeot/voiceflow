@@ -58,6 +58,10 @@ struct RecordView: View {
             .animation(.easeInOut(duration: 0.3), value: isEditingTranscript)
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Tapping anywhere outside the transcript editor dismisses the
+        // keyboard (the editor keeps focus for taps inside it). Without
+        // this the keyboard had no way to go down on the Record screen.
+        .dismissKeyboardOnTapOutsideTextInputs()
         #if os(visionOS)
         .frame(minWidth: 400, idealWidth: 600, maxWidth: 800,
                minHeight: 400, idealHeight: 1000, maxHeight: 1500)
