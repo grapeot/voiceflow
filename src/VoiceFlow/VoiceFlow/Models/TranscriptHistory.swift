@@ -31,12 +31,29 @@ struct TranscriptHistory: Equatable {
         !entries.isEmpty && currentIndex < entries.count - 1
     }
 
+    var isEmpty: Bool {
+        entries.isEmpty
+    }
+
+    /// The entry the view is currently "at" (index `currentIndex`).
+    /// Used to restore the transcript when the view has been cleared
+    /// (trash button or manual delete) and the left chevron should bring
+    /// the most recently viewed entry back.
+    var currentEntry: String? {
+        guard entries.indices.contains(currentIndex) else { return nil }
+        return entries[currentIndex].text
+    }
+
     mutating func add(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        entries.removeAll { $0.text == trimmed }
-        entries.insert(TranscriptEntry(text: trimmed), at: 0)
+        // Store the text verbatim: the trash button makes history the
+        // undo target, so a restored entry must be byte-identical to what
+        // the user had (trailing newlines included). Trimming is used only
+        // for the emptiness check and for dedup.
+        entries.removeAll { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }
+        entries.insert(TranscriptEntry(text: text), at: 0)
         if entries.count > limit {
             entries = Array(entries.prefix(limit))
         }

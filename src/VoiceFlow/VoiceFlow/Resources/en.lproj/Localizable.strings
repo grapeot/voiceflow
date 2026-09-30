@@ -10,6 +10,10 @@
 "record.history" = "History";
 "record.saveRecording" = "Save Recording";
 "record.resendRecording" = "Resend Recording";
+"record.transcriptMode.title" = "Transcript";
+"record.transcriptMode.replace" = "Replace";
+"record.transcriptMode.append" = "Append";
+"record.clear" = "Clear Transcript";
 "record.save.confirmation.title" = "Recording Saved";
 "record.save.confirmation.message" = "Saved as %@.\n\nOpen the Files app and go to On My iPhone → VoiceFlow to find your saved recordings.";
 "record.save.statusLine" = "Saved %@. Files → On My iPhone → VoiceFlow.";

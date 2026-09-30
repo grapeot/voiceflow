@@ -52,7 +52,16 @@ final class AppState: ObservableObject {
     @Published var selectedTab: AppTab = .record
     @Published private(set) var pendingDeepLinkStartRecording = false
     @Published var recordErrorAlertKey: String?
-    @Published var transcript: String = ""
+    @Published var transcript: String = "" {
+        didSet {
+            // Any write that is not immediately followed by a merge updating
+            // `lastChunkLength` (user edits, navigation, custom action
+            // results, clears) means the tracked last-chunk boundary no
+            // longer matches the displayed text. Resends then fall back to
+            // end-append instead of replacing a chunk they cannot locate.
+            lastChunkLength = nil
+        }
+    }
     @Published var transcriptHistory = TranscriptHistory()
     @Published var hasSavedAIBuilderToken = false
     @Published var openCodeServerURL: String {
@@ -166,6 +175,42 @@ final class AppState: ObservableObject {
     @Published var transcriptionStrategy: VoiceFlowRecordingStrategy {
         didSet { UserDefaults.standard.set(transcriptionStrategy.rawValue, forKey: Self.transcriptionStrategyDefaultsKey) }
     }
+    /// How finished transcriptions combine with existing text. Session
+    /// scoped: in-memory only, defaults back to `.replace` on relaunch.
+    /// Toggled from the Record screen ⋯ menu, not Settings.
+    @Published var transcriptMode: TranscriptMode = .replace
+
+    // MARK: - In-flight transcription chunk (two-layer transcript model)
+
+    /// The frozen base the in-flight chunk composes onto. Empty for the
+    /// replace mode and for append recordings that start from an empty
+    /// transcript; otherwise the document (new recording) or the document
+    /// minus its last chunk (resend).
+    internal var composeBase: String = ""
+    /// True while a transcription chunk (live or finalize) is being built.
+    internal var chunkInFlight: Bool = false
+    /// Character count of the last merged chunk, so a resend can replace
+    /// exactly that tail instead of appending a duplicate. Invalidated by
+    /// any transcript write that is not a merge (see `transcript.didSet`).
+    internal var lastChunkLength: Int?
+    /// Append mode: the transcript as displayed when a resend started.
+    /// Restored if the re-transcription fails so the pre-resend document
+    /// (including its old last chunk) is never lost to a partial re-write.
+    internal var preResendDocument: String?
+    /// Append mode: `lastChunkLength` as of the resend start. Restoring the
+    /// pre-resend document would otherwise invalidate the chunk boundary
+    /// (via `transcript.didSet`) and the next resend would append a
+    /// duplicate tail instead of replacing it.
+    internal var preResendChunkLength: Int?
+    /// The mode captured when the current recording started. The ⋯ menu
+    /// is locked during recording, so this equals `transcriptMode` for the
+    /// whole recording; resends re-capture it at resend start.
+    internal var activeTranscriptMode: TranscriptMode = .replace
+    /// Monotonic identity of the live event consumer. Events that reach the
+    /// main actor from a superseded (cancelled) session carry an older
+    /// generation and are dropped, preventing stale snapshots from
+    /// composing onto a newer recording's chunk.
+    internal var liveSessionGeneration: Int = 0
 
     // MARK: - Local ASR (on-device Qwen3-ASR)
 
@@ -436,6 +481,13 @@ final class AppState: ObservableObject {
         transcriptionPrompt = ""
         transcriptionTerms = ""
         transcriptionStrategy = .gptLiveTranscribe
+        transcriptMode = .replace
+        activeTranscriptMode = .replace
+        composeBase = ""
+        chunkInFlight = false
+        lastChunkLength = nil
+        preResendDocument = nil
+        preResendChunkLength = nil
         customActionConfig = .default
         customActionState = .idle
         customActionSourceSnapshot = nil
@@ -469,6 +521,10 @@ final class AppState: ObservableObject {
         if arguments.contains("-uiTestOpenCodeConnectionFailure") {
             openCodeConnectionStatus = .untested
         }
+        if arguments.contains("-uiTestTranscriptModeAppend") {
+            transcriptMode = .append
+            activeTranscriptMode = .append
+        }
     }
 
     var canCopyTranscript: Bool {
@@ -489,12 +545,47 @@ final class AppState: ObservableObject {
             && !customActionState.isRunning
     }
 
+    /// Left chevron is also the undo for a cleared view: when the
+    /// transcript is empty but history holds entries, the previous step
+    /// restores the entry the view is currently at instead of stepping
+    /// further back.
     var canNavigatePreviousTranscript: Bool {
-        canNavigateTranscriptHistory && transcriptHistory.hasPrevious
+        guard canNavigateTranscriptHistory else { return false }
+        if transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return !transcriptHistory.isEmpty
+        }
+        return transcriptHistory.hasPrevious
     }
 
     var canNavigateNextTranscript: Bool {
         canNavigateTranscriptHistory && transcriptHistory.hasNext
+    }
+
+    /// Mode switching is allowed outside of a recording (the mode is
+    /// captured when a recording starts) and while the custom action is
+    /// not running.
+    var canChangeTranscriptMode: Bool {
+        (recordingStatus == .idle || recordingStatus == .ready)
+            && !customActionState.isRunning
+    }
+
+    /// Trash button: archive the current transcript to history and clear
+    /// the transcript area. Available in both modes, only when the view
+    /// is settled (nothing in flight) and there is something to archive.
+    var canClearTranscript: Bool {
+        canCopyTranscript
+            && (recordingStatus == .idle || recordingStatus == .ready)
+            && !customActionState.isRunning
+            && !chunkInFlight
+    }
+
+    /// The transcript editor is locked while an append-mode chunk composes
+    /// onto a non-empty document: user edits there could not be re-split
+    /// into "document + chunk", and the next stream snapshot would clobber
+    /// them. Replace mode (or an append recording started from an empty
+    /// transcript) keeps the historical editable-during-stream behavior.
+    var isTranscriptChunkLocked: Bool {
+        chunkInFlight && !composeBase.isEmpty
     }
 
     // Rescue affordance: saving the already-recorded audio must stay available
@@ -563,7 +654,17 @@ final class AppState: ObservableObject {
         }
 
         do {
-            transcript = ""
+            // Replace mode starts a fresh page; append mode keeps the
+            // document and freezes it as the base the new chunk composes
+            // onto (stream snapshots only ever replace the chunk, never
+            // the document).
+            activeTranscriptMode = transcriptMode
+            composeBase = activeTranscriptMode == .append ? transcript : ""
+            if activeTranscriptMode == .replace {
+                transcript = ""
+            }
+            preResendDocument = nil
+            preResendChunkLength = nil
             userEditedTranscriptDuringStream = false
             lastClipboardStatusKey = nil
             clearStreamCaptions()
@@ -594,11 +695,14 @@ final class AppState: ObservableObject {
             resetRecordingTimer()
             startRecordingTimer()
             recordingStatus = .recording
+            chunkInFlight = true
             setScreenIdleTimer(disabled: true)
             startSignalBannerGraceTimer()
         } catch {
             await cancelCapturedPCMConsumer()
             await cancelLiveTranscriptionSession()
+            composeBase = ""
+            chunkInFlight = false
             recordDiagnostic("recording_start_failed", metadata: diagnosticMetadata(for: error))
             resetRecordingTimer()
             presentRecordError("record.error.recordingFailed")
@@ -612,7 +716,14 @@ final class AppState: ObservableObject {
     func stopRecording() async {
         guard recordingStatus == .recording else { return }
         guard let attemptID = beginTranscriptionAttempt() else { return }
-        defer { finishTranscriptionAttempt(attemptID) }
+        defer {
+            finishTranscriptionAttempt(attemptID)
+            // Terminal failure exits (recorder stop failure, attempt
+            // stolen, empty audio, signal tier failure, persistence
+            // failure) all fall through here. The success funnel clears
+            // `chunkInFlight` first, making this a no-op on success.
+            settleFailedChunk()
+        }
         stopRecordingTimer()
         cancelSignalBannerGraceTimer()
         setScreenIdleTimer(disabled: false)
@@ -670,6 +781,13 @@ final class AppState: ObservableObject {
         do {
             lastRecordingURL = try persistLastRecording(from: audioURL)
             lastRecordingStrategy = strategy
+            // The resend target is now THIS recording. Any last-chunk
+            // boundary from a previous recording no longer describes the
+            // resendable audio; invalidate it so a later resend cannot
+            // replace the tail of an older, already-merged chunk. The
+            // success merge (or the failure settle with a visible partial)
+            // re-establishes the boundary attributed to this audio.
+            lastChunkLength = nil
         } catch {
             try? FileManager.default.removeItem(at: audioURL)
             await cancelLiveTranscriptionSession()
@@ -731,11 +849,13 @@ final class AppState: ObservableObject {
                 await cancelCapturedPCMConsumer()
                 await cancelLiveTranscriptionSession()
                 recordDiagnostic("recording_resend_stop_failed", metadata: diagnosticMetadata(for: error))
+                settleFailedChunk()
                 presentRecordError("record.error.transcriptionFailed")
                 return
             }
             guard ownsTranscriptionAttempt(attemptID) else {
                 try? FileManager.default.removeItem(at: audioURL)
+                settleFailedChunk()
                 return
             }
 
@@ -744,6 +864,7 @@ final class AppState: ObservableObject {
                 try? FileManager.default.removeItem(at: audioURL)
                 await cancelLiveTranscriptionSession()
                 recordDiagnostic("recording_resend_audio_file_empty")
+                settleFailedChunk()
                 presentRecordError("record.error.transcriptionFailed")
                 return
             }
@@ -751,30 +872,78 @@ final class AppState: ObservableObject {
             do {
                 lastRecordingURL = try persistLastRecording(from: audioURL)
                 lastRecordingStrategy = activeRecordingStrategy
+                // Same rule as the fresh-stop path: the resend target is now
+                // this audio, so an older merged-chunk boundary no longer
+                // describes it.
+                lastChunkLength = nil
             } catch {
                 try? FileManager.default.removeItem(at: audioURL)
                 await cancelLiveTranscriptionSession()
                 recordDiagnostic("recording_resend_persist_failed", metadata: diagnosticMetadata(for: error))
+                settleFailedChunk()
                 presentRecordError("record.error.transcriptionFailed")
                 return
             }
             try? FileManager.default.removeItem(at: audioURL)
             await cancelLiveTranscriptionSession()
-            guard ownsTranscriptionAttempt(attemptID) else { return }
+            guard ownsTranscriptionAttempt(attemptID) else {
+                settleFailedChunk()
+                return
+            }
         } else {
             // Rescue path: transcription is stuck (e.g. a hung live WebSocket
             // session that never returned). Force-close any active session so we
             // start the re-transcription from a clean state instead of layering
             // on top of the stalled one.
             await cancelLiveTranscriptionSession()
-            guard ownsTranscriptionAttempt(attemptID) else { return }
+            guard ownsTranscriptionAttempt(attemptID) else {
+                settleFailedChunk()
+                return
+            }
         }
+
+        // Chunk composition for the re-transcription.
+        //
+        // Fresh resend (idle/ready): the new chunk replaces the previously
+        // merged chunk, so the base is the document minus its last chunk
+        // (boundary from `lastChunkLength`; when unknown, fall back to
+        // end-append rather than clobbering the document). The restored
+        // boundary on failure is the merged one — the pre-resend document's
+        // tail.
+        //
+        // Resend during an active recording (or a stuck finalize): the live
+        // chunk is still in flight with its own `composeBase`; the
+        // re-transcription replaces that same chunk region. The pre-resend
+        // document's tail is the visible live chunk, so its length is the
+        // boundary a failure restore must remember (a merged boundary from
+        // an older recording would point into the live chunk).
+        activeTranscriptMode = transcriptMode
+        if activeTranscriptMode == .append {
+            preResendDocument = transcript
+            let visible = chunkInFlight ? visibleChunkText() : ""
+            preResendChunkLength = visible.isEmpty ? (chunkInFlight ? nil : lastChunkLength) : visible.count
+            if !chunkInFlight {
+                composeBase = resendComposeBase()
+            }
+        } else {
+            preResendDocument = nil
+            preResendChunkLength = nil
+            if !chunkInFlight {
+                composeBase = ""
+            }
+        }
+        chunkInFlight = true
 
         if let bulkText = await finishTranscriptionFromLastRecording(
             attemptID: attemptID,
             presentErrorOnFailure: true
         ) {
             completeStopTranscriptionSuccess(text: bulkText, mode: "resend", attemptID: attemptID)
+        } else {
+            // Re-transcription failed: restore exactly what the user saw
+            // before the resend (append), or keep the last partial
+            // (replace, historical behavior).
+            settleFailedResend()
         }
     }
 

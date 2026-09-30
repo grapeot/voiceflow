@@ -161,14 +161,23 @@ extension AppState {
     /// is cold; iteration starts here and runs until the session is
     /// torn down (commit / cancel / error). Cancelling
     /// `liveEventConsumerTask` is how we unsubscribe.
+    ///
+    /// Each consumer carries the generation of the session it was started
+    /// for; an event whose hop onto the main actor lands after a newer
+    /// session has started is dropped, so a stale snapshot from a cancelled
+    /// session can never compose onto the in-flight chunk of a new
+    /// recording.
     func startLiveEventConsumer(for session: VoiceFlowSession) {
         liveEventConsumerTask?.cancel()
+        liveSessionGeneration &+= 1
+        let generation = liveSessionGeneration
         liveEventConsumerTask = Task { [weak self] in
             let events = await session.events
             for await event in events {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self?.handleStreamEvent(event)
+                    guard let self, self.liveSessionGeneration == generation else { return }
+                    self.handleStreamEvent(event)
                 }
             }
         }
@@ -254,22 +263,41 @@ extension AppState {
     /// Apply a streamed transcript value to `transcript` in a way that avoids
     /// the per-partial flash the public app used to show.
     ///
-    /// Streaming hands us the *whole* transcript so far on every partial.
+    /// Streaming hands us the *whole* in-flight chunk on every partial.
     /// Assigning a brand-new String to the `@Published` that `TextEditor` binds
     /// to makes UITextView treat it as a fresh value and reset its contents
     /// (and selection/scroll) — that reset is the flicker. The private app
     /// avoids it by appending, which keeps the existing prefix identical.
     ///
-    /// So: if the new value just extends what's already there, only append the
-    /// delta; if it diverges, replace; if it's unchanged, skip the write
-    /// entirely (a no-op assignment still churns the binding).
+    /// The snapshot only ever describes the current chunk, so it is composed
+    /// onto the frozen `composeBase` before touching the transcript: in the
+    /// replace mode the base is empty (historical behavior), in the append
+    /// mode the document prefix stays intact under live updates.
+    ///
+    /// So: if the composed value just extends what's already there, only
+    /// append the delta; if it is a shortened correction, replace the tail;
+    /// if it diverges, replace; if it's unchanged, skip the write entirely
+    /// (a no-op assignment still churns the binding).
     func applyStreamedTranscript(_ content: String) {
-        if content == transcript { return }
-        if content.hasPrefix(transcript) {
-            transcript.append(contentsOf: content.dropFirst(transcript.count))
+        guard chunkInFlight, !content.isEmpty else { return }
+        let composed = Self.composeTranscript(base: composeBase, chunk: content)
+        if composed == transcript { return }
+        if composed.hasPrefix(transcript) {
+            transcript.append(contentsOf: composed.dropFirst(transcript.count))
+        } else if transcript.hasPrefix(composed) {
+            transcript.removeLast(transcript.count - composed.count)
         } else {
-            transcript = content
+            transcript = composed
         }
+    }
+
+    /// Compose a chunk onto its base with a single line separator. An empty
+    /// chunk composes to the base unchanged; an empty base composes to the
+    /// chunk unchanged.
+    static func composeTranscript(base: String, chunk: String) -> String {
+        guard !chunk.isEmpty else { return base }
+        if base.isEmpty { return chunk }
+        return base.hasSuffix("\n") ? base + chunk : base + "\n" + chunk
     }
 
     func handleStreamEvent(_ event: VoiceFlowEvent) {
@@ -602,20 +630,128 @@ extension AppState {
     func completeStopTranscriptionSuccess(text: String, mode: String, attemptID: UUID) {
         guard ownsTranscriptionAttempt(attemptID) else { return }
         recordErrorAlertKey = nil
-        transcript = text
+        // Replace mode: the result becomes the whole transcript (and the
+        // history entry). Append mode: the result is merged below the
+        // frozen document base; the committed entry is the whole document,
+        // so history snapshots and the clipboard auto-copy both operate
+        // on the full text without special casing.
+        let committed: String
+        if activeTranscriptMode == .append {
+            committed = mergeChunkIntoTranscript(chunk: text)
+        } else {
+            transcript = text
+            // The whole page is this recording's result: remember its
+            // length so a resend (even after switching to append mode)
+            // replaces it instead of composing below the old text.
+            lastChunkLength = text.count
+            composeBase = ""
+            chunkInFlight = false
+            preResendDocument = nil
+            committed = text
+        }
         openCodeSendStatus = .idle
         streamConnectionPhase = .disconnected
         clearStreamCaptions()
         recordDiagnostic("transcription_succeeded", metadata: ["characterCount": "\(text.count)", "mode": mode])
-        transcriptHistory.add(text)
+        transcriptHistory.add(committed)
         copyTranscript()
         recordingStatus = .ready
     }
 
     private func completeStopTranscriptionFailure(reason: String, attemptID: UUID) {
         guard ownsTranscriptionAttempt(attemptID) else { return }
+        // Terminal failure: keep the partial text the user already saw
+        // (append folds it into the document; replace leaves the view as
+        // is) and unlock the editor.
+        settleFailedChunk()
         recordDiagnostic("transcription_stop_failed", metadata: ["reason": reason])
         presentRecordError("record.error.transcriptionFailed")
+    }
+
+    /// Merge the finalized chunk into the document, remember its length so
+    /// a resend can replace exactly that tail, and clear the chunk state.
+    /// Returns the merged document.
+    private func mergeChunkIntoTranscript(chunk: String) -> String {
+        let merged = Self.composeTranscript(base: composeBase, chunk: chunk)
+        transcript = merged
+        lastChunkLength = chunk.count
+        composeBase = ""
+        chunkInFlight = false
+        preResendDocument = nil
+        preResendChunkLength = nil
+        return merged
+    }
+
+    /// Terminal failure while a chunk is in flight: keep the partial text
+    /// the user already saw, then clear the chunk state so the editor
+    /// unlocks. Idempotent: a second call while no chunk is in flight is a
+    /// no-op.
+    ///
+    /// No transcript rewrite is needed: every chunk write composes onto
+    /// `composeBase`, so the displayed text is already the base with the
+    /// visible chunk attached. Settling just finalizes that split — the
+    /// visible chunk (if any) becomes the document's last chunk, so a
+    /// later resend replaces it instead of duplicating it.
+    internal func settleFailedChunk() {
+        guard chunkInFlight else { return }
+        let visible = visibleChunkText()
+        if !visible.isEmpty {
+            lastChunkLength = visible.count
+        }
+        // Empty visible chunk: the document is unchanged, so the previous
+        // chunk boundary (if any) is still valid.
+        composeBase = ""
+        chunkInFlight = false
+        preResendDocument = nil
+        preResendChunkLength = nil
+    }
+
+    /// The visible in-flight chunk as currently displayed: the transcript
+    /// minus the frozen base, without the composing separator. The
+    /// separator is stripped only when `composeTranscript` actually inserted
+    /// one (a base that already ends in a newline composes without a
+    /// separator, so a leading newline there belongs to the chunk itself).
+    /// Empty when no chunk is visible (or the transcript diverged from the
+    /// base, which the locked editor normally prevents).
+    internal func visibleChunkText() -> String {
+        guard !composeBase.isEmpty, transcript.hasPrefix(composeBase) else { return "" }
+        var visible = String(transcript.dropFirst(composeBase.count))
+        if !composeBase.hasSuffix("\n"), visible.hasPrefix("\n") {
+            visible.removeFirst()
+        }
+        return visible
+    }
+
+    /// Terminal failure after a resend's re-transcription failed: restore
+    /// exactly what the user saw before the resend (append mode) so the
+    /// old last chunk is not lost to a failed partial rewrite. Replace mode
+    /// keeps the last partial, matching the historical behavior.
+    internal func settleFailedResend() {
+        guard chunkInFlight else { return }
+        if activeTranscriptMode == .append, let document = preResendDocument {
+            transcript = document
+            // Restore the chunk boundary captured at resend start: the
+            // restore assignment just niled it out via `transcript.didSet`,
+            // and without it the next resend would append a duplicate tail.
+            lastChunkLength = preResendChunkLength
+        }
+        composeBase = ""
+        chunkInFlight = false
+        preResendDocument = nil
+        preResendChunkLength = nil
+    }
+
+    /// Base for a fresh resend in append mode: the document minus its last
+    /// merged chunk, so the re-transcription replaces that tail instead of
+    /// appending a duplicate. When the boundary is unknown (the user edited
+    /// the transcript after the merge invalidated `lastChunkLength`), fall
+    /// back to end-append rather than clobbering the document.
+    func resendComposeBase() -> String {
+        let current = transcript
+        guard let length = lastChunkLength, current.count >= length else {
+            return current
+        }
+        return String(current.dropLast(length))
     }
 
     func cancelLiveTranscriptionSession() async {

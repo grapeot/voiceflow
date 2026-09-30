@@ -21,10 +21,33 @@ extension AppState {
 
     func navigatePreviousTranscript() {
         guard canNavigateTranscriptHistory else { return }
+        // Empty-view restore: the transcript area was cleared (trash button
+        // or a manual select-all delete). Bring back the entry the cursor is
+        // currently at instead of stepping further into the past.
+        if transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let currentText = transcriptHistory.currentEntry {
+            transcript = currentText
+            openCodeSendStatus = .idle
+            lastClipboardStatusKey = nil
+            return
+        }
         guard let previousText = transcriptHistory.navigatePrevious() else { return }
         transcript = previousText
         openCodeSendStatus = .idle
         lastClipboardStatusKey = nil
+    }
+
+    /// Trash button: archive the current transcript into history and clear
+    /// the transcript area. Available in both modes; the left chevron
+    /// restores the just-archived entry (empty-view restore rule), so no
+    /// confirmation dialog is needed.
+    func clearTranscriptToHistory() {
+        guard canClearTranscript else { return }
+        transcriptHistory.add(transcript)
+        transcript = ""
+        openCodeSendStatus = .idle
+        lastClipboardStatusKey = nil
+        recordDiagnostic("transcript_cleared_to_history", metadata: ["characterCount": "\(transcriptHistory.currentEntry?.count ?? 0)"])
     }
 
     func navigateNextTranscript() {

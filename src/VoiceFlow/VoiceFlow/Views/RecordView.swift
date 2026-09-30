@@ -145,7 +145,7 @@ struct RecordView: View {
             TranscriptEditor(
                 text: $appState.transcript,
                 placeholder: localized("record.transcript.placeholder"),
-                isLocked: appState.customActionState.isRunning,
+                isLocked: appState.customActionState.isRunning || appState.isTranscriptChunkLocked,
                 isEditing: $isEditingTranscript
             )
 
@@ -163,6 +163,7 @@ struct RecordView: View {
             HStack {
                 customActionButton
                 Spacer()
+                trashButton
                 copyButton
             }
             if case .failed(let messageKey) = appState.customActionState {
@@ -241,6 +242,25 @@ struct RecordView: View {
         .accessibilityLabel(Text(localized("record.copy")))
     }
 
+    /// Trash: archive the current transcript into history and clear the
+    /// transcript area. Works in both modes; the left chevron restores the
+    /// just-archived entry, so no confirmation dialog is needed.
+    private var trashButton: some View {
+        Button {
+            appState.clearTranscriptToHistory()
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: DesignTokens.Sizing.ghostIcon, weight: .regular))
+                .frame(width: 44, height: 44)
+                .foregroundStyle(DesignTokens.Palette.textSecondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!appState.canClearTranscript)
+        .accessibilityIdentifier("record.clearTranscriptButton")
+        .accessibilityLabel(Text(localized("record.clear")))
+    }
+
     private var primaryAction: some View {
         CapsuleButton(
             title: LocalizedStringKey(appState.canStopRecording ? "record.stop" : "record.start"),
@@ -262,6 +282,8 @@ struct RecordView: View {
             .accessibilityIdentifier("record.historyPreviousButton")
 
             Menu {
+                transcriptModeMenuSection
+
                 Button(action: { Task { await appState.sendTranscriptToOpenCode() } }) {
                     Label {
                         Text(openCodeMenuLabel)
@@ -310,6 +332,42 @@ struct RecordView: View {
             )
             .accessibilityIdentifier("record.historyNextButton")
         }
+    }
+
+    /// Session-scoped transcript mode switch. Disabled while a recording is
+    /// in flight: the mode is captured when the recording starts, so
+    /// switching mid-recording would not affect the in-flight chunk anyway.
+    private var transcriptModeMenuSection: some View {
+        Section {
+            ForEach(TranscriptMode.allCases, id: \.self) { mode in
+                Button {
+                    appState.transcriptMode = mode
+                } label: {
+                    HStack {
+                        Label {
+                            Text(localized(transcriptModeLabelKey(for: mode)))
+                        } icon: {
+                            Image(systemName: mode == .replace ? "doc" : "doc.on.doc")
+                        }
+                        Spacer()
+                        if appState.transcriptMode == mode {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+                .disabled(!appState.canChangeTranscriptMode)
+                .accessibilityIdentifier(
+                    mode == .replace ? "record.transcriptModeReplaceButton" : "record.transcriptModeAppendButton"
+                )
+                .accessibilityLabel(Text(localized(transcriptModeLabelKey(for: mode))))
+            }
+        } header: {
+            Text(localized("record.transcriptMode.title"))
+        }
+    }
+
+    private func transcriptModeLabelKey(for mode: TranscriptMode) -> String {
+        mode == .replace ? "record.transcriptMode.replace" : "record.transcriptMode.append"
     }
 
     // MARK: - State derivations

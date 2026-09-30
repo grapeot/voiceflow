@@ -296,6 +296,35 @@ ready -> (start again) -> requestingPermission -> ...
 
 保存录音：`RecordingFileSaver` 保留源扩展名复制到 Documents，文件名为 `recording_yyyy-MM-dd_HH-mm-ss.wav|m4a`。`URLScheme.plist` 启用 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，使 Files → On My iPhone → VoiceFlow 可见。
 
+## 追加转写模式（2026-09-29）
+
+两层模型：转写区 = **文档（document）+ 待合并块（pending chunk）**。所有转写策略只写块，合并只有一个入口。模式与策略正交：delta 策略增量填块，batch 策略一次填块，合并、历史、剪贴板、失败语义同一条路径。
+
+**状态**（`AppState`，全部内存态）：
+
+- `transcriptMode`（`.replace` 默认 / `.append`）：session 级，不落 UserDefaults；⋯ 菜单切换，`canChangeTranscriptMode` 仅在 idle/ready 且 Custom Action 未运行时为真。
+- `activeTranscriptMode`：按 Start（或按 resend）时捕获，录音中切换不影响本次合并。
+- `composeBase`：块在飞时冻结的基座。replace 恒为空；append 新录音 = 整个文档，append 重发 = 文档去掉最后一段（`lastChunkLength` 边界；边界丢失时退化为末尾追加）。
+- `chunkInFlight`：块在飞标记。`applyStreamedTranscript` 以此为前置（结算后的陈旧帧一律忽略）。
+- `lastChunkLength`：最后一次并入的块长（Character 数），语义上**归属于当前可重发的录音**。`transcript.didSet` 一律将其置 nil（用户编辑/导航/清空后边界即失效）；写回点：append 合并（新块长）、replace 成功（整页 = 本次结果长，保证切到 append 后重发仍是整页替换）、settle 有可见 partial（partial 长）、resend 失败恢复（`preResendChunkLength`）。**每次新录音 persist 成功后置 nil**（stop 与录音中重发两处）：重发对象换成新音频后，旧边界不再描述可重发音频，防止重发裁掉上一段已并入的块。
+- `preResendDocument` / `preResendChunkLength`：append 重发前快照，重发失败时原样恢复（含边界，否则下一次重发会重复追加尾段）。
+
+**写入路径**：
+
+- `applyStreamedTranscript`：快照先 `composeTranscript(base:composeBase, chunk:)` 合成再套用原有 append-delta / 尾替换 / 整体替换 逻辑；空快照忽略；基座前缀任何时刻不被破坏。`composeTranscript` 分隔规则：空块=基座不变、空基座=块本身、否则补单个换行（基座已以换行结尾则不补）。
+- `completeStopTranscriptionSuccess`：按 `activeTranscriptMode` 分支——replace 整体赋值（原行为）；append 走 `mergeChunkIntoTranscript`（compose 合并 + 记 `lastChunkLength` + 清块状态）。历史 `add(committed)` 与剪贴板 `copyTranscript()` 统一作用于**整篇文档**，零特判。
+- 失败漏斗 `completeStopTranscriptionFailure`、`stopRecording` defer、resend 各早期出口调用 `settleFailedChunk()`：幂等（`chunkInFlight` 守卫）；因流式写入恒在基座上合成，settle **不改写 transcript**（可见 partial 原样保留即等于并入文档），只清块状态解锁编辑器，并把可见 partial 长度写入 `lastChunkLength`（空块则保留现状）。可见块由 `visibleChunkText()` 计算：去掉基座前缀后，仅当合成时确实插入过分隔符（基座不以换行结尾）才剥掉首个换行——基座已以换行结尾时块自身的首个换行是内容，不能剥。
+- resend 重转写失败走 `settleFailedResend()`：恢复 `preResendDocument` 与 `preResendChunkLength`（replace 模式保持旧行为：保留最后 partial）。`preResendChunkLength` 在重发开始时按场景捕获：idle/ready 重发 = 合并边界；录音中/卡死重发 = 当前可见 live 块长（恢复后的文档尾端是 live 块，旧合并边界会指进 live 块内部）。
+- 陈旧事件防护：`startLiveEventConsumer` 为每个消费者记 `liveSessionGeneration` 世代号，事件跳回主 actor 时世代不符即丢弃，取消的旧 session 的滞留快照不会合成到新录音的块上。
+
+**编辑器锁定**：`isTranscriptChunkLocked = chunkInFlight && composeBase 非空`，与 `customActionState.isRunning` 同走 `TranscriptEditor.isLocked`。replace 模式（或 append 从空文档开始）保持现状可编辑。
+
+**垃圾桶按钮**：`clearTranscriptToHistory()` = `transcriptHistory.add(transcript)` + 清空，`canClearTranscript`（非空 + idle/ready + 无 Custom Action + 无在飞块）。空视图恢复规则：transcript 为空且历史非空时，左箭头恢复 `currentEntry`（游标所在条目）而非继续后退；手动全选删除同样适用。`TranscriptHistory.add` 存**原文**（trim 只用于空判断与去重）：垃圾桶把历史变成撤销目标，恢复必须逐字节一致（含末尾换行）。
+
+**UI 入口**：⋯ 菜单顶部「Transcript」Section（Replace / Append + checkmark，录音中禁用）；工具条 Copy 左边 trash 幽灵按钮。本地化 key：`record.transcriptMode.title/.replace/.append`、`record.clear`（en + zh-Hans）。
+
+**测试**：`src/VoiceFlow/VoiceFlowTests/TranscriptModeTests.swift` 覆盖 compose 分隔规则、模式默认与 session 语义、Start 锁定、全链路 append/replace 合并、流式快照只动块区、陈旧帧忽略、失败 settle（有/无可见 partial）、resend 替换尾段/失败恢复/边界丢失退化、垃圾桶 + 空视图恢复。
+
 ## 录音诊断
 
 `RecordingDiagnostics`（OSLog 或可注入 mock）在 token、权限、录音启停、音频大小、转写、剪贴板、OpenCode、deep link 等节点记安全摘要。单元测试断言不含 token/transcript。
