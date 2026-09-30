@@ -10,6 +10,12 @@
 "record.history" = "历史";
 "record.saveRecording" = "保存录音";
 "record.resendRecording" = "重发录音";
+"record.transcriptMode.title" = "转写模式";
+"record.transcriptMode.replace" = "替换";
+"record.transcriptMode.append" = "追加";
+"record.undo" = "撤销";
+"record.redo" = "重做";
+"record.clear" = "清空转写";
 "record.save.confirmation.title" = "录音已保存";
 "record.save.confirmation.message" = "已保存为 %@。\n\n请打开「文件」app，进入「我的 iPhone」→「VoiceFlow」查看已保存的录音。";
 "record.save.statusLine" = "已保存 %@。「文件」→「我的 iPhone」→「VoiceFlow」。";

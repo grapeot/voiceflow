@@ -20,6 +20,41 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (Append 模式二轮复审修复：失败路径边界归属)
+
+- 二轮 gpt_6_sol 复审发现 2 个 MAJOR，均在失败路径的 `lastChunkLength` 边界归属上，已修复并各加回归测试（146 项全绿）：
+  - [MAJOR] **空基座首条录音失败后边界丢失**：`visibleChunkText()` 原实现遇空基座直接返回空串（append 从空文档开始 / replace 模式下整页即块区域），失败 settle 后 `lastChunkLength` 保持 nil，重发退化为末尾追加，把已上屏 partial 和新结果重复拼在一起。修复：空基座时可见块 = 整个 transcript；分隔符剥离条件补上「非空基座」（空基座 compose 本就不插分隔符）。
+  - [MAJOR] **persist 前失败把新录音 partial 的长度记到旧可重发音频上**：新录音在 stop/信号校验/持久化任一环节失败时（`lastRecordingURL` 未更新），defer 的 `settleFailedChunk()` 仍把可见 partial 长度写入 `lastChunkLength`，下一次对旧音频的重发会按该边界把文档尾部（= 这段不属于旧音频的 partial）裁掉。修复：新增 `chunkAudioIsResendTarget` 状态（start/在飞重发 stop 置 false，两处 persist 成功置 true），settle 仅在 true 时写边界，false 且有可见 partial 时置 nil（partial 保留在文档，重发退化为安全的末尾追加）。
+- 回归测试：`failedFinalizeFromEmptyDocumentRecordsBoundaryForResend`（空基座首条录音失败 → 重发替换 partial）、`failedStopBeforePersistInvalidatesBoundaryAndKeepsPartial`（有旧录音在档时 stop 失败 → 边界失效、partial 保留、重发末尾追加）；既有 `failedSettleKeepsBoundaryWhenBaseEndsInNewline` 补 `chunkAudioIsResendTarget = true`（直接调 settle 的单测需显式声明"音频已 persist"场景）。
+- `docs/rfc.md` 追加转写模式节同步：`chunkAudioIsResendTarget` 状态条目 + settle/`visibleChunkText` 语义更新。
+
+### 2026-09-29 (Append 模式 UI 细化 + 设计稿并入)
+
+- 模式开关从 ⋯ 菜单的 checkmark 双行改为 **segmented 开关**（Section 标题改「Transcript Mode / 转写模式」）：用户实测反馈两行打勾读不出当前模式在哪个位置，segmented 选中段高亮一眼可读。开关仍只在 ⋯ 菜单里，主屏不放常驻标签（用户明确确认默认不在屏幕上）。
+- 左右箭头改为模式感知：append 模式 = 撤销/重做回旋箭头（`arrow.uturn.backward/forward`）+ Undo / Redo 标签，replace 模式保持 chevron + History；accessibility identifier 不变（UI test 引用）。新增本地化 key `record.undo` / `record.redo`（en + zh-Hans）。
+- 设计稿 `docs/append_transcript_design.md` 内容确认全部实现（含复审修复），核心内容已并入 `docs/prd.md` 与 `docs/rfc.md` 对应章节，设计稿删除；PRD/RFC 同步记录本次两处 UI 细化（segmented 开关、模式感知箭头）。
+- 验证：`./scripts/test_unit.sh` 全绿（144 项）。UI test 本轮未跑（本机 UI test 执行过慢，原因待调研）。
+
+### 2026-09-29 (追加转写模式 / Append Transcript Mode)
+
+- 转写区新增 Append 模式：识别结果接到现有文本下方累积成文档，不再覆盖。设计稿 `docs/append_transcript_design.md`（本次随实现定稿提交），产品行为进 `docs/prd.md`「追加转写模式」节，状态机与实现进 `docs/rfc.md` 同名片节。
+- 核心是两层模型（文档 + 待合并块）：流式策略在 finalize 阶段推的是「本次录音累计文本」而非整个转写区，直接套用旧 `applyStreamedTranscript` 会走 replace 分支抹掉已有文档。故引入 `composeBase`（块在飞时冻结的基座）/ `chunkInFlight` / `lastChunkLength`，所有策略只写块，`completeStopTranscriptionSuccess` 按 `activeTranscriptMode` 分支合并；delta 与 batch 策略、四种录音策略全部走同一条合并路径。
+- 模式开关是 session 级：`transcriptMode` 内存态不落 UserDefaults，放 Record 屏 ⋯ 菜单（Replace / Append + checkmark），录音中禁用（模式按 Start 捕获）；默认 Replace，存量用户零行为变化。
+- 垃圾桶按钮（工具条 Copy 左边，两种模式可用）：`clearTranscriptToHistory()` = 当前内容 push 历史栈 + 清空；配套「空视图恢复规则」——transcript 为空且历史非空时左箭头恢复 `currentEntry` 而非继续后退（手动全选删除同样可找回）。
+- 历史语义：append 模式 `transcriptHistory.add(committed)` 存整篇文档快照（左右箭头 = 文档撤销/重做）；剪贴板自动复制、OpenCode 发送、Custom Action 统一作用于整篇文档，零特判（`committed` 在 append 下就是整篇）。
+- 失败语义：`settleFailedChunk()` 幂等结算——因流式写入恒在基座上合成，settle 不改写 transcript（可见 partial 原样保留即并入文档），只清块状态解锁编辑器并回填 `lastChunkLength`；resend 失败走 `settleFailedResend()` 恢复 `preResendDocument` + `preResendChunkLength`（否则 `transcript.didSet` 失效掉的边界会让下一次 resend 重复追加尾段）。resend（append）正常成功时替换最后一段（`lastChunkLength` 边界），边界丢失（用户编辑过）退化为末尾追加，不毁文档。
+- 编辑器锁定：`isTranscriptChunkLocked = chunkInFlight && composeBase 非空`，复用 `TranscriptEditor.isLocked`；replace 模式与 append 从空文档开始保持现状可编辑。
+- 改动面：`Models/TranscriptMode.swift`（新）、`Models/TranscriptHistory.swift`（`isEmpty`/`currentEntry`）、`AppState.swift`（状态字段、`transcript.didSet` 失效边界、start/stop/resend/reset/UI-test seed）、`AppState+LiveSession.swift`（compose 合成、合并分支、settle 三件套、`composeTranscript`）、`AppState+TranscriptHistory.swift`（垃圾桶 + 空视图恢复）、`Views/RecordView.swift`（⋯ 菜单模式项、trash 按钮、锁定）、en/zh-Hans 各 4 个 key、`TranscriptModeTests.swift`（新，17 项）。
+- 已知取舍：`test_unit.sh` 默认 `test-without-building` 会复用旧 build——新增测试文件后必须 `VOICEFLOW_TEST_REBUILD=1` 跑一次（脚本本身只在建失败时回退 rebuild）。
+- gpt_6_sol 复审后修复（2 MAJOR + 3 MINOR）：
+  - [MAJOR] 边界与录音归属：`lastChunkLength` 的语义是「当前可重发录音的最后一块」。新录音 persist 成功后（stop 与录音中重发两处）置 nil，防止空块失败后重发新录音时裁掉上一段已并入的块；replace 成功时记 `lastChunkLength = text.count`（整页即本次结果），否则切到 append 后重发会把旧文本整个保留再加新段。
+  - [MINOR] settle 分隔符剥离：`visibleChunkText()` 只在合成时确实插过分隔符（基座不以换行结尾）时才剥首个换行；基座已以换行结尾时块自身的首换行是内容。
+  - [MINOR] 重发失败的恢复边界：`preResendChunkLength` 按场景捕获——idle/ready 重发取合并边界，录音中/卡死重发取当前可见 live 块长（恢复后的文档尾端是 live 块，旧合并边界会指进 live 块内部）。
+  - [MINOR] `TranscriptHistory.add` 改存原文（trim 只用于空判断与去重）：垃圾桶把历史变成撤销目标，恢复须逐字节一致（含末尾换行）。
+  - [MINOR] 陈旧 session 事件防护：`startLiveEventConsumer` 记 `liveSessionGeneration` 世代号，跳回主 actor 时不符即丢弃，已取消 session 的滞留快照不会写进新录音的块。
+  - 行为变化备注（设计决定，非回归）：空流式快照从「清空转写区」改为「忽略」——空快照清空页面会毁掉用户编辑与文档前缀，属既有隐患修正；`setLiveResult` mock 方法随本变更新增（对齐 `setBulkResult`）。
+- 验证：`VOICEFLOW_TEST_REBUILD=1 ./scripts/test_unit.sh` 全绿（144 项，含既有 123 项回归 + 4 项复审回归测试）。
+
 ### 2026-09-29 (文档审阅清理)
 
 - 删除 `docs/local_asr_mvp.md`：过期提案（头部仍标"未进入实现"），功能本身 2026-08-14 已随 PR #71 产品化（Settings 第四档 Local · Qwen3-ASR 0.6B），2026-09-29 又随 PR #76 放开 visionOS；该文件从未提交进 git，删除不产生 git 变化。

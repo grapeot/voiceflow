@@ -1235,6 +1235,10 @@ final actor MockRealtimeTranscriptionClient: RealtimeTranscribing {
         bulkResult = result
     }
 
+    public func setLiveResult(_ result: Result<String, Error>) {
+        liveResult = result
+    }
+
     public var appendedChunkCount: Int {
         appendedChunkCountValue
     }

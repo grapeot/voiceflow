@@ -36,10 +36,12 @@ struct VoiceFlowTests {
 
     @Test func applyStreamedTranscriptAppendsAndReplacesWithoutChurn() async throws {
         let state = AppState()
+        state.chunkInFlight = true
 
-        // Streaming hands us the whole transcript each partial. When the new
-        // value extends the current one, we append only the delta (keeps the
-        // TextEditor's existing prefix stable → no UITextView reset → no flash).
+        // Streaming hands us the whole in-flight chunk each partial. When the
+        // new value extends the current one, we append only the delta (keeps
+        // the TextEditor's existing prefix stable → no UITextView reset → no
+        // flash). Replace mode: the compose base is empty.
         state.applyStreamedTranscript("Hello")
         #expect(state.transcript == "Hello")
         state.applyStreamedTranscript("Hello world")
@@ -57,9 +59,20 @@ struct VoiceFlowTests {
         state.applyStreamedTranscript("Completely different text")
         #expect(state.transcript == "Completely different text")
 
-        // Empty / shorter divergent value still replaces correctly.
+        // A shorter divergent value (correction) replaces the tail.
+        state.applyStreamedTranscript("Completely different")
+        #expect(state.transcript == "Completely different")
+
+        // An empty snapshot never touches the transcript: it would be a
+        // stale or silent-reading frame, and in append mode clobbering the
+        // document with "" would be destructive.
         state.applyStreamedTranscript("")
-        #expect(state.transcript.isEmpty)
+        #expect(state.transcript == "Completely different")
+
+        // Stale frames after the chunk settled are ignored entirely.
+        state.chunkInFlight = false
+        state.applyStreamedTranscript("Stale frame")
+        #expect(state.transcript == "Completely different")
     }
 
     @Test func recordingStatusIndicatorAccessibilityValues() async throws {
@@ -1158,6 +1171,9 @@ struct VoiceFlowTests {
         let state = AppState(clipboardWriter: MockClipboardWriter())
         state.activeRecordingStrategy = .gptLiveTranscribe
         state.recordingStatus = .recording
+        // A started recording always has a chunk in flight; stream
+        // snapshots are ignored once the chunk has settled.
+        state.chunkInFlight = true
 
         state.handleStreamEvent(.partialTranscript("The first "))
         state.handleStreamEvent(.partialTranscript("The first sentence."))
