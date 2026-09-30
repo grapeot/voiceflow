@@ -17,7 +17,7 @@ VoiceFlow 是面向 iOS 和 visionOS 的语音记录 app。仓库内容按可发
 - `src/VoiceFlow/VoiceFlow/`：App 源码
 - `src/VoiceFlow/VoiceFlowTests/`：单元测试
 - `src/VoiceFlow/VoiceFlowUITests/`：UI 测试
-- `scripts/`：`pin_simulator.sh`、`test_unit.sh`、`test_ui_smoke.sh`、`test_ui_full.sh`、`test_ui_perf.sh`、`test_all.sh`
+- `scripts/`：`pin_simulator.sh`、`test_unit.sh`、`test_ui_smoke.sh`、`test_ui_full.sh`、`test_ui_perf.sh`、`test_all.sh`。simulator pinning 带 preflight（15s 无响应探针 + 机器负载警告）；构建默认用 repo 本地 `.voiceflow/DerivedData`（隔离并发 xcodebuild 的 build 锁，可 `VOICEFLOW_DERIVED_DATA` 覆盖）。并发 Xcode 任务共用 pinned simulator 会把测试打到卡死（症状签名、排查与处理见 `docs/test.md`「UI 测试卡死 / 变慢排查」，并发环境用 `VOICEFLOW_TEST_DESTINATION` 指定专属设备）
 
 不要新建仓库根目录 `tests/`；测试只放在上述 Xcode target 中。
 

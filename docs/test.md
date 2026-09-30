@@ -39,9 +39,10 @@ VOICEFLOW_TEST_REBUILD=1 ./scripts/test_ui_smoke.sh
 
 `test_unit.sh`、`test_all.sh` 与各 `test_ui_*.sh` 会自动：
 
-1. 在本机 `.voiceflow/simulator-udid` 记录一台匹配的 iPhone 17 Pro（iOS 26.3.1）UDID
+1. 在本机 `.voiceflow/simulator-udid` 记录一台匹配的 iPhone 17 Pro（iOS 26.5）UDID
 2. 第一次运行时发现并 boot 这台 Simulator（较慢，正常）
 3. 后续运行复用同一 UDID 和已 boot 的 Simulator，优先 `test-without-building`；若无可用测试产物则自动 `build-for-testing` 后再测
+4. **preflight**（2026-09-29 起）：boot 后做 15s 有界的 `simctl io screenshot` 探针——simulator 无响应时 ~15s 快速失败并输出处理建议，而不是让 xcodebuild 挂 10 分钟；机器 1min load 超核数时打印警告（只警告不失败）
 
 手动预热（可选）：
 
@@ -53,12 +54,53 @@ VOICEFLOW_TEST_REBUILD=1 ./scripts/test_ui_smoke.sh
 
 ```bash
 export VOICEFLOW_SIMULATOR_NAME="iPhone 17 Pro"
-export VOICEFLOW_SIMULATOR_OS="26.3.1"
-export VOICEFLOW_TEST_DESTINATION="platform=iOS Simulator,id=<UDID>"  # 完全跳过 pinning
+export VOICEFLOW_SIMULATOR_OS="26.5"
+export VOICEFLOW_TEST_DESTINATION="platform=iOS Simulator,id=<UDID>"  # 完全跳过 pinning（并发 Xcode 环境下用于指定专属设备）
 export VOICEFLOW_TEST_REBUILD=1  # 强制先 build-for-testing 再测
 ```
 
+### UI 测试卡死 / 变慢排查（2026-09-29）
+
+**症状签名**（同时出现即按本节处理，**不要当成 app bug 去查代码**）：
+
+- 测试日志出现 `Restarting after unexpected exit, crash, or test timeout`
+- 随后 xcodebuild 长时间无输出，最终 `Failure collecting diagnostics from simulator: Timed out after 600.0 seconds`
+- 单次"失败"实际耗时 10 分钟以上
+
+**根因**：并发的 Xcode 任务（其他 repo 的 build/test）驱动**同一台** pinned simulator，把它打到卡死；xcodebuild 在失败后的诊断收集阶段会再等满 600s。机器高负载（load 超核数）放大一切延迟。已核实 warm `build-for-testing` 只需 5-15s——慢不在构建。
+
+**手动排查命令**：
+
+```bash
+uptime                                        # load 超核数 = 队列拥塞
+sysctl -n hw.ncpu
+xcrun simctl list devices booted              # 有几台在跑？
+time xcrun simctl io <UDID> screenshot /tmp/x.png   # >5s = simulator 卡了
+```
+
+**处理**（按优先级）：
+
+1. 停掉并行的 Xcode 任务，等 load 降下来再跑
+2. `xcrun simctl shutdown <UDID>` 后重跑脚本（脚本会重新 boot）
+3. 并发是常态的话，用 `VOICEFLOW_TEST_DESTINATION` 给 VoiceFlow 指定**专属设备**（一 repo 一 simulator，比如换一个 runtime 版本的同型号设备），与其他任务错开
+4. 看到 600s 诊断超时**直接 kill，不要等**
+
+**首跑预热**（新 checkout / 换 Xcode / 换 SDK 后的一次性成本：SPM 包重解析 + 冷编译）：先 `VOICEFLOW_TEST_REBUILD=1 ./scripts/test_ui_smoke.sh` 建一次，之后 `test-without-building` 复用构建，稳态 smoke ~50s / full ~200s。
+
 `.voiceflow/` 是本地状态目录，已 gitignore，不会进仓库。
+
+### Repo-local DerivedData（2026-09-29 起）
+
+所有 test 脚本默认用 **repo 本地** DerivedData（`.voiceflow/DerivedData`），不再用 Xcode 默认共享目录：
+
+- 并发的 xcodebuild 任务（其他 AI session、archive、其他 worktree）共享默认 DerivedData 时会抢 build 数据库锁，测试运行可能**静默排队几分钟**没有任何输出
+- repo 本地存储：本 repo 的 unit / UI / 手动 build 共享一份 warm 缓存，与其他一切隔离
+- 首次使用是冷构建（SPM 解析 + 全量编译，本机约 2-3 分钟），之后 warm（build 5-15s）
+- 覆盖：`export VOICEFLOW_DERIVED_DATA=<path>`（archive 等场景继续用独立目录，见 working.md 发布记录）
+- 构建出怪问题时的手动恢复：`rm -rf .voiceflow/DerivedData`（只付一次冷构建）
+- 从已有 warm 存储一次性迁移（clonefile，秒级、不占额外空间）：`cp -c -R <源 DerivedData>/. .voiceflow/DerivedData/`
+
+**长 xcodebuild 的日志纪律**：手动跑 build/test 时永远 `2>&1 | tee /tmp/xxx.log`，**不要用 `| tail` / `| rg` 吞掉进度**——xcodebuild 的失败诊断阶段（最长 600s）几乎不输出，管道吞掉后无法区分"在跑"还是"卡死"。中断命令后检查孤儿进程：`ps aux | rg "xcodebuild|simctl diagnose"`，`simctl diagnose --timeout=600` 会作为孤儿继续跑满 10 分钟，确认是自己的就 kill。
 
 ### 其他验收命令
 

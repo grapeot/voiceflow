@@ -5,6 +5,17 @@ voiceflow_xcodebuild_common_args() {
   VOICEFLOW_XCODE_SCHEME="${2:-VoiceFlow}"
   VOICEFLOW_XCODE_DESTINATION="$3"
   VOICEFLOW_XCODE_ONLY_TESTING=("${@:4}")
+
+  # Repo-local DerivedData: concurrent xcodebuild jobs (other AI sessions,
+  # archives, other worktrees) sharing Xcode's default DerivedData contend on
+  # its build database lock and can silently queue a test run for minutes. A
+  # repo-local store keeps all of this repo's unit/UI/manual builds on one
+  # warm cache while isolating them from everything else. The store is safe
+  # to delete (`rm -rf <path>`) at the cost of one cold rebuild.
+  # Override with VOICEFLOW_DERIVED_DATA.
+  local vf_root
+  vf_root="$(cd "$(dirname "$1")/../.." && pwd)"
+  VOICEFLOW_DERIVED_DATA="${VOICEFLOW_DERIVED_DATA:-$vf_root/.voiceflow/DerivedData}"
 }
 
 voiceflow_xcodebuild_run() {
@@ -16,6 +27,7 @@ voiceflow_xcodebuild_run() {
     -project "$VOICEFLOW_XCODE_PROJECT"
     -scheme "$VOICEFLOW_XCODE_SCHEME"
     -destination "$VOICEFLOW_XCODE_DESTINATION"
+    -derivedDataPath "$VOICEFLOW_DERIVED_DATA"
     CODE_SIGNING_ALLOWED=NO
     -parallel-testing-enabled
     NO
