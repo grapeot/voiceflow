@@ -20,6 +20,13 @@ Side-by-side of the two implementations (OpenCode reference: `opencode_ios_clien
 
 ## Changelog
 
+### 2026-09-29 (文档审阅清理)
+
+- 删除 `docs/local_asr_mvp.md`：过期提案（头部仍标"未进入实现"），功能本身 2026-08-14 已随 PR #71 产品化（Settings 第四档 Local · Qwen3-ASR 0.6B），2026-09-29 又随 PR #76 放开 visionOS；该文件从未提交进 git，删除不产生 git 变化。
+- `AGENTS.md` 目录结构补上 `docs/design.md`：现行视觉语言 spec 此前只在硬性规则 3 里被引用，按目录地图找文档会漏掉。
+- `docs/append_transcript_design.md` 是进行中的提案，有意保持未提交，本次不动，待拍板。
+- 纯文档变更，无代码改动。
+
 ### 2026-09-29 (visionOS 放弃 1.0 支持，FluidAudio 走 fork)
 
 - visionOS build 失败的根因不在自家代码：FluidAudio 0.15.0（本地 ASR）的 `Package.swift` 只声明 macOS 14 / iOS 17，未声明 visionOS，SwiftPM 按默认 floor（visionOS 1.0）编译它，其 streaming ASR 用的 Core ML API（`MLState` / `makeState()` / `stateDescriptionsByName`，visionOS 2.0+）没有 `#available` 保护，直接编译报错。
